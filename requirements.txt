@@ -1,0 +1,17 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic-settings>=2.6.0
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+alembic>=1.13.0
+motor>=3.4.0
+redis[asyncio]>=5.0.0
+msal>=1.29.0
+httpx>=0.25.0
+apscheduler>=3.10.0
+azure-keyvault-secrets>=4.7.0
+azure-identity>=1.15.0
+openai>=1.50.0
+cryptography>=41.0.0
+python-multipart>=0.0.7
+tzdata>=2024.1
