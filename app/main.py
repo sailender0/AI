@@ -15,6 +15,8 @@ from app.storage.redis_client import close_redis
 
 from app.auth.sso import router as sso_router
 from app.auth.oauth import router as oauth_router
+from app.auth.github_app import router as github_app_router
+from app.routes.dashboard import router as dashboard_router
 from app.webhooks.receivers.teams import router as teams_router
 from app.webhooks.receivers.github import router as github_router
 from app.webhooks.receivers.gitlab import router as gitlab_router
@@ -65,19 +67,15 @@ app = FastAPI(
     swagger_ui_parameters={"withCredentials": True},
 )
 
+app.include_router(dashboard_router)
 app.include_router(sso_router)
 app.include_router(oauth_router)
+app.include_router(github_app_router)
 app.include_router(teams_router)
 app.include_router(github_router)
 app.include_router(gitlab_router)
 app.include_router(jira_router)
 app.include_router(query_router)
-
-
-@app.get("/")
-async def root():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")

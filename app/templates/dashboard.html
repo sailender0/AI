@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Developer Activity Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-sm font-bold">DA</div>
+      <span class="font-semibold text-lg">Developer Activity Tracker</span>
+    </div>
+    <div id="user-info" class="flex items-center gap-4 text-sm text-gray-400">
+      <span id="user-email"></span>
+      <a href="/auth/login" id="login-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-md transition">Sign in</a>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-8 space-y-8">
+
+    <!-- Not logged in banner -->
+    <div id="not-logged-in" class="hidden bg-gray-900 border border-gray-700 rounded-xl p-6 text-center">
+      <p class="text-gray-400 mb-4">Sign in with your Microsoft account to get started.</p>
+      <a href="/auth/login" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-md transition">Sign in with Microsoft</a>
+    </div>
+
+    <!-- Main content (shown when logged in) -->
+    <div id="main-content" class="hidden space-y-8">
+
+      <!-- Integrations -->
+      <section>
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Integrations</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="integrations-grid">
+          <!-- filled by JS -->
+        </div>
+      </section>
+
+      <!-- Query -->
+      <section class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Ask about your work</h2>
+        <div class="flex gap-3">
+          <input
+            id="query-input"
+            type="text"
+            placeholder="e.g. what did I push today? how many PRs this week?"
+            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 placeholder-gray-500"
+          />
+          <button
+            onclick="runQuery()"
+            class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition"
+          >Ask</button>
+        </div>
+        <div id="query-suggestions" class="flex flex-wrap gap-2 mt-3">
+          {% for q in ["what did I work on today?", "recent commits", "any PRs this week?", "issues updated today"] %}
+          <button onclick="setQuery('{{ q }}')" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 px-3 py-1 rounded-full transition">{{ q }}</button>
+          {% endfor %}
+        </div>
+        <div id="query-result" class="hidden mt-4 p-4 bg-gray-800 rounded-lg text-sm text-gray-200 leading-relaxed"></div>
+        <div id="query-loading" class="hidden mt-4 flex items-center gap-2 text-sm text-gray-400">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+          Thinking...
+        </div>
+      </section>
+
+      <!-- Recent Activity -->
+      <section>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Recent Activity</h2>
+          <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300 transition">Refresh</button>
+        </div>
+        <div id="events-list" class="space-y-2">
+          <p class="text-gray-500 text-sm">Loading...</p>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    const SOURCE_COLORS = {
+      github: 'bg-gray-700 text-gray-200',
+      gitlab: 'bg-orange-900 text-orange-200',
+      jira: 'bg-blue-900 text-blue-200',
+      teams_subscription: 'bg-purple-900 text-purple-200',
+    };
+
+    const SOURCE_ICONS = {
+      github: '⌥',
+      gitlab: '🦊',
+      jira: '◈',
+      teams_subscription: '◉',
+    };
+
+    const CONNECT_URLS = {
+      github: 'https://github.com/apps/{{ github_app_slug }}/installations/new',
+      gitlab: '{{ app_base_url }}/connect/gitlab',
+      jira: '{{ app_base_url }}/connect/jira',
+      teams_subscription: null,
+    };
+
+    async function init() {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      const data = await res.json();
+
+      if (!data.authenticated) {
+        document.getElementById('not-logged-in').classList.remove('hidden');
+        document.getElementById('login-btn').classList.remove('hidden');
+        return;
+      }
+
+      document.getElementById('user-email').textContent = data.email;
+      document.getElementById('login-btn').classList.add('hidden');
+      document.getElementById('main-content').classList.remove('hidden');
+
+      renderIntegrations(data.integrations);
+      loadEvents();
+    }
+
+    function renderIntegrations(integrations) {
+      const grid = document.getElementById('integrations-grid');
+      grid.innerHTML = '';
+      for (const i of integrations) {
+        const connectUrl = CONNECT_URLS[i.source];
+        const actionBtn = i.connected
+          ? `<span class="text-xs text-green-400 font-medium">● Connected</span>`
+          : connectUrl
+            ? `<a href="${connectUrl}" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded-md transition">Connect</a>`
+            : `<span class="text-xs text-gray-500">Auto-registered</span>`;
+
+        grid.innerHTML += `
+          <div class="bg-gray-900 border ${i.connected ? 'border-green-800' : 'border-gray-800'} rounded-xl p-4 flex flex-col gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">${SOURCE_ICONS[i.source] || '●'}</span>
+              <span class="font-medium text-sm">${i.label}</span>
+            </div>
+            ${actionBtn}
+          </div>`;
+      }
+    }
+
+    async function loadEvents() {
+      const res = await fetch('/api/events/recent?limit=15', { credentials: 'include' });
+      const data = await res.json();
+      const list = document.getElementById('events-list');
+
+      if (!data.events || data.events.length === 0) {
+        list.innerHTML = '<p class="text-gray-500 text-sm">No activity yet. Trigger a GitHub event to see it here.</p>';
+        return;
+      }
+
+      list.innerHTML = data.events.map(e => {
+        const color = SOURCE_COLORS[e.source] || 'bg-gray-700 text-gray-200';
+        const ts = new Date(e.occurred_at).toLocaleString();
+        const repo = e.workspace ? `<span class="text-gray-500 text-xs ml-1">${e.workspace}</span>` : '';
+        return `
+          <div class="flex items-start gap-3 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
+            <span class="text-xs px-2 py-0.5 rounded-full mt-0.5 ${color} shrink-0">${e.event_type}</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-gray-200 truncate">${e.title || '—'}${repo}</p>
+              <p class="text-xs text-gray-500 mt-0.5">${ts}</p>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    async function runQuery() {
+      const input = document.getElementById('query-input');
+      const question = input.value.trim();
+      if (!question) return;
+
+      document.getElementById('query-result').classList.add('hidden');
+      document.getElementById('query-loading').classList.remove('hidden');
+
+      try {
+        const res = await fetch('/query', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+        const resultEl = document.getElementById('query-result');
+        resultEl.textContent = data.answer || data.error || 'No response';
+        resultEl.classList.remove('hidden');
+      } catch (err) {
+        const resultEl = document.getElementById('query-result');
+        resultEl.textContent = 'Request failed. Check the app is running.';
+        resultEl.classList.remove('hidden');
+      } finally {
+        document.getElementById('query-loading').classList.add('hidden');
+      }
+    }
+
+    function setQuery(q) {
+      document.getElementById('query-input').value = q;
+      document.getElementById('query-input').focus();
+    }
+
+    document.getElementById('query-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runQuery();
+    });
+
+    init();
+  </script>
+</body>
+</html>

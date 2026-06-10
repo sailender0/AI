@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # GitHub
     GITHUB_APP_ID: str = ""
+    GITHUB_APP_SLUG: str = ""          # e.g. "my-activity-tracker"
     GITHUB_APP_PRIVATE_KEY: str = ""
     GITHUB_APP_INSTALLATION_ID: str = ""
     GITHUB_WEBHOOK_SECRET: str = ""
