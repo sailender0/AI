@@ -22,7 +22,7 @@ from app.storage.redis_client import get_redis
 
 router = APIRouter()
 
-_GRAPH_SCOPES = ["https://graph.microsoft.com/Chat.Read"]
+_GRAPH_SCOPES = []  # Chat.Read removed for local dev — Teams subscription skipped
 
 AUTHORITY = f"https://login.microsoftonline.com/{settings.AZURE_TENANT_ID}"
 
@@ -129,10 +129,11 @@ async def auth_callback(request: Request, code: str, state: str):
     session_token = secrets.token_urlsafe(32)
     await redis.set(f"session:{session_token}", profile_id, ex=86400)
 
-    # Trigger Teams subscription registration in background
-    from app.webhooks.registration import auto_register_teams_subscription
-    import asyncio
-    asyncio.create_task(auto_register_teams_subscription(profile_id))
+    # Teams subscription only registered when Chat.Read scope is present
+    if "https://graph.microsoft.com/Chat.Read" in _GRAPH_SCOPES:
+        from app.webhooks.registration import auto_register_teams_subscription
+        import asyncio
+        asyncio.create_task(auto_register_teams_subscription(profile_id))
 
     is_https = settings.APP_BASE_URL.startswith("https://")
     response = RedirectResponse(url="/")

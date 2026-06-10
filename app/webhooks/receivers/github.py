@@ -46,13 +46,25 @@ async def _resolve_profile(installation_id: str | None) -> str | None:
     return str(row.profile_id) if row else None
 
 
+_GITHUB_TYPE_MAP = {
+    "push": "commit",
+    "issues": "issue_updated",
+    "pull_request_review": "pr_review",
+    "issue_comment": "comment",
+    # pull_request → left as None so normalizer derives it from action
+}
+
+
 async def _process(body: dict, event_type: str):
     installation = body.get("installation", {})
     installation_id = str(installation.get("id", "")) if installation else None
     profile_id = await _resolve_profile(installation_id)
     if not profile_id:
         return
-    event = normalize(body, source="github", profile_id=profile_id, event_type=event_type)
+    mapped = _GITHUB_TYPE_MAP.get(event_type)          # None = let normalizer decide
+    if mapped is None and event_type != "pull_request":
+        mapped = event_type                             # unknown types pass through as-is
+    event = normalize(body, source="github", profile_id=profile_id, event_type=mapped)
     await ingest(event)
 
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from openai import AsyncAzureOpenAI
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.ai.summarizer import _format_events, _openai_client
@@ -26,6 +27,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _SOURCES = ["github", "gitlab", "jira", "teams"]
+
+
+class QueryRequest(BaseModel):
+    question: str
 
 
 @dataclass
@@ -52,6 +57,9 @@ def intent_parser(question: str) -> Filters:
         start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0)
         end = start + timedelta(days=7)
         time_range = {"$gte": start, "$lte": end}
+    elif "this week" in q:
+        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0)
+        time_range = {"$gte": start}
     elif "yesterday" in q:
         yesterday = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0)
         time_range = {"$gte": yesterday, "$lte": yesterday + timedelta(days=1)}
@@ -61,14 +69,18 @@ def intent_parser(question: str) -> Filters:
     source = next((s for s in _SOURCES if s in q), None)
 
     event_type = None
-    if "commit" in q:
+    if any(w in q for w in ["commit", "push", "pushed"]):
         event_type = "commit"
-    elif "pr" in q or "pull request" in q:
-        event_type = "pr_merged"
-    elif "ticket" in q or "issue" in q or "pending" in q:
-        event_type = "ticket_updated"
+    elif any(w in q for w in ["pull request", "pull requests", "prs"]):
+        event_type = "pr_"          # prefix — matched with $regex in query builder
+    elif " pr " in q or q.startswith("pr ") or q.endswith(" pr"):
+        event_type = "pr_"
+    elif any(w in q for w in ["issue", "ticket", "pending"]):
+        event_type = "issue_updated"
     elif "meeting" in q:
         event_type = "meeting"
+    elif "comment" in q:
+        event_type = "comment"
 
     return Filters(time_range=time_range, source=source, event_type=event_type)
 
@@ -87,13 +99,12 @@ def _build_query_prompt(question: str, events: list[dict]) -> str:
 
 
 @router.post("/query")
-async def query(request: Request):
+async def query(request: Request, body: QueryRequest):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    body = await request.json()
-    raw_question = body.get("question", "").strip()
+    raw_question = body.question.strip()
     if not raw_question:
         return JSONResponse({"error": "question_required"}, status_code=400)
 
@@ -106,7 +117,10 @@ async def query(request: Request):
     if filters.source:
         mongo_filter["source"] = filters.source
     if filters.event_type:
-        mongo_filter["event_type"] = filters.event_type
+        if filters.event_type.endswith("_"):
+            mongo_filter["event_type"] = {"$regex": f"^{filters.event_type}"}
+        else:
+            mongo_filter["event_type"] = filters.event_type
 
     events = await activity_events().find(mongo_filter).to_list(length=100)
 
@@ -116,12 +130,19 @@ async def query(request: Request):
     prompt = _build_query_prompt(question, events)
 
     client = _openai_client()
-    response = await client.chat.completions.create(
-        model=settings.AZURE_OPENAI_DEPLOYMENT,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=300,
-        temperature=0.2,
-    )
+    try:
+        response = await client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.2,
+        )
+    except Exception as exc:
+        logger.error("OpenAI call failed: %s", exc)
+        return JSONResponse(
+            {"error": f"AI call failed: {exc}"},
+            status_code=502,
+        )
     answer = response.choices[0].message.content.strip()
 
     async with AsyncSessionLocal() as db:

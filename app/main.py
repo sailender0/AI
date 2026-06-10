@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.storage.mongodb import init_indexes
@@ -59,7 +59,11 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-app = FastAPI(title="Developer Activity Tracker", lifespan=lifespan)
+app = FastAPI(
+    title="Developer Activity Tracker",
+    lifespan=lifespan,
+    swagger_ui_parameters={"withCredentials": True},
+)
 
 app.include_router(sso_router)
 app.include_router(oauth_router)
@@ -70,9 +74,59 @@ app.include_router(jira_router)
 app.include_router(query_router)
 
 
+@app.get("/")
+async def root():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 async def health():
     return JSONResponse({"status": "ok"})
+
+
+@app.post("/setup/github-app")
+async def setup_github_app(request: Request):
+    """One-time: maps your GitHub App installation ID to your logged-in profile."""
+    from app.auth.sso import get_profile_from_session
+    from app.config import settings
+    from app.storage.models import LinkedIdentity
+    from app.storage.postgres import AsyncSessionLocal
+    from sqlalchemy import select
+
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    if not settings.GITHUB_APP_INSTALLATION_ID:
+        return JSONResponse({"error": "GITHUB_APP_INSTALLATION_ID not set in .env"}, status_code=400)
+
+    async with AsyncSessionLocal() as db:
+        existing = (
+            await db.execute(
+                select(LinkedIdentity).where(
+                    LinkedIdentity.profile_id == profile_id,
+                    LinkedIdentity.provider == "github",
+                )
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            existing.tenant_id = settings.GITHUB_APP_INSTALLATION_ID
+        else:
+            db.add(LinkedIdentity(
+                profile_id=profile_id,
+                provider="github",
+                tenant_id=settings.GITHUB_APP_INSTALLATION_ID,
+                workspace_label=settings.GITHUB_ORG,
+            ))
+        await db.commit()
+
+    return JSONResponse({
+        "status": "ok",
+        "installation_id": settings.GITHUB_APP_INSTALLATION_ID,
+        "profile_id": profile_id,
+    })
 
 
 @app.get("/summaries")

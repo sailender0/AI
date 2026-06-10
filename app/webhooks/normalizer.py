@@ -96,6 +96,20 @@ def _extract_native_id(source: str, raw: dict) -> str:
     return ""
 
 
+def _extract_workspace(source: str, raw: dict) -> str | None:
+    if source == "github":
+        repo = raw.get("repository") or {}
+        return repo.get("full_name") or repo.get("name")
+    if source == "gitlab":
+        project = raw.get("project") or {}
+        return project.get("path_with_namespace") or project.get("name")
+    if source == "jira":
+        fields = (raw.get("issue") or {}).get("fields") or {}
+        project = fields.get("project") or {}
+        return project.get("key") or project.get("name")
+    return None
+
+
 def _extract_due_date(source: str, raw: dict) -> datetime | None:
     if source == "jira":
         due = (raw.get("issue", {}) or {}).get("fields", {}).get("duedate")
@@ -116,7 +130,7 @@ def normalize(raw: dict, source: str, profile_id: str, event_type: str | None = 
         "occurred_at": _parse_ts(raw, source),
         "title": sanitize(_extract_title(source, raw)),
         "due_date": _extract_due_date(source, raw),
-        "workspace": None,  # resolved by caller if needed
+        "workspace": _extract_workspace(source, raw),
         "raw_payload": raw,
         "source_event_id": _extract_native_id(source, raw),
     }

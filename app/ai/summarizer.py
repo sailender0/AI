@@ -59,7 +59,9 @@ def _format_events(events: list[dict]) -> str:
         ts = e.get("occurred_at", "")
         if isinstance(ts, datetime):
             ts = ts.isoformat()
-        lines.append(f"[{ts}] [{e.get('source','')}] [{e.get('event_type','')}] {e.get('title','')}")
+        workspace = e.get("workspace") or ""
+        repo_tag = f" [repo:{workspace}]" if workspace else ""
+        lines.append(f"[{ts}] [{e.get('source','')}] [{e.get('event_type','')}]{repo_tag} {e.get('title','')}")
     return "\n".join(lines)
 
 
