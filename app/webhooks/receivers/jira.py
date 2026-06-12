@@ -18,18 +18,30 @@ logger = logging.getLogger(__name__)
 
 
 async def _resolve_profile(account_id: str | None) -> str | None:
-    if not account_id:
-        return None
     async with AsyncSessionLocal() as db:
+        if account_id:
+            row = (
+                await db.execute(
+                    select(LinkedIdentity).where(
+                        LinkedIdentity.provider == "jira",
+                        LinkedIdentity.tenant_id == account_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row:
+                return str(row.profile_id)
+
+        # Fallback: return first profile with an active Jira integration
+        from app.storage.models import Integration
         row = (
             await db.execute(
-                select(LinkedIdentity).where(
-                    LinkedIdentity.provider == "jira",
-                    LinkedIdentity.tenant_id == account_id,
+                select(Integration).where(
+                    Integration.source == "jira",
+                    Integration.sync_status == "active",
                 )
             )
         ).scalar_one_or_none()
-    return str(row.profile_id) if row else None
+        return str(row.profile_id) if row else None
 
 
 async def _process(body: dict, jira_event: str):

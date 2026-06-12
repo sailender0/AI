@@ -39,7 +39,7 @@ _OAUTH_CONFIGS = {
         "token_url": "https://auth.atlassian.com/oauth/token",
         "client_id": lambda: settings.JIRA_CLIENT_ID,
         "client_secret": lambda: settings.JIRA_CLIENT_SECRET,
-        "scopes": "read:jira-work manage:jira-webhook offline_access",
+        "scopes": "read:jira-work read:jira-user manage:jira-webhook",
     },
 }
 
@@ -123,6 +123,41 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
         row.token_expires_at = expires_at
         row.sync_status = "active"
         await db.commit()
+
+    # For Jira, fetch the user's account ID and store as LinkedIdentity
+    # so incoming webhooks can be resolved to this profile
+    if app == "jira" and access_token:
+        import logging as _log
+        async with httpx.AsyncClient() as client:
+            me_resp = await client.get(
+                "https://api.atlassian.com/me",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            )
+        _log.getLogger(__name__).info("Jira /me: %s %s", me_resp.status_code, me_resp.text)
+        if me_resp.status_code == 200:
+            account_id = me_resp.json().get("account_id", "")
+            _log.getLogger(__name__).info("Jira account_id: %r", account_id)
+            if account_id:
+                from app.storage.models import LinkedIdentity
+                async with AsyncSessionLocal() as db:
+                    existing = (
+                        await db.execute(
+                            select(LinkedIdentity).where(
+                                LinkedIdentity.profile_id == profile_id,
+                                LinkedIdentity.provider == "jira",
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if existing:
+                        existing.tenant_id = account_id
+                    else:
+                        db.add(LinkedIdentity(
+                            profile_id=profile_id,
+                            provider="jira",
+                            tenant_id=account_id,
+                        ))
+                    await db.commit()
+                    _log.getLogger(__name__).info("Saved Jira LinkedIdentity: %s -> %s", account_id, profile_id)
 
     from app.webhooks.registration import auto_register_webhook
     import asyncio

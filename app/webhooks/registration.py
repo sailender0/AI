@@ -16,6 +16,11 @@ from app.storage.models import Integration
 from app.storage.postgres import AsyncSessionLocal
 
 
+def _webhook_base() -> str:
+    """Public URL used when registering webhooks with external services."""
+    return settings.WEBHOOK_BASE_URL or settings.APP_BASE_URL
+
+
 async def auto_register_teams_subscription(profile_id: str):
     """Subscribe to me/messages using the user's delegated token."""
     token = await acquire_delegated_token(profile_id)
@@ -24,8 +29,8 @@ async def auto_register_teams_subscription(profile_id: str):
 
     payload = {
         "changeType": "created,updated",
-        "notificationUrl": f"{settings.APP_BASE_URL}/webhook/teams",
-        "lifecycleNotificationUrl": f"{settings.APP_BASE_URL}/webhook/teams/lifecycle",
+        "notificationUrl": f"{_webhook_base()}/webhook/teams",
+        "lifecycleNotificationUrl": f"{_webhook_base()}/webhook/teams/lifecycle",
         "resource": "me/messages",
         "expirationDateTime": (datetime.now(timezone.utc) + timedelta(minutes=55)).isoformat(),
         "clientState": profile_id,
@@ -81,7 +86,7 @@ async def _register_github(token: str, profile_id: str):
             f"https://api.github.com/orgs/{settings.GITHUB_ORG}/hooks",
             json={
                 "config": {
-                    "url": f"{settings.APP_BASE_URL}/webhook/github",
+                    "url": f"{_webhook_base()}/webhook/github",
                     "content_type": "json",
                     "secret": settings.GITHUB_WEBHOOK_SECRET,
                 },
@@ -117,7 +122,7 @@ async def _register_gitlab(token: str, profile_id: str):
         resp = await client.post(
             f"https://gitlab.com/api/v4/projects/{settings.GITLAB_PROJECT_ID}/hooks",
             json={
-                "url": f"{settings.APP_BASE_URL}/webhook/gitlab",
+                "url": f"{_webhook_base()}/webhook/gitlab",
                 "token": settings.GITLAB_WEBHOOK_SECRET,
                 "merge_requests_events": True,
                 "push_events": True,
@@ -131,12 +136,26 @@ async def _register_gitlab(token: str, profile_id: str):
 
 async def _register_jira(token: str, profile_id: str):
     async with httpx.AsyncClient() as client:
+        # Jira OAuth 2.0 tokens require api.atlassian.com with a cloud ID
+        resources_resp = await client.get(
+            "https://api.atlassian.com/oauth/token/accessible-resources",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        if resources_resp.status_code != 200 or not resources_resp.json():
+            return
+        cloud_id = resources_resp.json()[0]["id"]
+
+        webhook_url = f"{_webhook_base()}/webhook/jira?secret={settings.JIRA_WEBHOOK_SECRET}"
         resp = await client.post(
-            f"{settings.JIRA_BASE_URL}/rest/api/3/webhook",
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/webhook",
             json={
-                "url": f"{settings.APP_BASE_URL}/webhook/jira",
-                "webhookEvents": ["jira:issue_created", "jira:issue_updated", "comment_created"],
-                "filters": {"issue-related-events-section": ""},
+                "url": webhook_url,
+                "webhooks": [
+                    {
+                        "events": ["jira:issue_created", "jira:issue_updated", "comment_created"],
+                        "jqlFilter": "project != \"\"",
+                    }
+                ],
             },
             headers={
                 "Authorization": f"Bearer {token}",
@@ -144,11 +163,14 @@ async def _register_jira(token: str, profile_id: str):
             },
         )
 
+    import logging as _logging
+    _logging.getLogger(__name__).info("Jira webhook registration: %s %s", resp.status_code, resp.text)
+
     if resp.status_code not in (200, 201):
         return
 
     webhook_ids = resp.json().get("webhookRegistrationResult", [])
-    hook_id = str(webhook_ids[0].get("createdWebhookId", "")) if webhook_ids else ""
+    hook_id = str(webhook_ids[0].get("createdWebhookId", "")) if webhook_ids else str(resp.json().get("id", ""))
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)
 
     async with AsyncSessionLocal() as db:

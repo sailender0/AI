@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    APP_BASE_URL: str = "https://yourapp.azure.com"
+    APP_BASE_URL: str = "http://localhost:8000"
+    WEBHOOK_BASE_URL: str = ""   # ngrok/public URL for webhook registration; falls back to APP_BASE_URL
     SECRET_KEY: str = "change-me"
 
     # Entra ID / Azure AD
