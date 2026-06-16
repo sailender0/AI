@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Digest — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Weekly summaries{% endblock %}
+
+{% block content %}
+<div class="space-y-5">
+
+  <!-- Header row -->
+  <div class="flex items-center justify-between">
+    <p class="text-xs text-gray-500">Generated every Friday · click a week to read</p>
+    <div class="flex items-center gap-3">
+      <span id="gen-status" class="text-xs text-gray-500 hidden"></span>
+      <button onclick="generateSummary('weekly')"
+        class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        Generate This Week
+      </button>
+    </div>
+  </div>
+
+  <!-- Accordion list -->
+  <div id="summaries-list">
+    <p class="text-sm text-gray-500">Loading…</p>
+  </div>
+
+</div>
+
+<style>
+  .week-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .week-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+  }
+  .week-header:hover { background: var(--surface-2); }
+  .week-chevron {
+    flex-shrink: 0;
+    color: var(--text-3);
+    transition: transform 0.2s ease;
+  }
+  .week-row.open .week-chevron { transform: rotate(180deg); }
+  .week-body {
+    display: none;
+    padding: 16px 18px 18px;
+    border-top: 1px solid var(--border);
+  }
+  .week-row.open .week-body { display: block; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function onBaseReady() {
+    await loadSummaries();
+  }
+
+  async function loadSummaries() {
+    const res      = await fetch('/api/summaries?limit=52', { credentials: 'include' });
+    const data     = await res.json();
+    const weeklies = (data.summaries || []).filter(s => s.period_type === 'weekly');
+    const container = document.getElementById('summaries-list');
+
+    if (!weeklies.length) {
+      container.innerHTML = `
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+          <p class="text-gray-400 text-sm mb-1">No weekly summaries yet.</p>
+          <p class="text-gray-500 text-xs">Click "Generate This Week" above to create your first one.</p>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = weeklies.map((s, i) => {
+      const start = new Date(s.period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const end   = new Date(s.period_end).toLocaleDateString(undefined,   { month: 'short', day: 'numeric', year: 'numeric' });
+      return `
+        <div class="week-row ${i === 0 ? 'open' : ''}" id="week-${i}">
+          <div class="week-header" onclick="toggleWeek(${i})">
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-medium px-2 py-0.5 rounded"
+                style="background:var(--border-strong);color:var(--text-2)">WEEK</span>
+              <span class="text-sm font-semibold text-gray-200">${start} — ${end}</span>
+            </div>
+            <svg class="week-chevron w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </div>
+          <div class="week-body">
+            <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">${s.content || '—'}</p>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function toggleWeek(i) {
+    document.getElementById('week-' + i).classList.toggle('open');
+  }
+
+
+  async function generateSummary(periodType) {
+    const statusEl = document.getElementById('gen-status');
+    statusEl.textContent = 'Generating…';
+    statusEl.classList.remove('hidden');
+    try {
+      const res  = await fetch('/api/summaries/generate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: periodType }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        statusEl.textContent = 'Done!';
+        setTimeout(() => statusEl.classList.add('hidden'), 2000);
+        await loadSummaries();
+      } else {
+        statusEl.textContent = `Error: ${data.error}`;
+      }
+    } catch {
+      statusEl.textContent = 'Failed — check console';
+    }
+  }
+</script>
+{% endblock %}

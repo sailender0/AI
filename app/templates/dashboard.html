@@ -4,62 +4,86 @@
 
 {% block content %}
 <div id="not-logged-in" class="hidden text-center py-20">
-  <p class="text-gray-400 mb-4">Sign in with your Microsoft account to get started.</p>
-  <a href="/auth/login" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg transition">Sign in with Microsoft</a>
+  <p class="mb-4" style="color:var(--text-2)">Sign in with your Microsoft account to get started.</p>
+  <a href="/auth/login" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg transition text-sm font-medium">Sign in with Microsoft</a>
 </div>
 
-<div id="main-content" class="hidden space-y-6">
+<div id="main-content" class="hidden flex-1 flex flex-col gap-5 min-h-0">
 
-  <!-- Metric cards -->
-  <div class="grid grid-cols-2 lg:grid-cols-5 gap-4" id="metric-cards">
-    <!-- filled by JS -->
-  </div>
+  <!-- KPI row -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3" id="metric-cards"></div>
 
-  <!-- Middle row: Timeline + Chart -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-    <!-- Activity Timeline -->
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-semibold text-gray-300">Activity Timeline</h2>
-        <span class="text-xs text-gray-500">Today</span>
+  <!-- Stacked Chart — full width -->
+  <div class="card p-5" style="height:340px;display:flex;flex-direction:column">
+    <div class="flex items-center justify-between mb-1">
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold" style="color:var(--text-1)">Activity</span>
+        <!-- Range picker -->
+        <div class="flex rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+          <button onclick="loadChart(7)"  data-days="7"  class="range-btn px-3 py-1 text-xs font-medium transition">7D</button>
+          <button onclick="loadChart(14)" data-days="14" class="range-btn px-3 py-1 text-xs font-medium transition" style="border-left:1px solid var(--border);border-right:1px solid var(--border)">14D</button>
+          <button onclick="loadChart(30)" data-days="30" class="range-btn px-3 py-1 text-xs font-medium transition">30D</button>
+        </div>
       </div>
-      <div id="timeline-list" class="space-y-3 max-h-72 overflow-y-auto pr-1">
-        <p class="text-gray-500 text-xs">Loading...</p>
+      <div class="flex gap-4">
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#38BDF8"></span><span class="text-xs" style="color:var(--text-2)">GitHub</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#34D399"></span><span class="text-xs" style="color:var(--text-2)">Jira</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#FBBF24"></span><span class="text-xs" style="color:var(--text-2)">Teams</span></div>
+        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#F87171"></span><span class="text-xs" style="color:var(--text-2)">GitLab</span></div>
       </div>
     </div>
-
-    <!-- Activity Chart -->
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-semibold text-gray-300">Activity (last 7 days)</h2>
-      </div>
-      <canvas id="activity-chart" height="160"></canvas>
+    <div class="flex-1 relative mt-3">
+      <canvas id="activity-chart"></canvas>
     </div>
-
   </div>
 
+  <!-- Activity Timeline — full width below chart -->
+  <div class="card p-5">
+    <div class="flex items-center justify-between mb-4">
+      <span class="text-sm font-semibold" style="color:var(--text-1)">Activity Timeline</span>
+      <span class="text-xs" style="color:var(--text-3)">Today</span>
+    </div>
+    <div id="timeline-list" class="space-y-2 overflow-y-auto" style="max-height:320px">
+      <p class="text-xs" style="color:var(--text-3)">Loading…</p>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+  .range-btn {
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    line-height: 1;
+  }
+  .range-btn:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+  }
+</style>
 <script>
-  const SOURCE_ICONS = { github:'⌥', gitlab:'🦊', jira:'◈', teams_subscription:'◉' };
-  const SOURCE_COLORS = {
-    github: 'bg-gray-700 text-gray-200',
-    gitlab: 'bg-orange-900 text-orange-200',
-    jira: 'bg-blue-900 text-blue-200',
-    teams_subscription: 'bg-purple-900 text-purple-200',
+  const SOURCE_DOT = {
+    github: '#6366f1',
+    gitlab: '#f97316',
+    jira: '#3b82f6',
+    teams_subscription: '#8b5cf6',
+  };
+  const SOURCE_BADGE = {
+    github:             { bg:'rgba(99,102,241,0.15)',  text:'#A5B4FC' },
+    gitlab:             { bg:'rgba(249,115,22,0.15)',  text:'#FED7AA' },
+    jira:               { bg:'rgba(59,130,246,0.15)',  text:'#93C5FD' },
+    teams_subscription: { bg:'rgba(139,92,246,0.15)', text:'#C4B5FD' },
   };
 
   let activityChart = null;
 
-  async function onBaseReady(meData) {
+  async function onBaseReady() {
     document.getElementById('main-content').classList.remove('hidden');
-    await Promise.all([loadStats(), loadTimeline()]);
+    await Promise.all([loadStats(), loadChart(7), loadTimeline()]);
   }
 
-  // Called by base.html when not authenticated
   document.addEventListener('DOMContentLoaded', () => {
     fetch('/api/me', { credentials: 'include' }).then(r => r.json()).then(d => {
       if (!d.authenticated) document.getElementById('not-logged-in').classList.remove('hidden');
@@ -75,90 +99,131 @@
     grid.innerHTML = '';
 
     data.metrics.forEach(m => {
-      const up = m.change >= 0;
+      const up = m.change > 0, flat = m.change === 0;
+      const cls = flat ? 'flat' : (up ? 'up' : 'down');
+      const arrow = flat ? '' : (up ? '↑ ' : '↓ ');
       grid.innerHTML += `
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <p class="text-xs text-gray-500 mb-1">${m.label}</p>
-          <p class="text-2xl font-bold">${m.value}</p>
-          <p class="text-xs mt-1 ${up ? 'text-green-400' : 'text-red-400'}">
-            ${up ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week
-          </p>
+        <div class="card p-5">
+          <p class="kpi-label mb-3">${m.label}</p>
+          <p class="kpi-number mb-2">${m.value}</p>
+          <span class="kpi-change ${cls}">${arrow}${Math.abs(m.change)}%</span>
         </div>`;
     });
 
-    // AI Score card
+    // AI Score
     const score = data.ai_score || 0;
-    const scoreColor = score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-red-400';
+    const arc = score >= 70 ? '#22C55E' : score >= 40 ? '#FBBF24' : '#EF4444';
+    const label = score >= 70 ? 'Great' : score >= 40 ? 'Good' : 'Low';
     grid.innerHTML += `
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center justify-center">
-        <p class="text-xs text-gray-500 mb-2">AI Score</p>
-        <div class="relative w-16 h-16">
-          <svg viewBox="0 0 36 36" class="w-16 h-16 -rotate-90">
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#374151" stroke-width="3"/>
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${score >= 70 ? '#4ade80' : score >= 40 ? '#facc15' : '#f87171'}"
-              stroke-width="3" stroke-dasharray="${score} ${100 - score}" stroke-linecap="round"/>
+      <div class="card p-5 flex flex-col items-center justify-center gap-2">
+        <p class="kpi-label">AI Score</p>
+        <div class="relative w-14 h-14">
+          <svg viewBox="0 0 36 36" class="w-14 h-14 -rotate-90">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-2)" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${arc}"
+              stroke-width="3" stroke-dasharray="${score} ${100-score}" stroke-linecap="round"/>
           </svg>
-          <span class="absolute inset-0 flex items-center justify-center text-sm font-bold ${scoreColor}">${score}</span>
+          <span class="absolute inset-0 flex items-center justify-center text-sm font-bold" style="color:${arc}">${score}</span>
         </div>
-        <p class="text-xs text-gray-500 mt-1">${score >= 70 ? 'Great' : score >= 40 ? 'Good' : 'Low'}</p>
+        <p class="text-xs font-medium" style="color:var(--text-3)">${label}</p>
       </div>`;
+  }
 
-    // Chart
+  async function loadChart(days = 7) {
+    // Update active button state
+    document.querySelectorAll('.range-btn').forEach(btn => {
+      const active = parseInt(btn.dataset.days) === days;
+      btn.style.background = active ? '#4f46e5' : 'transparent';
+      btn.style.color = active ? '#fff' : 'var(--text-2)';
+    });
+
+    const res = await fetch(`/api/analytics/trend?days=${days}`, { credentials: 'include' });
+    const data = await res.json();
+    const cc = chartColors();
+
+    const SOURCE_CONFIG = [
+      { key: 'github',             color: '#38BDF8' },  /* sky blue   */
+      { key: 'jira',               color: '#34D399' },  /* emerald    */
+      { key: 'teams_subscription', color: '#FBBF24' },  /* amber      */
+      { key: 'gitlab',             color: '#F87171' },  /* coral-red  */
+    ];
+
     const ctx = document.getElementById('activity-chart').getContext('2d');
     if (activityChart) activityChart.destroy();
     activityChart = new Chart(ctx, {
-      type: 'line',
+      type: 'bar',
       data: {
-        labels: data.chart.labels,
-        datasets: [{
-          label: 'Events',
-          data: data.chart.data,
-          borderColor: '#6366f1',
-          backgroundColor: 'rgba(99,102,241,0.1)',
-          borderWidth: 2,
-          tension: 0.4,
-          fill: true,
-          pointBackgroundColor: '#6366f1',
-          pointRadius: 3,
-        }]
+        labels: data.labels,
+        datasets: SOURCE_CONFIG.map(s => ({
+          data: data.sources[s.key] || [],
+          backgroundColor: s.color,
+          borderWidth: 0,
+          borderRadius: 0,
+          borderSkipped: true,
+          barPercentage: 0.6,
+          categoryPercentage: 0.85,
+        })),
       },
       options: {
         responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
-          y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } }, beginAtZero: true },
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'var(--surface-2)',
+            borderColor: 'var(--border-strong)',
+            borderWidth: 1,
+            titleColor: 'var(--text-1)',
+            bodyColor: 'var(--text-2)',
+            padding: 10,
+            cornerRadius: 8,
+            callbacks: {
+              title: items => items[0].label,
+              label: item => ` ${['GitHub','Jira','Teams','GitLab'][item.datasetIndex]}: ${item.raw}`,
+            }
+          }
         },
-      }
+        scales: {
+          x: { stacked: true, grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10, family: 'Inter' } }, border: { display: false } },
+          y: { stacked: true, grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10, family: 'Inter' } }, beginAtZero: true, border: { display: false } },
+        },
+      },
     });
   }
 
+  const SOURCE_LABEL = {
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    jira: 'Jira',
+    teams_subscription: 'Teams',
+  };
+
   async function loadTimeline() {
-    const res = await fetch('/api/events/recent?limit=20', { credentials: 'include' });
+    const res = await fetch('/api/events/recent?limit=50', { credentials: 'include' });
     const data = await res.json();
     const list = document.getElementById('timeline-list');
 
     const today = new Date().toDateString();
-    const todayEvents = (data.events || []).filter(e => new Date(e.occurred_at).toDateString() === today);
+    const events = (data.events || []).filter(e => new Date(e.occurred_at).toDateString() === today);
 
-    if (!todayEvents.length) {
-      list.innerHTML = '<p class="text-gray-500 text-xs">No activity today yet.</p>';
+    if (!events.length) {
+      list.innerHTML = '<p class="text-xs px-2 py-1" style="color:var(--text-3)">No activity yet today.</p>';
       return;
     }
 
-    list.innerHTML = todayEvents.map(e => {
-      const time = new Date(e.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const color = SOURCE_COLORS[e.source] || 'bg-gray-700 text-gray-200';
-      return `
-        <div class="flex items-start gap-3">
-          <span class="text-xs text-gray-500 w-12 shrink-0 pt-0.5">${time}</span>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs text-gray-200 truncate">${e.title || e.event_type}</p>
-            <span class="text-xs px-1.5 py-0.5 rounded-full ${color}">${e.event_type}</span>
-          </div>
-        </div>`;
+    list.innerHTML = events.map(e => {
+      const ts = new Date(e.occurred_at).toLocaleString();
+      const srcLabel = SOURCE_LABEL[e.source] || e.source;
+      const workspace = e.workspace ? ` <span style="color:var(--text-3);font-size:0.7rem">${e.workspace}</span>` : '';
+      return `<div class="flex items-start gap-3 rounded-lg px-4 py-3" style="background:var(--surface-2)">
+        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5 font-medium"
+          style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm truncate" style="color:var(--text-1)">${e.title || '—'}${workspace}</p>
+          <p class="text-xs mt-0.5" style="color:var(--text-3)">${srcLabel} · ${ts}</p>
+        </div>
+      </div>`;
     }).join('');
   }
-
 </script>
 {% endblock %}

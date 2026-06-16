@@ -92,8 +92,8 @@
         responsive: true,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
-          y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } }, beginAtZero: true },
+          x: { grid: { color: chartColors().grid }, ticks: { color: chartColors().tick, font: { size: 10 } } },
+          y: { grid: { color: chartColors().grid }, ticks: { color: chartColors().tick, font: { size: 10 } }, beginAtZero: true },
         },
       }
     });
@@ -130,7 +130,7 @@
     list.innerHTML = events.map(e => {
       const ts = new Date(e.occurred_at).toLocaleString();
       return `<div class="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3">
-        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-200 shrink-0 mt-0.5">${e.event_type}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5" style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
         <div class="flex-1 min-w-0">
           <p class="text-sm text-gray-200 truncate">${e.title || '—'}${e.workspace ? ` <span class="text-gray-500 text-xs">${e.workspace}</span>` : ''}</p>
           <p class="text-xs text-gray-500 mt-0.5">${ts}</p>

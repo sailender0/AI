@@ -137,14 +137,26 @@ async def _summarise_profile(profile, profile_id: str, period_type: str):
     summary_text = response.choices[0].message.content.strip()
 
     async with AsyncSessionLocal() as db:
-        summary = Summary(
-            profile_id=profile_id,
-            period_type=period_type,
-            period_start=period_start,
-            period_end=period_end,
-            content=summary_text,
+        existing = await db.scalar(
+            select(Summary).where(
+                Summary.profile_id == profile_id,
+                Summary.period_type == period_type,
+                Summary.period_start == period_start,
+            )
         )
-        db.add(summary)
+        if existing:
+            existing.content    = summary_text
+            existing.period_end = period_end
+            summary = existing
+        else:
+            summary = Summary(
+                profile_id=profile_id,
+                period_type=period_type,
+                period_start=period_start,
+                period_end=period_end,
+                content=summary_text,
+            )
+            db.add(summary)
         await db.commit()
         await db.refresh(summary)
 

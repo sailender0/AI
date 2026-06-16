@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}My Day — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Your activity today{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Daily summary card -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-300 font-medium">TODAY</span>
+          <span id="today-date" class="text-xs text-gray-500"></span>
+        </div>
+        <h2 class="text-sm font-semibold text-gray-300">AI Summary</h2>
+      </div>
+      <button onclick="generateSummary()"
+        class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        <span id="gen-label">Generate</span>
+      </button>
+    </div>
+    <p id="summary-content" class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
+      No summary yet for today. Click "Generate" to create one.
+    </p>
+  </div>
+
+  <!-- Today's stats -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="today-stats"></div>
+
+  <!-- Today's timeline -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-300">Today's Activity</h2>
+      <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh</button>
+    </div>
+    <div id="events-list" class="space-y-2"></div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function onBaseReady() {
+    const now = new Date();
+    document.getElementById('today-date').textContent = now.toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric'
+    });
+    await Promise.all([loadDailySummary(), loadEvents()]);
+  }
+
+  async function loadDailySummary() {
+    const res = await fetch('/api/summaries?limit=5', { credentials: 'include' });
+    const data = await res.json();
+    const summaries = data.summaries || [];
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const todaySummary = summaries.find(s => {
+      if (s.period_type !== 'daily') return false;
+      return new Date(s.period_end).toISOString().slice(0, 10) === todayKey
+          || new Date(s.period_start).toISOString().slice(0, 10) === todayKey;
+    });
+
+    if (todaySummary) {
+      document.getElementById('summary-content').textContent = todaySummary.content;
+      document.getElementById('gen-label').textContent = 'Regenerate';
+    }
+  }
+
+  async function loadEvents() {
+    const res = await fetch('/api/events/recent?limit=100', { credentials: 'include' });
+    const data = await res.json();
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const events = (data.events || []).filter(e =>
+      new Date(e.occurred_at).toISOString().slice(0, 10) === todayKey
+    );
+
+    // Stat counts
+    const counts = { github: 0, jira: 0, teams_subscription: 0, gitlab: 0 };
+    events.forEach(e => { if (e.source in counts) counts[e.source]++; });
+    document.getElementById('today-stats').innerHTML = [
+      { label: 'GitHub',  key: 'github',              icon: '⌥' },
+      { label: 'Jira',    key: 'jira',                icon: '◈' },
+      { label: 'Teams',   key: 'teams_subscription',  icon: '◉' },
+      { label: 'GitLab',  key: 'gitlab',              icon: '🦊' },
+    ].map(s => `
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">${s.icon} ${s.label}</p>
+        <p class="text-2xl font-bold">${counts[s.key]}</p>
+        <p class="text-xs text-gray-500 mt-1">events today</p>
+      </div>`).join('');
+
+    // Timeline
+    const list = document.getElementById('events-list');
+    if (!events.length) {
+      list.innerHTML = '<p class="text-gray-500 text-sm">No activity yet today.</p>';
+      return;
+    }
+    list.innerHTML = events.map(e => {
+      const ts = new Date(e.occurred_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return `<div class="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3">
+        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5" style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-200 truncate">${e.title || '—'}${e.workspace ? ` <span class="text-gray-500 text-xs">${e.workspace}</span>` : ''}</p>
+          <p class="text-xs text-gray-500 mt-0.5">${ts}</p>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  async function generateSummary() {
+    const label = document.getElementById('gen-label');
+    const content = document.getElementById('summary-content');
+    label.textContent = 'Generating…';
+    content.textContent = 'Generating your daily summary…';
+
+    try {
+      const res = await fetch('/api/summaries/generate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_type: 'daily' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await loadDailySummary();
+      } else {
+        content.textContent = `Error: ${data.error}`;
+        label.textContent = 'Retry';
+      }
+    } catch (e) {
+      content.textContent = 'Failed — check logs';
+      label.textContent = 'Retry';
+    }
+  }
+</script>
+{% endblock %}

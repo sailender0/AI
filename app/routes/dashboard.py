@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.auth.sso import get_profile_from_session
 from app.config import settings
-from app.storage.models import Integration, LinkedIdentity, Profile
+from app.storage.models import Integration, LinkedIdentity, Profile, Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import AsyncSessionLocal
 
@@ -172,6 +172,22 @@ async def gitlab_page(request: Request):
     if not profile_id:
         return RedirectResponse("/")
     return templates.TemplateResponse(request=request, name="gitlab.html", context={"active_page": "gitlab"})
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request=request, name="analytics.html", context={"active_page": "analytics"})
+
+
+@router.get("/my-day", response_class=HTMLResponse)
+async def my_day_page(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request=request, name="my_day.html", context={"active_page": "my_day"})
 
 
 # ---------------------------------------------------------------------------
@@ -404,3 +420,124 @@ async def get_gitlab_stats(request: Request):
         "top_items": top_repos,
         "top_label": "Top Projects",
     })
+
+
+# ---------------------------------------------------------------------------
+# API — Analytics / Summaries
+# ---------------------------------------------------------------------------
+
+@router.get("/api/summaries")
+async def get_summaries(request: Request, limit: int = 10):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(Summary)
+                .where(Summary.profile_id == profile_id)
+                .order_by(Summary.period_end.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+
+    result = []
+    for s in rows:
+        result.append({
+            "id": str(s.id),
+            "period_type": s.period_type,
+            "period_start": s.period_start.isoformat() if s.period_start else None,
+            "period_end": s.period_end.isoformat() if s.period_end else None,
+            "content": s.content,
+        })
+    return JSONResponse({"summaries": result})
+
+
+@router.get("/api/analytics/trend")
+async def get_analytics_trend(request: Request, days: int = 28):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    sources = ["github", "jira", "teams_subscription", "gitlab"]
+    pipeline = [
+        {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
+        {"$group": {
+            "_id": {
+                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at"}},
+                "source": "$source",
+            },
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"_id.day": 1}},
+    ]
+    results = await activity_events().aggregate(pipeline).to_list(length=None)
+
+    # Build day labels
+    labels = []
+    for i in range(days - 1, -1, -1):
+        d = now - timedelta(days=i)
+        labels.append(d.strftime("%Y-%m-%d"))
+
+    # Pivot: source -> {day -> count}
+    pivot = {s: {day: 0 for day in labels} for s in sources}
+    for r in results:
+        src = r["_id"]["source"]
+        day = r["_id"]["day"]
+        if src in pivot and day in pivot[src]:
+            pivot[src][day] = r["count"]
+
+    display_labels = [(datetime.strptime(d, "%Y-%m-%d")).strftime("%b %-d") if hasattr(datetime, "strptime") else d for d in labels]
+    # safe cross-platform label formatting
+    from datetime import datetime as _dt
+    display_labels = [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
+
+    return JSONResponse({
+        "labels": display_labels,
+        "sources": {s: list(pivot[s].values()) for s in sources},
+    })
+
+
+@router.post("/api/summaries/generate")
+async def generate_summary(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    body = await request.json()
+    period_type = body.get("period_type", "daily")
+    if period_type not in ("daily", "weekly"):
+        return JSONResponse({"error": "invalid period_type"}, status_code=400)
+
+    from app.ai.summarizer import _summarise_profile
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile:
+        return JSONResponse({"error": "profile_not_found"}, status_code=404)
+
+    try:
+        await _summarise_profile(profile, profile_id, period_type)
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.error("On-demand summary failed: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@router.delete("/api/summaries/{summary_id}")
+async def delete_summary(request: Request, summary_id: str):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    import uuid as _uuid
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Summary, _uuid.UUID(summary_id))
+        if not row or str(row.profile_id) != str(profile_id):
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        await db.delete(row)
+        await db.commit()
+    return JSONResponse({"ok": True})

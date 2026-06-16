@@ -4,91 +4,344 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}Developer Activity Tracker{% endblock %}</title>
+  <script>
+    // Prevent flash of wrong theme
+    (function(){
+      const s = localStorage.getItem('theme') || 'dark';
+      const dark = s === 'dark' || (s === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #111827; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+    /* ── Design tokens ─────────────────────────────── */
+    :root {
+      --bg:           #09090B;
+      --surface:      #111115;
+      --surface-2:    #18181C;
+      --border:       rgba(255,255,255,0.07);
+      --border-strong:rgba(255,255,255,0.12);
+      --text-1:       #ECECF0;
+      --text-2:       #9B9BAD;
+      --text-3:       #636378;
+      --accent:       #6366F1;
+      --positive:     #22C55E;
+      --negative:     #EF4444;
+      --card-shadow:  0 1px 3px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      --scrollbar-track: #111115;
+      --scrollbar-thumb: #2A2A32;
+    }
+    [data-theme="light"] {
+      --bg:           #F4F4F6;
+      --surface:      #FFFFFF;
+      --surface-2:    #F0F0F4;
+      --border:       rgba(0,0,0,0.07);
+      --border-strong:rgba(0,0,0,0.12);
+      --text-1:       #111115;
+      --text-2:       #3E3E52;
+      --text-3:       #606078;
+      --card-shadow:  0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+      --scrollbar-track: #F0F0F4;
+      --scrollbar-thumb: #C8C8D4;
+    }
+
+    /* ── Base ──────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 15px;
+      background: var(--bg);
+      color: var(--text-1);
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+
+    /* ── Sidebar collapse ──────────────────────────── */
+    #sidebar { transition: width 0.22s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    #main-wrapper { transition: margin-left 0.22s cubic-bezier(.4,0,.2,1); }
+    #sidebar.collapsed { width: 3.5rem; }
+    #sidebar.collapsed .sidebar-label { display: none !important; }
+    #sidebar.collapsed nav a { justify-content: center; }
+    #sidebar.collapsed #sidebar-connectors a { justify-content: center; }
+
+    /* ── Cards ─────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--card-shadow);
+    }
+
+    /* ── KPI blocks ────────────────────────────────── */
+    .kpi-number {
+      font-size: 30px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      color: var(--text-1);
+    }
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-2);
+    }
+    .kpi-change {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 7px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .kpi-change.up   { background: rgba(34,197,94,0.12);  color: #22C55E; }
+    .kpi-change.down { background: rgba(239,68,68,0.12);  color: #EF4444; }
+    .kpi-change.flat { background: rgba(136,136,148,0.12); color: #888894; }
+
+    /* ── Activity feed ─────────────────────────────── */
+    .feed-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      transition: background 0.12s;
+    }
+    .feed-row:hover { background: var(--surface-2); }
+    .feed-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .feed-title { font-size: 12px; color: var(--text-1); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed-badge { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 10px; flex-shrink: 0; }
+    .feed-time  { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; width: 56px; text-align: right; }
+
+    /* ── Tailwind colour shim (dark token mapping) ── */
+    .bg-gray-950 { background: var(--bg) !important; }
+    .bg-gray-900 { background: var(--surface) !important; }
+    .bg-gray-800 { background: var(--surface-2) !important; }
+    .bg-gray-700 { background: rgba(255,255,255,0.08) !important; }
+    [data-theme="light"] .bg-gray-700 { background: rgba(0,0,0,0.07) !important; }
+    .border-gray-800 { border-color: var(--border) !important; }
+    .border-gray-700 { border-color: var(--border-strong) !important; }
+    .text-gray-100 { color: var(--text-1) !important; }
+    .text-gray-200 { color: var(--text-1) !important; }
+    .text-gray-300 { color: var(--text-2) !important; }
+    .text-gray-400 { color: var(--text-2) !important; }
+    .text-gray-500 { color: var(--text-3) !important; }
+    .hover\:bg-gray-800:hover { background: var(--surface-2) !important; }
+    .hover\:bg-gray-700:hover { background: var(--surface-2) !important; }
+    .hover\:text-gray-100:hover { color: var(--text-1) !important; }
+    .text-green-400 { color: var(--positive) !important; }
+    .text-red-400   { color: var(--negative) !important; }
+    .text-indigo-400 { color: #818CF8 !important; }
+    .hover\:text-indigo-300:hover { color: #A5B4FC !important; }
+    .text-yellow-400 { color: #FBBF24 !important; }
+
+    /* Integration badges */
+    .bg-indigo-900  { background: rgba(99,102,241,0.15) !important; }
+    .text-indigo-200,.text-indigo-300 { color: #A5B4FC !important; }
+    .bg-blue-900    { background: rgba(59,130,246,0.15) !important; }
+    .text-blue-200  { color: #93C5FD !important; }
+    .bg-purple-900  { background: rgba(139,92,246,0.15) !important; }
+    .text-purple-200 { color: #C4B5FD !important; }
+    .bg-orange-900  { background: rgba(249,115,22,0.15) !important; }
+    .text-orange-200 { color: #FED7AA !important; }
+    .border-yellow-800 { border-color: rgba(251,191,36,0.3) !important; }
+    .text-yellow-400  { color: #FBBF24 !important; }
   </style>
 </head>
 <body class="bg-gray-950 text-gray-100 flex min-h-screen font-sans">
 
   <!-- Sidebar -->
-  <aside class="w-52 min-h-screen fixed top-0 left-0 bg-gray-900 border-r border-gray-800 flex flex-col z-10">
-    <!-- Logo -->
-    <div class="px-4 py-5 flex items-center gap-3 border-b border-gray-800">
-      <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-xs font-bold shrink-0">DA</div>
-      <span class="font-semibold text-sm leading-tight">Developer Activity</span>
+  <aside id="sidebar" class="w-52 min-h-screen fixed top-0 left-0 flex flex-col z-10" style="background:var(--surface);border-right:1px solid var(--border)">
+
+    <!-- Logo / Toggle -->
+    <div class="px-3 py-4 flex items-center gap-3 border-b border-gray-800 min-h-[64px]">
+      <!-- DA badge — static logo; JS makes it clickable when collapsed -->
+      <div id="da-badge" class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 transition-colors">
+        <span class="text-xs font-bold">DA</span>
+      </div>
+      <!-- Brand name -->
+      <span class="sidebar-label font-semibold text-sm leading-tight whitespace-nowrap overflow-hidden flex-1">Developer Activity</span>
+      <!-- Separate toggle button — hidden when sidebar is collapsed -->
+      <button onclick="toggleSidebar()" id="sidebar-toggle-btn" title="Toggle sidebar"
+        class="sidebar-label w-6 h-6 flex items-center justify-center rounded transition text-gray-400 hover:text-gray-100 hover:bg-gray-800 shrink-0">
+        <svg id="toggle-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path id="toggle-path" stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </button>
     </div>
 
     <!-- Nav -->
     <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+      <a href="/" title="Overview" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
         {% if active_page == 'overview' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
         </svg>
-        Overview
+        <span class="sidebar-label whitespace-nowrap">Overview</span>
       </a>
-      <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <a href="/my-day" title="My Day" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+        {% if active_page == 'my_day' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
-        My Day
+        <span class="sidebar-label whitespace-nowrap">My Day</span>
       </a>
-      <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <a href="/analytics" title="Analytics" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+        {% if active_page == 'analytics' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
         </svg>
-        Analytics
+        <span class="sidebar-label whitespace-nowrap">Digest</span>
       </a>
-      <a href="/ai" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+      <a href="/ai" title="Ask AI" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
         {% if active_page == 'ai' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
         </svg>
-        Ask AI
+        <span class="sidebar-label whitespace-nowrap">Ask AI</span>
       </a>
     </nav>
 
     <!-- Connectors -->
     <div class="px-3 py-4 border-t border-gray-800">
-      <p class="text-xs text-gray-500 uppercase tracking-wider px-3 mb-2">Connectors</p>
+      <p class="sidebar-label text-xs text-gray-500 uppercase tracking-wider px-3 mb-2">Connectors</p>
       <div id="sidebar-connectors" class="space-y-1">
         <!-- filled by JS -->
       </div>
     </div>
 
+    <!-- Theme toggle -->
+    <div class="px-3 py-3 border-t border-gray-800">
+      <p class="sidebar-label text-xs text-gray-500 uppercase tracking-wider px-3 mb-2">Appearance</p>
+      <div class="sidebar-label flex rounded-lg border border-gray-700 bg-gray-800 p-0.5 gap-0.5">
+        <button id="btn-light" onclick="setTheme('light')" title="Light"
+          class="flex-1 py-1.5 rounded-md flex justify-center items-center text-gray-400 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z"/>
+          </svg>
+        </button>
+        <button id="btn-system" onclick="setTheme('system')" title="System"
+          class="flex-1 py-1.5 rounded-md flex justify-center items-center text-gray-400 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+        </button>
+        <button id="btn-dark" onclick="setTheme('dark')" title="Dark"
+          class="flex-1 py-1.5 rounded-md flex justify-center items-center text-gray-400 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <!-- User -->
     <div class="px-4 py-4 border-t border-gray-800">
-      <p id="sidebar-email" class="text-xs text-gray-500 truncate"></p>
-      <a href="/auth/login" id="sidebar-login" class="hidden mt-2 text-xs text-indigo-400 hover:text-indigo-300">Sign in</a>
+      <p id="sidebar-email" class="sidebar-label text-xs text-gray-500 truncate"></p>
+      <a href="/auth/login" id="sidebar-login" class="sidebar-label hidden mt-2 text-xs text-indigo-400 hover:text-indigo-300">Sign in</a>
     </div>
   </aside>
 
   <!-- Main -->
-  <div class="ml-52 flex-1 flex flex-col min-h-screen">
+  <div id="main-wrapper" class="ml-52 flex-1 flex flex-col min-h-screen">
     <!-- Top bar -->
-    <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between bg-gray-950 sticky top-0 z-10">
+    <header class="px-6 py-4 flex items-center justify-between sticky top-0 z-10" style="background:var(--bg);border-bottom:1px solid var(--border)">
       <div>
         <h1 id="page-greeting" class="text-lg font-semibold"></h1>
         <p class="text-xs text-gray-500 mt-0.5">{% block page_subtitle %}This week's activity summary{% endblock %}</p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-md">This week</span>
         <div id="header-avatar" class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold hidden"></div>
       </div>
     </header>
 
     <!-- Page content -->
-    <main class="flex-1 p-6">
+    <main class="flex-1 p-6 flex flex-col min-h-0">
       {% block content %}{% endblock %}
     </main>
   </div>
 
   <script>
     const ACTIVE_PAGE = "{{ active_page }}";
+
+    // ---------- Sidebar ----------
+    function toggleSidebar() {
+      const collapsed = document.getElementById('sidebar').classList.contains('collapsed');
+      _setSidebar(collapsed ? 'open' : 'collapsed');
+    }
+
+    function _setSidebar(state) {
+      const collapsed = state === 'collapsed';
+      localStorage.setItem('sidebar', state);
+      document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
+      const wrapper = document.getElementById('main-wrapper');
+      wrapper.classList.toggle('ml-52', !collapsed);
+      wrapper.classList.toggle('ml-14', collapsed);
+      // Chevron direction
+      const path = document.getElementById('toggle-path');
+      if (path) path.setAttribute('d', collapsed ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7');
+      // DA badge: becomes expand button when collapsed (the toggle btn is hidden via sidebar-label)
+      const badge = document.getElementById('da-badge');
+      if (badge) {
+        badge.style.cursor = collapsed ? 'pointer' : 'default';
+        badge.title        = collapsed ? 'Expand sidebar' : '';
+        badge.onclick      = collapsed ? toggleSidebar : null;
+      }
+    }
+
+    _setSidebar(localStorage.getItem('sidebar') || 'open');
+    // ---------- /Sidebar ----------
+
+    // ---------- Theme ----------
+    function setTheme(mode) {
+      localStorage.setItem('theme', mode);
+      _applyTheme(mode);
+      _updateThemeBtns(mode);
+      if (typeof loadStats === 'function') loadStats();
+      if (typeof loadTrend === 'function') loadTrend();
+    }
+
+    function _applyTheme(mode) {
+      const dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    }
+
+    function _updateThemeBtns(mode) {
+      ['light', 'system', 'dark'].forEach(m => {
+        const btn = document.getElementById('btn-' + m);
+        if (!btn) return;
+        const active = m === mode;
+        btn.classList.toggle('bg-indigo-600', active);
+        btn.classList.toggle('text-white',    active);
+        btn.classList.toggle('text-gray-400', !active);
+      });
+    }
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem('theme') || 'dark') === 'system') _applyTheme('system');
+    });
+
+    _updateThemeBtns(localStorage.getItem('theme') || 'dark');
+
+    function chartColors() {
+      const light = document.documentElement.getAttribute('data-theme') === 'light';
+      return {
+        grid: light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)',
+        tick: light ? '#606078' : '#636378',
+      };
+    }
+    // ---------- /Theme ----------
 
     function getGreeting(email) {
       const hour = new Date().getHours();
@@ -128,15 +381,12 @@
       for (const [source, meta] of Object.entries(CONNECTOR_META)) {
         const connected = data.integrations[source];
         const isActive = ACTIVE_PAGE === source || (ACTIVE_PAGE === 'teams' && source === 'teams_subscription');
-        const connectUrl = data.connect_urls?.[source];
         container.innerHTML += `
-          <a href="${meta.href}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
+          <a href="${meta.href}" title="${meta.label}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
             ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'}">
-            <span class="text-base leading-none">${meta.icon}</span>
-            <span class="flex-1">${meta.label}</span>
-            ${connected
-              ? '<span class="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0"></span>'
-              : '<span class="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0"></span>'}
+            <span class="text-base leading-none shrink-0">${meta.icon}</span>
+            <span class="sidebar-label flex-1 whitespace-nowrap">${meta.label}</span>
+            <span class="sidebar-label w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-green-400' : 'bg-gray-600'}"></span>
           </a>`;
       }
 
