@@ -57,6 +57,38 @@
     border-top: 1px solid var(--border);
   }
   .week-row.open .week-body { display: block; }
+  .int-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .int-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .int-card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin-bottom: 8px;
+  }
+  .int-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-2);
+    padding: 2px 0;
+  }
+  .int-stat-val {
+    font-weight: 600;
+    color: var(--text-1);
+  }
 </style>
 {% endblock %}
 
@@ -81,30 +113,108 @@
       return;
     }
 
+    const statsCache = {};
+
     container.innerHTML = weeklies.map((s, i) => {
-      const start = new Date(s.period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const end   = new Date(s.period_end).toLocaleDateString(undefined,   { month: 'short', day: 'numeric', year: 'numeric' });
+      const startStr = s.period_start ? s.period_start.slice(0, 10) : '';
+      const endStr   = s.period_end   ? s.period_end.slice(0, 10)   : '';
+      const startLbl = new Date(s.period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const endLbl   = new Date(s.period_end).toLocaleDateString(undefined,   { month: 'short', day: 'numeric', year: 'numeric' });
       return `
-        <div class="week-row ${i === 0 ? 'open' : ''}" id="week-${i}">
+        <div class="week-row ${i === 0 ? 'open' : ''}" id="week-${i}"
+          data-start="${startStr}" data-end="${endStr}">
           <div class="week-header" onclick="toggleWeek(${i})">
             <div class="flex items-center gap-3">
               <span class="text-xs font-medium px-2 py-0.5 rounded"
                 style="background:var(--border-strong);color:var(--text-2)">WEEK</span>
-              <span class="text-sm font-semibold text-gray-200">${start} — ${end}</span>
+              <span class="text-sm font-semibold" style="color:var(--text-1)">${startLbl} — ${endLbl}</span>
             </div>
             <svg class="week-chevron w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
             </svg>
           </div>
           <div class="week-body">
-            <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">${s.content || '—'}</p>
+            <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">${s.content || '—'}</p>
+            <div id="week-stats-${i}" class="int-grid"></div>
           </div>
         </div>`;
     }).join('');
+
+    // Auto-load stats for first (open) week
+    if (weeklies.length) loadWeekStats(0, statsCache);
+
+    window._weekStatsCache = statsCache;
+  }
+
+  async function loadWeekStats(i, cache) {
+    if (cache[i]) return;
+    const row   = document.getElementById('week-' + i);
+    const start = row?.dataset.start;
+    const end   = row?.dataset.end;
+    if (!start || !end) return;
+
+    const el = document.getElementById('week-stats-' + i);
+    if (!el) return;
+
+    cache[i] = true;
+    const res  = await fetch(`/api/week-stats?start=${start}&end=${end}`, { credentials: 'include' });
+    const data = await res.json();
+
+    const INTEGRATIONS = [
+      {
+        key: 'github', label: 'GitHub',
+        stats: d => [
+          { label: 'Commits',       val: d.commits },
+          { label: 'Pull Requests', val: d.pull_requests },
+          { label: 'Issues',        val: d.issues },
+        ],
+      },
+      {
+        key: 'jira', label: 'Jira',
+        stats: d => [
+          { label: 'Created',  val: d.created },
+          { label: 'Updated',  val: d.updated },
+          { label: 'Comments', val: d.comments },
+        ],
+      },
+      {
+        key: 'teams', label: 'Teams',
+        stats: d => [
+          { label: 'Messages', val: d.messages },
+        ],
+      },
+      {
+        key: 'gitlab', label: 'GitLab',
+        stats: d => [
+          { label: 'Commits',        val: d.commits },
+          { label: 'Merge Requests', val: d.merge_requests },
+          { label: 'Issues',         val: d.issues },
+        ],
+      },
+    ];
+
+    const cards = INTEGRATIONS
+      .filter(intg => {
+        const d = data[intg.key];
+        return d && Object.values(d).some(v => v > 0);
+      })
+      .map(intg => {
+        const rows = intg.stats(data[intg.key])
+          .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val">${r.val}</span></div>`)
+          .join('');
+        return `<div class="int-card"><div class="int-card-title">${intg.label}</div>${rows}</div>`;
+      })
+      .join('');
+
+    el.innerHTML = cards || '<p style="color:var(--text-3);font-size:12px;margin-top:8px">No integration data for this week.</p>';
   }
 
   function toggleWeek(i) {
-    document.getElementById('week-' + i).classList.toggle('open');
+    const row = document.getElementById('week-' + i);
+    row.classList.toggle('open');
+    if (row.classList.contains('open')) {
+      loadWeekStats(i, window._weekStatsCache || {});
+    }
   }
 
 

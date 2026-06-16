@@ -527,6 +527,107 @@ async def generate_summary(request: Request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/week-stats")
+async def get_week_stats(request: Request, start: str = None, end: str = None):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    from datetime import datetime as _dt
+    try:
+        start_dt = _dt.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt   = _dt.strptime(end,   "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "invalid date"}, status_code=400)
+
+    gh_commits = await _count(profile_id, "github", r"^commit",       start_dt, end_dt)
+    gh_prs     = await _count(profile_id, "github", r"^pr_",          start_dt, end_dt)
+    gh_issues  = await _count(profile_id, "github", r"^issue",        start_dt, end_dt)
+
+    jira_created  = await _count(profile_id, "jira", "issue_created", start_dt, end_dt)
+    jira_updated  = await _count(profile_id, "jira", "issue_updated", start_dt, end_dt)
+    jira_comments = await _count(profile_id, "jira", "comment",       start_dt, end_dt)
+
+    teams_msgs = await _count(profile_id, "teams_subscription", None, start_dt, end_dt)
+
+    gl_commits = await _count(profile_id, "gitlab", r"^commit", start_dt, end_dt)
+    gl_mrs     = await _count(profile_id, "gitlab", r"^mr_",    start_dt, end_dt)
+    gl_issues  = await _count(profile_id, "gitlab", r"^issue",  start_dt, end_dt)
+
+    return JSONResponse({
+        "github": {"commits": gh_commits, "pull_requests": gh_prs,     "issues": gh_issues},
+        "jira":   {"created": jira_created, "updated": jira_updated, "comments": jira_comments},
+        "teams":  {"messages": teams_msgs},
+        "gitlab": {"commits": gl_commits,   "merge_requests": gl_mrs,   "issues": gl_issues},
+    })
+
+
+@router.get("/api/day-data")
+async def get_day_data(request: Request, date: str = None):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    from datetime import datetime as _dt
+    if not date:
+        date = _dt.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        day_start = _dt.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return JSONResponse({"error": "invalid date"}, status_code=400)
+    day_end = day_start + timedelta(days=1)
+
+    events_cursor = (
+        activity_events()
+        .find(
+            {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_end}},
+            {"raw_payload": 0},
+        )
+        .sort("occurred_at", -1)
+    )
+    raw_events = await events_cursor.to_list(length=500)
+
+    source_counts = {"github": 0, "jira": 0, "teams_subscription": 0, "gitlab": 0}
+    result_events = []
+    for e in raw_events:
+        ts = e.get("occurred_at")
+        src = e.get("source", "")
+        if src in source_counts:
+            source_counts[src] += 1
+        result_events.append({
+            "source": src,
+            "event_type": e.get("event_type", ""),
+            "title": e.get("title", ""),
+            "workspace": e.get("workspace", ""),
+            "occurred_at": (
+                (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat()
+                if isinstance(ts, datetime)
+                else str(ts)
+            ),
+        })
+
+    async with AsyncSessionLocal() as db:
+        summary_row = (
+            await db.execute(
+                select(Summary)
+                .where(
+                    Summary.profile_id == profile_id,
+                    Summary.period_type == "daily",
+                    Summary.period_start >= day_start,
+                    Summary.period_start < day_end,
+                )
+                .order_by(Summary.period_end.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    return JSONResponse({
+        "events": result_events,
+        "source_counts": source_counts,
+        "summary": summary_row.content if summary_row else None,
+    })
+
+
 @router.delete("/api/summaries/{summary_id}")
 async def delete_summary(request: Request, summary_id: str):
     profile_id = await get_profile_from_session(request)

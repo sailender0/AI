@@ -69,14 +69,20 @@ def _build_prompt(period_type: str, events: list[dict], caveat: str) -> str:
     return (
         f"You are a personal work assistant summarising a developer's activity.\n"
         f"Write a concise {period_type} summary under 200 words.\n"
-        f"Group by workspace if multiple workspaces exist.\n"
+        f"Structure the output as follows:\n"
+        f"  - Group activities by integration (GitHub, GitLab, Jira, Teams).\n"
+        f"  - For each integration, write the integration name on its own line (e.g. 'GitHub').\n"
+        f"  - Under each integration, group by workspace on its own line (e.g. 'Workspace: owner/repo').\n"
+        f"  - List the activity items as bullet points under each workspace.\n"
+        f"  - Skip any integration that has no activity.\n"
         f"Highlight completed work, blockers, and upcoming deadlines.\n"
+        f"End with a single line about blockers/deadlines (or state there are none).\n"
         f"Do not invent anything not present in the data.\n"
         f"{caveat}\n\n"
         f"ACTIVITY DATA START\n"
         f"{_format_events(events)}\n"
         f"ACTIVITY DATA END\n\n"
-        f"Plain text only. No markdown."
+        f"Plain text only. No markdown symbols like **, ##, or *."
     )
 
 

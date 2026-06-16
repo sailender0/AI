@@ -1,125 +1,256 @@
 {% extends "base.html" %}
 {% block title %}My Day — Developer Activity Tracker{% endblock %}
-{% block page_subtitle %}Your activity today{% endblock %}
+{% block page_subtitle %}Your activity, day by day{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Daily summary card -->
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
-    <div class="flex items-start justify-between mb-4">
-      <div>
-        <div class="flex items-center gap-2 mb-1">
-          <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-300 font-medium">TODAY</span>
-          <span id="today-date" class="text-xs text-gray-500"></span>
-        </div>
-        <h2 class="text-sm font-semibold text-gray-300">AI Summary</h2>
-      </div>
-      <button onclick="generateSummary()"
-        class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+  <!-- Calendar -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-4" style="max-width:340px">
+    <div class="flex items-center justify-between mb-3">
+      <button onclick="prevMonth()" id="prev-btn"
+        class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition text-gray-400 hover:text-gray-200">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
         </svg>
-        <span id="gen-label">Generate</span>
+      </button>
+      <span id="month-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
+      <button onclick="nextMonth()" id="next-btn"
+        class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition text-gray-400 hover:text-gray-200">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
       </button>
     </div>
-    <p id="summary-content" class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
-      No summary yet for today. Click "Generate" to create one.
-    </p>
+    <div class="grid grid-cols-7 mb-1">
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Su</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Mo</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Tu</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">We</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Th</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Fr</div>
+      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Sa</div>
+    </div>
+    <div id="cal-grid" class="grid grid-cols-7 gap-0.5"></div>
   </div>
 
-  <!-- Today's stats -->
+  <!-- Day header + generate button -->
+  <div class="flex items-center gap-3">
+    <span id="day-badge"
+      class="text-xs px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-300 font-medium shrink-0"></span>
+    <span id="day-label" class="text-sm" style="color:var(--text-2)"></span>
+    <button onclick="generateSummary()" id="gen-btn"
+      class="ml-auto flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition shrink-0">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      <span id="gen-label">Generate</span>
+    </button>
+  </div>
+
+  <!-- AI Summary -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-3)">AI Summary</h2>
+    <p id="summary-content" class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">Loading…</p>
+  </div>
+
+  <!-- Per-source stats -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="today-stats"></div>
 
-  <!-- Today's timeline -->
+  <!-- Activity timeline -->
   <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-gray-300">Today's Activity</h2>
-      <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh</button>
-    </div>
+    <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)">Activity Timeline</h2>
     <div id="events-list" class="space-y-2"></div>
   </div>
 
 </div>
+
+<style>
+  .cal-cell {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 12px;
+    user-select: none;
+    transition: background 0.12s;
+    color: var(--text-1);
+  }
+  .cal-cell.clickable { cursor: pointer; }
+  .cal-cell.clickable:hover { background: var(--surface-2); }
+  .cal-cell.future { color: var(--text-3); opacity: 0.4; cursor: default; }
+  .cal-cell.today { font-weight: 700; }
+  .cal-cell.selected { background: #4F46E5 !important; color: #fff !important; font-weight: 600; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  async function onBaseReady() {
-    const now = new Date();
-    document.getElementById('today-date').textContent = now.toLocaleDateString(undefined, {
-      weekday: 'long', month: 'long', day: 'numeric'
-    });
-    await Promise.all([loadDailySummary(), loadEvents()]);
+  const MONTHS = ['January','February','March','April','May','June','July',
+                  'August','September','October','November','December'];
+
+  const _today = new Date();
+  _today.setHours(0, 0, 0, 0);
+
+  let viewYear  = _today.getFullYear();
+  let viewMonth = _today.getMonth();
+  let selectedDate = dateFmt(_today);
+
+  const NOW_MK = viewYear * 12 + viewMonth;
+  const MIN_MK = NOW_MK - 3;
+
+  function dateFmt(d) {
+    return d.toISOString().slice(0, 10);
   }
 
-  async function loadDailySummary() {
-    const res = await fetch('/api/summaries?limit=5', { credentials: 'include' });
-    const data = await res.json();
-    const summaries = data.summaries || [];
+  async function onBaseReady() {
+    renderCalendar();
+    await loadDayData(selectedDate);
+  }
 
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const todaySummary = summaries.find(s => {
-      if (s.period_type !== 'daily') return false;
-      return new Date(s.period_end).toISOString().slice(0, 10) === todayKey
-          || new Date(s.period_start).toISOString().slice(0, 10) === todayKey;
-    });
+  function renderCalendar() {
+    const mk = viewYear * 12 + viewMonth;
+    document.getElementById('month-label').textContent = `${MONTHS[viewMonth]} ${viewYear}`;
+    document.getElementById('prev-btn').style.visibility = mk <= MIN_MK ? 'hidden' : '';
+    document.getElementById('next-btn').style.visibility = mk >= NOW_MK ? 'hidden' : '';
 
-    if (todaySummary) {
-      document.getElementById('summary-content').textContent = todaySummary.content;
-      document.getElementById('gen-label').textContent = 'Regenerate';
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const startDow    = new Date(viewYear, viewMonth, 1).getDay();
+    const todayStr    = dateFmt(_today);
+    const grid        = document.getElementById('cal-grid');
+    grid.innerHTML    = '';
+
+    for (let i = 0; i < startDow; i++) {
+      grid.appendChild(Object.assign(document.createElement('div'), { className: 'cal-cell' }));
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateObj = new Date(viewYear, viewMonth, d);
+      const dateStr = dateFmt(dateObj);
+      const isFuture = dateObj > _today;
+      const isToday  = dateStr === todayStr;
+      const isSel    = dateStr === selectedDate;
+
+      let cls = 'cal-cell';
+      if (isFuture) cls += ' future';
+      else          cls += ' clickable';
+      if (isToday)  cls += ' today';
+      if (isSel)    cls += ' selected';
+
+      const cell = Object.assign(document.createElement('div'), {
+        className: cls,
+        textContent: d,
+      });
+      if (!isFuture) cell.onclick = () => selectDay(dateStr);
+      grid.appendChild(cell);
     }
   }
 
-  async function loadEvents() {
-    const res = await fetch('/api/events/recent?limit=100', { credentials: 'include' });
-    const data = await res.json();
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const events = (data.events || []).filter(e =>
-      new Date(e.occurred_at).toISOString().slice(0, 10) === todayKey
-    );
+  function selectDay(dateStr) {
+    selectedDate = dateStr;
+    renderCalendar();
+    loadDayData(dateStr);
+  }
 
-    // Stat counts
-    const counts = { github: 0, jira: 0, teams_subscription: 0, gitlab: 0 };
-    events.forEach(e => { if (e.source in counts) counts[e.source]++; });
+  function prevMonth() {
+    const mk = viewYear * 12 + viewMonth;
+    if (mk <= MIN_MK) return;
+    if (--viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderCalendar();
+  }
+
+  function nextMonth() {
+    const mk = viewYear * 12 + viewMonth;
+    if (mk >= NOW_MK) return;
+    if (++viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderCalendar();
+  }
+
+  async function loadDayData(dateStr) {
+    const isToday   = dateStr === dateFmt(_today);
+    const dateLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+
+    document.getElementById('day-badge').textContent =
+      isToday ? 'TODAY' : new Date(dateStr + 'T00:00:00')
+        .toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase();
+    document.getElementById('day-label').textContent = dateLabel;
+    document.getElementById('gen-btn').style.display = isToday ? '' : 'none';
+
+    document.getElementById('summary-content').textContent = 'Loading…';
+    document.getElementById('events-list').innerHTML =
+      '<p class="text-sm" style="color:var(--text-3)">Loading…</p>';
+    document.getElementById('today-stats').innerHTML = '';
+
+    let data;
+    try {
+      const res = await fetch(`/api/day-data?date=${dateStr}`, { credentials: 'include' });
+      data = await res.json();
+    } catch {
+      document.getElementById('summary-content').textContent = 'Failed to load — check connection.';
+      return;
+    }
+
+    // Summary
+    const summaryEl = document.getElementById('summary-content');
+    if (data.summary) {
+      summaryEl.textContent = data.summary;
+      if (isToday) document.getElementById('gen-label').textContent = 'Regenerate';
+    } else {
+      summaryEl.textContent = isToday
+        ? 'No summary yet for today. Click "Generate" to create one.'
+        : 'No summary for this day.';
+      if (isToday) document.getElementById('gen-label').textContent = 'Generate';
+    }
+
+    // Stats
+    const sc       = data.source_counts || {};
+    const evtLabel = isToday ? 'events today' : 'events that day';
     document.getElementById('today-stats').innerHTML = [
-      { label: 'GitHub',  key: 'github',              icon: '⌥' },
-      { label: 'Jira',    key: 'jira',                icon: '◈' },
-      { label: 'Teams',   key: 'teams_subscription',  icon: '◉' },
-      { label: 'GitLab',  key: 'gitlab',              icon: '🦊' },
+      { label: 'GitHub', key: 'github',             icon: '⌥' },
+      { label: 'Jira',   key: 'jira',               icon: '◈' },
+      { label: 'Teams',  key: 'teams_subscription', icon: '◉' },
+      { label: 'GitLab', key: 'gitlab',             icon: '🦊' },
     ].map(s => `
       <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500 mb-1">${s.icon} ${s.label}</p>
-        <p class="text-2xl font-bold">${counts[s.key]}</p>
-        <p class="text-xs text-gray-500 mt-1">events today</p>
+        <p class="text-xs mb-1" style="color:var(--text-3)">${s.icon} ${s.label}</p>
+        <p class="text-2xl font-bold">${sc[s.key] || 0}</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)">${evtLabel}</p>
       </div>`).join('');
 
     // Timeline
-    const list = document.getElementById('events-list');
+    const list   = document.getElementById('events-list');
+    const events = data.events || [];
     if (!events.length) {
-      list.innerHTML = '<p class="text-gray-500 text-sm">No activity yet today.</p>';
+      list.innerHTML = `<p class="text-sm" style="color:var(--text-3)">${
+        isToday ? 'No activity yet today.' : 'No activity on this day.'
+      }</p>`;
       return;
     }
     list.innerHTML = events.map(e => {
       const ts = new Date(e.occurred_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
       return `<div class="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3">
-        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5" style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5"
+          style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
         <div class="flex-1 min-w-0">
-          <p class="text-sm text-gray-200 truncate">${e.title || '—'}${e.workspace ? ` <span class="text-gray-500 text-xs">${e.workspace}</span>` : ''}</p>
-          <p class="text-xs text-gray-500 mt-0.5">${ts}</p>
+          <p class="text-sm truncate" style="color:var(--text-1)">${e.title || '—'}${e.workspace
+            ? ` <span style="color:var(--text-3);font-size:11px">${e.workspace}</span>` : ''}</p>
+          <p class="text-xs mt-0.5" style="color:var(--text-3)">${ts}</p>
         </div>
       </div>`;
     }).join('');
   }
 
   async function generateSummary() {
-    const label = document.getElementById('gen-label');
+    const label   = document.getElementById('gen-label');
     const content = document.getElementById('summary-content');
-    label.textContent = 'Generating…';
+    label.textContent   = 'Generating…';
     content.textContent = 'Generating your daily summary…';
-
     try {
-      const res = await fetch('/api/summaries/generate', {
+      const res  = await fetch('/api/summaries/generate', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -127,14 +258,14 @@
       });
       const data = await res.json();
       if (data.ok) {
-        await loadDailySummary();
+        await loadDayData(selectedDate);
       } else {
         content.textContent = `Error: ${data.error}`;
-        label.textContent = 'Retry';
+        label.textContent   = 'Retry';
       }
-    } catch (e) {
+    } catch {
       content.textContent = 'Failed — check logs';
-      label.textContent = 'Retry';
+      label.textContent   = 'Retry';
     }
   }
 </script>
