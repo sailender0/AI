@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}GitLab — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}GitLab activity this week{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="grid grid-cols-2 lg:grid-cols-3 gap-4" id="metric-cards"></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4">Commits (last 7 days)</h2>
+      <canvas id="main-chart" height="120"></canvas>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-gray-300 mb-4" id="top-label">Top Projects</h2>
+      <div id="top-items" class="space-y-2"></div>
+    </div>
+  </div>
+
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-300">Recent Activity</h2>
+      <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh</button>
+    </div>
+    <div id="events-list" class="space-y-2">
+      <div id="not-connected" class="hidden text-center py-10">
+        <p class="text-gray-400 text-sm mb-3">GitLab is not connected yet.</p>
+        <a href="/connect/gitlab" class="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm transition">Connect GitLab</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let chart = null;
+
+  async function onBaseReady(meData) {
+    if (!meData.integrations.gitlab) {
+      document.getElementById('not-connected').classList.remove('hidden');
+    }
+    await Promise.all([loadStats(), loadEvents()]);
+  }
+
+  async function loadStats() {
+    const res = await fetch('/api/gitlab/stats', { credentials: 'include' });
+    const data = await res.json();
+
+    const grid = document.getElementById('metric-cards');
+    grid.innerHTML = (data.metrics || []).map(m => {
+      const up = m.change >= 0;
+      return `<div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">${m.label}</p>
+        <p class="text-2xl font-bold">${m.value}</p>
+        <p class="text-xs mt-1 ${up ? 'text-green-400' : 'text-red-400'}">${up ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>
+      </div>`;
+    }).join('');
+
+    const ctx = document.getElementById('main-chart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.chart.labels,
+        datasets: [{
+          label: data.chart.label,
+          data: data.chart.data,
+          borderColor: '#f97316',
+          backgroundColor: 'rgba(249,115,22,0.1)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: true,
+          pointBackgroundColor: '#f97316',
+          pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+          y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } }, beginAtZero: true },
+        },
+      }
+    });
+
+    document.getElementById('top-label').textContent = data.top_label || 'Top Projects';
+    const topEl = document.getElementById('top-items');
+    if (!data.top_items?.length) {
+      topEl.innerHTML = '<p class="text-gray-500 text-xs">No data yet.</p>';
+    } else {
+      const max = data.top_items[0].count;
+      topEl.innerHTML = data.top_items.map(item => `
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-gray-300 truncate">${item.name}</span>
+            <span class="text-gray-500 ml-2 shrink-0">${item.count}</span>
+          </div>
+          <div class="h-1 bg-gray-800 rounded-full">
+            <div class="h-1 bg-orange-500 rounded-full" style="width:${Math.round(item.count/max*100)}%"></div>
+          </div>
+        </div>`).join('');
+    }
+  }
+
+  async function loadEvents() {
+    const res = await fetch('/api/events/recent?limit=20', { credentials: 'include' });
+    const data = await res.json();
+    const list = document.getElementById('events-list');
+    const events = (data.events || []).filter(e => e.source === 'gitlab');
+    if (!events.length) return;
+    document.getElementById('not-connected')?.remove();
+    list.innerHTML = events.map(e => {
+      const ts = new Date(e.occurred_at).toLocaleString();
+      return `<div class="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3">
+        <span class="text-xs px-2 py-0.5 rounded-full bg-orange-900 text-orange-200 shrink-0 mt-0.5">${e.event_type}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-200 truncate">${e.title || '—'}${e.workspace ? ` <span class="text-gray-500 text-xs">${e.workspace}</span>` : ''}</p>
+          <p class="text-xs text-gray-500 mt-0.5">${ts}</p>
+        </div>
+      </div>`;
+    }).join('');
+  }
+</script>
+{% endblock %}

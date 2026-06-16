@@ -59,6 +59,7 @@ async def _process(body: dict, event_type: str):
     installation = body.get("installation", {})
     installation_id = str(installation.get("id", "")) if installation else None
     profile_id = await _resolve_profile(installation_id)
+    logger.info("GitHub event=%s installation_id=%s profile_id=%s", event_type, installation_id, profile_id)
     if not profile_id:
         return
     mapped = _GITHUB_TYPE_MAP.get(event_type)          # None = let normalizer decide

@@ -1,214 +1,164 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Developer Activity Tracker</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config = { darkMode: 'class' }</script>
-</head>
-<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+{% extends "base.html" %}
+{% block title %}Overview — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}This week's activity summary{% endblock %}
 
-  <!-- Header -->
-  <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-sm font-bold">DA</div>
-      <span class="font-semibold text-lg">Developer Activity Tracker</span>
+{% block content %}
+<div id="not-logged-in" class="hidden text-center py-20">
+  <p class="text-gray-400 mb-4">Sign in with your Microsoft account to get started.</p>
+  <a href="/auth/login" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg transition">Sign in with Microsoft</a>
+</div>
+
+<div id="main-content" class="hidden space-y-6">
+
+  <!-- Metric cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-4" id="metric-cards">
+    <!-- filled by JS -->
+  </div>
+
+  <!-- Middle row: Timeline + Chart -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    <!-- Activity Timeline -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-300">Activity Timeline</h2>
+        <span class="text-xs text-gray-500">Today</span>
+      </div>
+      <div id="timeline-list" class="space-y-3 max-h-72 overflow-y-auto pr-1">
+        <p class="text-gray-500 text-xs">Loading...</p>
+      </div>
     </div>
-    <div id="user-info" class="flex items-center gap-4 text-sm text-gray-400">
-      <span id="user-email"></span>
-      <a href="/auth/login" id="login-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-md transition">Sign in</a>
-    </div>
-  </header>
 
-  <main class="max-w-5xl mx-auto px-6 py-8 space-y-8">
-
-    <!-- Not logged in banner -->
-    <div id="not-logged-in" class="hidden bg-gray-900 border border-gray-700 rounded-xl p-6 text-center">
-      <p class="text-gray-400 mb-4">Sign in with your Microsoft account to get started.</p>
-      <a href="/auth/login" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-md transition">Sign in with Microsoft</a>
+    <!-- Activity Chart -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-300">Activity (last 7 days)</h2>
+      </div>
+      <canvas id="activity-chart" height="160"></canvas>
     </div>
 
-    <!-- Main content (shown when logged in) -->
-    <div id="main-content" class="hidden space-y-8">
+  </div>
 
-      <!-- Integrations -->
-      <section>
-        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Integrations</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="integrations-grid">
-          <!-- filled by JS -->
-        </div>
-      </section>
+</div>
+{% endblock %}
 
-      <!-- Query -->
-      <section class="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Ask about your work</h2>
-        <div class="flex gap-3">
-          <input
-            id="query-input"
-            type="text"
-            placeholder="e.g. what did I push today? how many PRs this week?"
-            class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 placeholder-gray-500"
-          />
-          <button
-            onclick="runQuery()"
-            class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition"
-          >Ask</button>
-        </div>
-        <div id="query-suggestions" class="flex flex-wrap gap-2 mt-3">
-          {% for q in ["what did I work on today?", "recent commits", "any PRs this week?", "issues updated today"] %}
-          <button onclick="setQuery('{{ q }}')" class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 px-3 py-1 rounded-full transition">{{ q }}</button>
-          {% endfor %}
-        </div>
-        <div id="query-result" class="hidden mt-4 p-4 bg-gray-800 rounded-lg text-sm text-gray-200 leading-relaxed"></div>
-        <div id="query-loading" class="hidden mt-4 flex items-center gap-2 text-sm text-gray-400">
-          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-          </svg>
-          Thinking...
-        </div>
-      </section>
+{% block scripts %}
+<script>
+  const SOURCE_ICONS = { github:'⌥', gitlab:'🦊', jira:'◈', teams_subscription:'◉' };
+  const SOURCE_COLORS = {
+    github: 'bg-gray-700 text-gray-200',
+    gitlab: 'bg-orange-900 text-orange-200',
+    jira: 'bg-blue-900 text-blue-200',
+    teams_subscription: 'bg-purple-900 text-purple-200',
+  };
 
-      <!-- Recent Activity -->
-      <section>
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Recent Activity</h2>
-          <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300 transition">Refresh</button>
-        </div>
-        <div id="events-list" class="space-y-2">
-          <p class="text-gray-500 text-sm">Loading...</p>
-        </div>
-      </section>
+  let activityChart = null;
 
-    </div>
-  </main>
+  async function onBaseReady(meData) {
+    document.getElementById('main-content').classList.remove('hidden');
+    await Promise.all([loadStats(), loadTimeline()]);
+  }
 
-  <script>
-    const SOURCE_COLORS = {
-      github: 'bg-gray-700 text-gray-200',
-      gitlab: 'bg-orange-900 text-orange-200',
-      jira: 'bg-blue-900 text-blue-200',
-      teams_subscription: 'bg-purple-900 text-purple-200',
-    };
+  // Called by base.html when not authenticated
+  document.addEventListener('DOMContentLoaded', () => {
+    fetch('/api/me', { credentials: 'include' }).then(r => r.json()).then(d => {
+      if (!d.authenticated) document.getElementById('not-logged-in').classList.remove('hidden');
+    });
+  });
 
-    const SOURCE_ICONS = {
-      github: '⌥',
-      gitlab: '🦊',
-      jira: '◈',
-      teams_subscription: '◉',
-    };
+  async function loadStats() {
+    const res = await fetch('/api/stats', { credentials: 'include' });
+    const data = await res.json();
+    if (!data.metrics) return;
 
-    const CONNECT_URLS = {
-      github: 'https://github.com/apps/{{ github_app_slug }}/installations/new',
-      gitlab: '{{ app_base_url }}/connect/gitlab',
-      jira: '{{ app_base_url }}/connect/jira',
-      teams_subscription: null,
-    };
+    const grid = document.getElementById('metric-cards');
+    grid.innerHTML = '';
 
-    async function init() {
-      const res = await fetch('/api/me', { credentials: 'include' });
-      const data = await res.json();
-
-      if (!data.authenticated) {
-        document.getElementById('not-logged-in').classList.remove('hidden');
-        document.getElementById('login-btn').classList.remove('hidden');
-        return;
-      }
-
-      document.getElementById('user-email').textContent = data.email;
-      document.getElementById('login-btn').classList.add('hidden');
-      document.getElementById('main-content').classList.remove('hidden');
-
-      renderIntegrations(data.integrations);
-      loadEvents();
-    }
-
-    function renderIntegrations(integrations) {
-      const grid = document.getElementById('integrations-grid');
-      grid.innerHTML = '';
-      for (const i of integrations) {
-        const connectUrl = CONNECT_URLS[i.source];
-        const actionBtn = i.connected
-          ? `<span class="text-xs text-green-400 font-medium">● Connected</span>`
-          : connectUrl
-            ? `<a href="${connectUrl}" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded-md transition">Connect</a>`
-            : `<span class="text-xs text-gray-500">Auto-registered</span>`;
-
-        grid.innerHTML += `
-          <div class="bg-gray-900 border ${i.connected ? 'border-green-800' : 'border-gray-800'} rounded-xl p-4 flex flex-col gap-3">
-            <div class="flex items-center gap-2">
-              <span class="text-lg">${SOURCE_ICONS[i.source] || '●'}</span>
-              <span class="font-medium text-sm">${i.label}</span>
-            </div>
-            ${actionBtn}
-          </div>`;
-      }
-    }
-
-    async function loadEvents() {
-      const res = await fetch('/api/events/recent?limit=15', { credentials: 'include' });
-      const data = await res.json();
-      const list = document.getElementById('events-list');
-
-      if (!data.events || data.events.length === 0) {
-        list.innerHTML = '<p class="text-gray-500 text-sm">No activity yet. Trigger a GitHub event to see it here.</p>';
-        return;
-      }
-
-      list.innerHTML = data.events.map(e => {
-        const color = SOURCE_COLORS[e.source] || 'bg-gray-700 text-gray-200';
-        const ts = new Date(e.occurred_at).toLocaleString();
-        const repo = e.workspace ? `<span class="text-gray-500 text-xs ml-1">${e.workspace}</span>` : '';
-        return `
-          <div class="flex items-start gap-3 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
-            <span class="text-xs px-2 py-0.5 rounded-full mt-0.5 ${color} shrink-0">${e.event_type}</span>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm text-gray-200 truncate">${e.title || '—'}${repo}</p>
-              <p class="text-xs text-gray-500 mt-0.5">${ts}</p>
-            </div>
-          </div>`;
-      }).join('');
-    }
-
-    async function runQuery() {
-      const input = document.getElementById('query-input');
-      const question = input.value.trim();
-      if (!question) return;
-
-      document.getElementById('query-result').classList.add('hidden');
-      document.getElementById('query-loading').classList.remove('hidden');
-
-      try {
-        const res = await fetch('/query', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question }),
-        });
-        const data = await res.json();
-        const resultEl = document.getElementById('query-result');
-        resultEl.textContent = data.answer || data.error || 'No response';
-        resultEl.classList.remove('hidden');
-      } catch (err) {
-        const resultEl = document.getElementById('query-result');
-        resultEl.textContent = 'Request failed. Check the app is running.';
-        resultEl.classList.remove('hidden');
-      } finally {
-        document.getElementById('query-loading').classList.add('hidden');
-      }
-    }
-
-    function setQuery(q) {
-      document.getElementById('query-input').value = q;
-      document.getElementById('query-input').focus();
-    }
-
-    document.getElementById('query-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') runQuery();
+    data.metrics.forEach(m => {
+      const up = m.change >= 0;
+      grid.innerHTML += `
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p class="text-xs text-gray-500 mb-1">${m.label}</p>
+          <p class="text-2xl font-bold">${m.value}</p>
+          <p class="text-xs mt-1 ${up ? 'text-green-400' : 'text-red-400'}">
+            ${up ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week
+          </p>
+        </div>`;
     });
 
-    init();
-  </script>
-</body>
-</html>
+    // AI Score card
+    const score = data.ai_score || 0;
+    const scoreColor = score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-red-400';
+    grid.innerHTML += `
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center justify-center">
+        <p class="text-xs text-gray-500 mb-2">AI Score</p>
+        <div class="relative w-16 h-16">
+          <svg viewBox="0 0 36 36" class="w-16 h-16 -rotate-90">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#374151" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${score >= 70 ? '#4ade80' : score >= 40 ? '#facc15' : '#f87171'}"
+              stroke-width="3" stroke-dasharray="${score} ${100 - score}" stroke-linecap="round"/>
+          </svg>
+          <span class="absolute inset-0 flex items-center justify-center text-sm font-bold ${scoreColor}">${score}</span>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">${score >= 70 ? 'Great' : score >= 40 ? 'Good' : 'Low'}</p>
+      </div>`;
+
+    // Chart
+    const ctx = document.getElementById('activity-chart').getContext('2d');
+    if (activityChart) activityChart.destroy();
+    activityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.chart.labels,
+        datasets: [{
+          label: 'Events',
+          data: data.chart.data,
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,0.1)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: true,
+          pointBackgroundColor: '#6366f1',
+          pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+          y: { grid: { color: '#1f2937' }, ticks: { color: '#6b7280', font: { size: 10 } }, beginAtZero: true },
+        },
+      }
+    });
+  }
+
+  async function loadTimeline() {
+    const res = await fetch('/api/events/recent?limit=20', { credentials: 'include' });
+    const data = await res.json();
+    const list = document.getElementById('timeline-list');
+
+    const today = new Date().toDateString();
+    const todayEvents = (data.events || []).filter(e => new Date(e.occurred_at).toDateString() === today);
+
+    if (!todayEvents.length) {
+      list.innerHTML = '<p class="text-gray-500 text-xs">No activity today yet.</p>';
+      return;
+    }
+
+    list.innerHTML = todayEvents.map(e => {
+      const time = new Date(e.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const color = SOURCE_COLORS[e.source] || 'bg-gray-700 text-gray-200';
+      return `
+        <div class="flex items-start gap-3">
+          <span class="text-xs text-gray-500 w-12 shrink-0 pt-0.5">${time}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-gray-200 truncate">${e.title || e.event_type}</p>
+            <span class="text-xs px-1.5 py-0.5 rounded-full ${color}">${e.event_type}</span>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+</script>
+{% endblock %}

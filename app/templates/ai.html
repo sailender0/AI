@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Ask AI — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Ask questions about your developer activity{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+
+  <!-- Query box -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Ask about your work</h2>
+    <div class="flex gap-3">
+      <input id="query-input" type="text"
+        placeholder="e.g. what did I push this week? how many PRs did I open today?"
+        class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 placeholder-gray-500"/>
+      <button onclick="runQuery()" id="ask-btn"
+        class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-lg text-sm font-medium transition">
+        Ask
+      </button>
+    </div>
+
+    <!-- Suggestions -->
+    <div class="flex flex-wrap gap-2 mt-4">
+      {% for q in [
+        "what did I push today?",
+        "how many PRs this week?",
+        "any issues updated today?",
+        "what did I work on this week?",
+        "recent commits",
+        "how many Jira issues this week?"
+      ] %}
+      <button onclick="setQuery('{{ q }}')"
+        class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-full transition">
+        {{ q }}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="query-loading" class="hidden flex items-center gap-3 text-sm text-gray-400 px-2">
+    <svg class="animate-spin w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+    </svg>
+    Thinking...
+  </div>
+
+  <!-- Result -->
+  <div id="query-result" class="hidden bg-gray-900 border border-indigo-800 rounded-xl p-6">
+    <div class="flex items-center gap-2 mb-3">
+      <div class="w-5 h-5 bg-indigo-600 rounded flex items-center justify-center text-xs">AI</div>
+      <span class="text-xs text-gray-400">Answer</span>
+    </div>
+    <p id="result-text" class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap"></p>
+  </div>
+
+  <!-- History -->
+  <div id="history-section" class="hidden">
+    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent questions</h3>
+    <div id="history-list" class="space-y-2"></div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const history = [];
+
+  async function onBaseReady() {
+    document.getElementById('query-input').focus();
+  }
+
+  async function runQuery() {
+    const input = document.getElementById('query-input');
+    const question = input.value.trim();
+    if (!question) return;
+
+    document.getElementById('query-result').classList.add('hidden');
+    document.getElementById('query-loading').classList.remove('hidden');
+    document.getElementById('ask-btn').disabled = true;
+
+    try {
+      const res = await fetch('/query', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const d = await res.json();
+      const answer = d.answer || d.error || 'No response';
+
+      document.getElementById('result-text').textContent = answer;
+      document.getElementById('query-result').classList.remove('hidden');
+
+      // Add to history
+      history.unshift({ question, answer });
+      renderHistory();
+    } catch (err) {
+      document.getElementById('result-text').textContent = 'Request failed. Check the app is running.';
+      document.getElementById('query-result').classList.remove('hidden');
+    } finally {
+      document.getElementById('query-loading').classList.add('hidden');
+      document.getElementById('ask-btn').disabled = false;
+    }
+  }
+
+  function renderHistory() {
+    if (history.length < 2) return;
+    const section = document.getElementById('history-section');
+    const list = document.getElementById('history-list');
+    section.classList.remove('hidden');
+    list.innerHTML = history.slice(1).map((h, i) => `
+      <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 cursor-pointer hover:border-gray-600 transition"
+        onclick="setQuery(${JSON.stringify(h.question)})">
+        <p class="text-xs text-gray-400 mb-1">${h.question}</p>
+        <p class="text-xs text-gray-500 truncate">${h.answer}</p>
+      </div>`).join('');
+  }
+
+  function setQuery(q) {
+    document.getElementById('query-input').value = q;
+    document.getElementById('query-input').focus();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.activeElement.id === 'query-input') runQuery();
+  });
+</script>
+{% endblock %}

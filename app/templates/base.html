@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Developer Activity Tracker{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 flex min-h-screen font-sans">
+
+  <!-- Sidebar -->
+  <aside class="w-52 min-h-screen fixed top-0 left-0 bg-gray-900 border-r border-gray-800 flex flex-col z-10">
+    <!-- Logo -->
+    <div class="px-4 py-5 flex items-center gap-3 border-b border-gray-800">
+      <div class="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-xs font-bold shrink-0">DA</div>
+      <span class="font-semibold text-sm leading-tight">Developer Activity</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+        {% if active_page == 'overview' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        Overview
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        My Day
+      </a>
+      <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-500 cursor-not-allowed">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        Analytics
+      </a>
+      <a href="/ai" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition
+        {% if active_page == 'ai' %}bg-indigo-600 text-white{% else %}text-gray-400 hover:bg-gray-800 hover:text-gray-100{% endif %}">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+        Ask AI
+      </a>
+    </nav>
+
+    <!-- Connectors -->
+    <div class="px-3 py-4 border-t border-gray-800">
+      <p class="text-xs text-gray-500 uppercase tracking-wider px-3 mb-2">Connectors</p>
+      <div id="sidebar-connectors" class="space-y-1">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- User -->
+    <div class="px-4 py-4 border-t border-gray-800">
+      <p id="sidebar-email" class="text-xs text-gray-500 truncate"></p>
+      <a href="/auth/login" id="sidebar-login" class="hidden mt-2 text-xs text-indigo-400 hover:text-indigo-300">Sign in</a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="ml-52 flex-1 flex flex-col min-h-screen">
+    <!-- Top bar -->
+    <header class="border-b border-gray-800 px-6 py-4 flex items-center justify-between bg-gray-950 sticky top-0 z-10">
+      <div>
+        <h1 id="page-greeting" class="text-lg font-semibold"></h1>
+        <p class="text-xs text-gray-500 mt-0.5">{% block page_subtitle %}This week's activity summary{% endblock %}</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-md">This week</span>
+        <div id="header-avatar" class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold hidden"></div>
+      </div>
+    </header>
+
+    <!-- Page content -->
+    <main class="flex-1 p-6">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script>
+    const ACTIVE_PAGE = "{{ active_page }}";
+
+    function getGreeting(email) {
+      const hour = new Date().getHours();
+      const name = email.split('@')[0].split('.')[0];
+      const capitalized = name.charAt(0).toUpperCase() + name.slice(1);
+      if (hour < 12) return `Good morning, ${capitalized}`;
+      if (hour < 17) return `Good afternoon, ${capitalized}`;
+      return `Good evening, ${capitalized}`;
+    }
+
+    const CONNECTOR_META = {
+      github:             { label: "GitHub",  href: "/github",  icon: "⌥" },
+      gitlab:             { label: "GitLab",  href: "/gitlab",  icon: "🦊" },
+      jira:               { label: "Jira",    href: "/jira",    icon: "◈" },
+      teams_subscription: { label: "Teams",   href: "/teams",   icon: "◉" },
+    };
+
+    async function initBase() {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      const data = await res.json();
+
+      if (!data.authenticated) {
+        document.getElementById('sidebar-login').classList.remove('hidden');
+        document.getElementById('page-greeting').textContent = 'Developer Activity Tracker';
+        return;
+      }
+
+      document.getElementById('sidebar-email').textContent = data.email;
+      document.getElementById('page-greeting').textContent = getGreeting(data.email);
+      const av = document.getElementById('header-avatar');
+      av.textContent = data.email[0].toUpperCase();
+      av.classList.remove('hidden');
+
+      // Render sidebar connectors
+      const container = document.getElementById('sidebar-connectors');
+      container.innerHTML = '';
+      for (const [source, meta] of Object.entries(CONNECTOR_META)) {
+        const connected = data.integrations[source];
+        const isActive = ACTIVE_PAGE === source || (ACTIVE_PAGE === 'teams' && source === 'teams_subscription');
+        const connectUrl = data.connect_urls?.[source];
+        container.innerHTML += `
+          <a href="${meta.href}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
+            ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'}">
+            <span class="text-base leading-none">${meta.icon}</span>
+            <span class="flex-1">${meta.label}</span>
+            ${connected
+              ? '<span class="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0"></span>'
+              : '<span class="w-1.5 h-1.5 rounded-full bg-gray-600 shrink-0"></span>'}
+          </a>`;
+      }
+
+      if (typeof onBaseReady === 'function') onBaseReady(data);
+    }
+
+    initBase();
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
