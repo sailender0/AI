@@ -47,8 +47,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     # GitHub: health check every 6 hours
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
-    # Daily summary: 5 PM every day
-    scheduler.add_job(run_summary_job, "cron", hour=17, minute=0, args=["daily"], id="daily_summary")
+    # Daily summary: fires every hour at :59; summarizer skips users not yet at local 23:xx
+    scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
     # Weekly summary: 5 PM every Friday
     scheduler.add_job(run_summary_job, "cron", day_of_week="fri", hour=17, minute=0, args=["weekly"], id="weekly_summary")
 

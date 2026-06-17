@@ -520,7 +520,7 @@ async def generate_summary(request: Request):
         return JSONResponse({"error": "profile_not_found"}, status_code=404)
 
     try:
-        await _summarise_profile(profile, profile_id, period_type)
+        await _summarise_profile(profile, profile_id, period_type, full_day=False)
         return JSONResponse({"ok": True})
     except Exception as exc:
         logger.error("On-demand summary failed: %s", exc)
