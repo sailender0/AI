@@ -89,6 +89,32 @@
     font-weight: 600;
     color: var(--text-1);
   }
+  .bv-btn {
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    border: none;
+    outline: none;
+  }
+  .bv-btn.bv-active {
+    background: #4F46E5;
+    color: #fff;
+  }
+  .bv-btn:not(.bv-active):hover {
+    background: var(--border);
+    color: var(--text-1);
+  }
+  .conn-btn {
+    cursor: pointer;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-2);
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
 </style>
 {% endblock %}
 
@@ -115,14 +141,21 @@
 
     const statsCache = {};
 
+    // Parse as UTC date-only to avoid midnight UTC shifting to previous day in local timezones
+    function fmtUtcDate(isoStr, opts) {
+      if (!isoStr) return '';
+      const [y, m, d] = isoStr.slice(0, 10).split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, { timeZone: 'UTC', ...opts });
+    }
+
     container.innerHTML = weeklies.map((s, i) => {
       const startStr = s.period_start ? s.period_start.slice(0, 10) : '';
       const endStr   = s.period_end   ? s.period_end.slice(0, 10)   : '';
-      const startLbl = new Date(s.period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const endLbl   = new Date(s.period_end).toLocaleDateString(undefined,   { month: 'short', day: 'numeric', year: 'numeric' });
+      const startLbl = fmtUtcDate(s.period_start, { month: 'short', day: 'numeric' });
+      const endLbl   = fmtUtcDate(s.period_end,   { month: 'short', day: 'numeric', year: 'numeric' });
       return `
         <div class="week-row ${i === 0 ? 'open' : ''}" id="week-${i}"
-          data-start="${startStr}" data-end="${endStr}">
+          data-start="${startStr}" data-end="${endStr}" data-id="${s.id}">
           <div class="week-header" onclick="toggleWeek(${i})">
             <div class="flex items-center gap-3">
               <span class="text-xs font-medium px-2 py-0.5 rounded"
@@ -136,12 +169,35 @@
           <div class="week-body">
             <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">${s.content || '—'}</p>
             <div id="week-stats-${i}" class="int-grid"></div>
+
+            <!-- Activity breakdown -->
+            <div class="mt-5">
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-3)">Activity Breakdown</span>
+                <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
+                  <button id="view-day-${i}"  onclick="setBreakdownView(${i},'day')"       class="bv-btn bv-active px-3 py-1 rounded-md text-xs font-medium">By Day</button>
+                  <button id="view-conn-${i}" onclick="setBreakdownView(${i},'connector')" class="bv-btn px-3 py-1 rounded-md text-xs font-medium">By Connector</button>
+                </div>
+              </div>
+              <div id="conn-selector-${i}" style="display:none" class="flex gap-2 flex-wrap mb-3">
+                <button id="conn-btn-${i}-github"             onclick="setConnector(${i},'github')"             class="conn-btn">GitHub</button>
+                <button id="conn-btn-${i}-jira"               onclick="setConnector(${i},'jira')"               class="conn-btn">Jira</button>
+                <button id="conn-btn-${i}-teams_subscription" onclick="setConnector(${i},'teams_subscription')" class="conn-btn">Teams</button>
+                <button id="conn-btn-${i}-gitlab"             onclick="setConnector(${i},'gitlab')"             class="conn-btn">GitLab</button>
+              </div>
+              <div id="week-breakdown-${i}">
+                <p class="text-xs" style="color:var(--text-3)">Loading…</p>
+              </div>
+            </div>
           </div>
         </div>`;
     }).join('');
 
-    // Auto-load stats for first (open) week
-    if (weeklies.length) loadWeekStats(0, statsCache);
+    // Auto-load stats and breakdown for first (open) week
+    if (weeklies.length) {
+      loadWeekStats(0, statsCache);
+      loadWeekBreakdown(0);
+    }
 
     window._weekStatsCache = statsCache;
   }
@@ -214,7 +270,113 @@
     row.classList.toggle('open');
     if (row.classList.contains('open')) {
       loadWeekStats(i, window._weekStatsCache || {});
+      loadWeekBreakdown(i);
     }
+  }
+
+  // ---------- Breakdown state ----------
+  const _breakdownCache = {};
+  const _breakdownView  = {};
+  const _breakdownConn  = {};
+
+  const SRC_LABELS = { github:'GitHub', jira:'Jira', teams_subscription:'Teams', gitlab:'GitLab' };
+  const SRC_COLOR  = { github:'#6366f1', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const SOURCES    = ['github','jira','teams_subscription','gitlab'];
+
+  function fmtDayLabel(dateStr) {
+    const [y,m,d] = dateStr.split('-').map(Number);
+    return new Date(Date.UTC(y,m-1,d)).toLocaleDateString(undefined, {
+      timeZone:'UTC', weekday:'long', month:'short', day:'numeric'
+    });
+  }
+
+  async function loadWeekBreakdown(i) {
+    if (_breakdownCache[i]) { renderBreakdown(i); return; }
+    const row   = document.getElementById('week-' + i);
+    const start = row?.dataset.start;
+    const end   = row?.dataset.end;
+    if (!start) return;
+    const res  = await fetch(`/api/week-breakdown?start=${start}&end=${end}`, { credentials:'include' });
+    const data = await res.json();
+    _breakdownCache[i] = data;
+    renderBreakdown(i);
+  }
+
+  function setBreakdownView(i, view) {
+    _breakdownView[i] = view;
+    document.getElementById('view-day-' + i)?.classList.toggle('bv-active',  view === 'day');
+    document.getElementById('view-conn-' + i)?.classList.toggle('bv-active', view === 'connector');
+    const sel = document.getElementById('conn-selector-' + i);
+    if (sel) sel.style.display = view === 'connector' ? 'flex' : 'none';
+    if (view === 'connector' && !_breakdownConn[i]) setConnector(i, 'github');
+    else renderBreakdown(i);
+  }
+
+  function setConnector(i, src) {
+    _breakdownConn[i] = src;
+    SOURCES.forEach(s => {
+      const btn = document.getElementById('conn-btn-' + i + '-' + s);
+      if (!btn) return;
+      const active = s === src;
+      btn.style.background  = active ? SRC_COLOR[s]      : 'var(--surface-2)';
+      btn.style.color       = active ? '#fff'             : 'var(--text-2)';
+      btn.style.borderColor = active ? SRC_COLOR[s]      : 'var(--border)';
+    });
+    renderBreakdown(i);
+  }
+
+  function renderBreakdown(i) {
+    const data = _breakdownCache[i];
+    const el   = document.getElementById('week-breakdown-' + i);
+    if (!data || !el) return;
+    const view = _breakdownView[i] || 'day';
+    el.innerHTML = view === 'day'
+      ? renderDayView(data.days || [])
+      : renderConnectorView(data.days || [], _breakdownConn[i] || 'github');
+  }
+
+  function renderDayView(days) {
+    if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
+    return days.map(day => {
+      const connRows = SOURCES.map(src => {
+        const c = day.connectors[src] || { count:0, items:[] };
+        const itemsHtml = c.count > 0
+          ? '<ul class="mt-1 space-y-0.5 pl-2">' + c.items.map(it => {
+              const ws = it.workspace ? ` <span style="color:var(--text-3);font-size:0.68rem">${it.workspace}</span>` : '';
+              return `<li class="text-xs" style="color:var(--text-2)">• ${it.title}${ws}</li>`;
+            }).join('') + '</ul>'
+          : '';
+        return `<div class="mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold" style="color:${SRC_COLOR[src]}">${SRC_LABELS[src]}</span>
+            <span class="text-xs" style="color:var(--text-3)">${c.count > 0 ? c.count + ' event' + (c.count>1?'s':'') : 'No activity'}</span>
+          </div>
+          ${itemsHtml}
+        </div>`;
+      }).join('');
+      return `<div class="mb-5">
+        <div class="text-xs font-bold mb-2" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
+        <div class="pl-3 space-y-1" style="border-left:2px solid var(--border)">${connRows}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderConnectorView(days, src) {
+    if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
+    return days.map(day => {
+      const c = day.connectors[src] || { count:0, items:[] };
+      const itemsHtml = c.count > 0
+        ? `<div class="text-xs mb-1" style="color:var(--text-3)">${c.count} event${c.count>1?'s':''}</div>` +
+          '<ul class="space-y-0.5">' + c.items.map(it => {
+            const ws = it.workspace ? ` <span style="color:var(--text-3);font-size:0.68rem">${it.workspace}</span>` : '';
+            return `<li class="text-xs" style="color:var(--text-2)">• ${it.title}${ws}</li>`;
+          }).join('') + '</ul>'
+        : '<span class="text-xs" style="color:var(--text-3)">No activity</span>';
+      return `<div class="mb-4">
+        <div class="text-xs font-bold mb-1" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
+        <div class="pl-3" style="border-left:2px solid ${SRC_COLOR[src]}">${itemsHtml}</div>
+      </div>`;
+    }).join('');
   }
 
 

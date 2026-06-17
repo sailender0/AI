@@ -15,6 +15,12 @@
     </a>
   </div>
 
+  <!-- Period toggle -->
+  <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
+    <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
+    <button id="period-week"  onclick="setPeriod('week')"  class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
+  </div>
+
   <!-- Metric cards -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="metric-cards"></div>
 
@@ -43,29 +49,45 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+  .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
+  .period-btn.active { background:#4F46E5; color:#fff; }
+  .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
+</style>
 <script>
   let chart = null;
+  let statsPeriod = 'week';
 
   async function onBaseReady(meData) {
     if (!meData.integrations.github) {
       document.getElementById('not-connected').classList.remove('hidden');
       document.getElementById('connect-btn').href = meData.connect_urls.github;
     }
+    setPeriod('week', false);
     await Promise.all([loadStats(), loadEvents()]);
   }
 
+  function setPeriod(p, fetch = true) {
+    statsPeriod = p;
+    document.getElementById('period-today').classList.toggle('active', p === 'today');
+    document.getElementById('period-week').classList.toggle('active',  p === 'week');
+    if (fetch) loadStats();
+  }
+
   async function loadStats() {
-    const res = await fetch('/api/github/stats', { credentials: 'include' });
+    const res = await fetch(`/api/github/stats?period=${statsPeriod}`, { credentials: 'include' });
     const data = await res.json();
 
     // Metrics
     const grid = document.getElementById('metric-cards');
     grid.innerHTML = (data.metrics || []).map(m => {
-      const up = m.change >= 0;
+      const changeHtml = m.change !== undefined
+        ? `<p class="text-xs mt-1 ${m.change >= 0 ? 'text-green-400' : 'text-red-400'}">${m.change >= 0 ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>`
+        : '';
       return `<div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <p class="text-xs text-gray-500 mb-1">${m.label}</p>
         <p class="text-2xl font-bold">${m.value}</p>
-        <p class="text-xs mt-1 ${up ? 'text-green-400' : 'text-red-400'}">${up ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>
+        ${changeHtml}
       </div>`;
     }).join('');
 

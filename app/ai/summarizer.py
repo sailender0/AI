@@ -151,17 +151,32 @@ async def _summarise_profile(profile, profile_id: str, period_type: str, full_da
     summary_text = response.choices[0].message.content.strip()
 
     async with AsyncSessionLocal() as db:
-        existing = await db.scalar(
+        # Anchor window to UTC day boundary so entries stored before/after timezone fix
+        # (e.g. Jun 15 00:00 UTC vs Jun 15 07:00 UTC) are treated as the same period
+        if period_type == "daily":
+            window_start = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            window_end   = window_start + timedelta(days=1)
+        else:
+            window_start = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            window_end   = window_start + timedelta(weeks=1)
+
+        existing_rows = (await db.execute(
             select(Summary).where(
                 Summary.profile_id == profile_id,
                 Summary.period_type == period_type,
-                Summary.period_start == period_start,
-            )
-        )
-        if existing:
-            existing.content    = summary_text
-            existing.period_end = period_end
-            summary = existing
+                Summary.period_start >= window_start,
+                Summary.period_start <  window_end,
+            ).order_by(Summary.period_end.desc())
+        )).scalars().all()
+
+        if existing_rows:
+            # Keep the newest, delete any duplicates created by earlier timezone mismatches
+            summary = existing_rows[0]
+            for dupe in existing_rows[1:]:
+                await db.delete(dupe)
+            summary.content      = summary_text
+            summary.period_start = period_start
+            summary.period_end   = period_end
         else:
             summary = Summary(
                 profile_id=profile_id,
