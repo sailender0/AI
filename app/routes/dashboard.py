@@ -28,12 +28,20 @@ _LABELS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _week_bounds(weeks_ago: int = 0):
-    now = datetime.now(timezone.utc)
+def _week_bounds(weeks_ago: int = 0, tz_name: str = "UTC"):
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name or "UTC")
+    now = datetime.now(tz)
     monday = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
     start = monday - timedelta(weeks=weeks_ago)
     end = start + timedelta(weeks=1)
-    return start, end
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+async def _get_profile_tz(profile_id: str) -> str:
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+        return (profile.timezone or "UTC") if profile else "UTC"
 
 
 def _pct(current: int, previous: int) -> int:
@@ -58,9 +66,11 @@ async def _count(profile_id, source=None, event_type_regex=None, start=None, end
     return await col.count_documents(q)
 
 
-async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7):
-    now = datetime.now(timezone.utc)
-    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7, tz_name: str = "UTC"):
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name or "UTC")
+    now = datetime.now(tz)
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     q = {"profile_id": profile_id, "occurred_at": {"$gte": start}}
     if source:
         q["source"] = source
@@ -68,7 +78,7 @@ async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7):
         q["event_type"] = {"$regex": event_type_regex}
     pipeline = [
         {"$match": q},
-        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at"}}, "count": {"$sum": 1}}},
+        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}}, "count": {"$sum": 1}}},
         {"$sort": {"_id": 1}},
     ]
     results = await activity_events().aggregate(pipeline).to_list(length=None)
@@ -219,6 +229,26 @@ async def get_me(request: Request):
     })
 
 
+@router.patch("/api/profile/timezone")
+async def update_profile_timezone(request: Request):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+    body = await request.json()
+    tz_name = body.get("timezone", "UTC")
+    try:
+        ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        return JSONResponse({"error": "invalid timezone"}, status_code=400)
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+        if profile:
+            profile.timezone = tz_name
+            await db.commit()
+    return JSONResponse({"ok": True, "timezone": tz_name})
+
+
 @router.get("/api/events/recent")
 async def get_recent_events(request: Request, limit: int = 20):
     profile_id = await get_profile_from_session(request)
@@ -248,35 +278,38 @@ async def get_recent_events(request: Request, limit: int = 20):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/stats")
-async def get_stats(request: Request):
+async def get_stats(request: Request, period: str = "week"):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    tw_s, tw_e = _week_bounds(0)
-    lw_s, lw_e = _week_bounds(1)
+    tz_name = await _get_profile_tz(profile_id)
 
-    commits_now  = await _count(profile_id, "github", "^commit", tw_s, tw_e)
-    commits_prev = await _count(profile_id, "github", "^commit", lw_s, lw_e)
-    prs_now      = await _count(profile_id, "github", "^pr_",    tw_s, tw_e)
-    prs_prev     = await _count(profile_id, "github", "^pr_",    lw_s, lw_e)
-    issues_now   = await _count(profile_id, "jira",   None,      tw_s, tw_e)
-    issues_prev  = await _count(profile_id, "jira",   None,      lw_s, lw_e)
-    meetings_now  = await _count(profile_id, "teams_subscription", None, tw_s, tw_e)
-    meetings_prev = await _count(profile_id, "teams_subscription", None, lw_s, lw_e)
+    if period == "today":
+        from zoneinfo import ZoneInfo
+        user_tz = ZoneInfo(tz_name)
+        now_local = datetime.now(user_tz)
+        tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        tw_e = datetime.now(timezone.utc)
+    else:
+        tw_s, tw_e = _week_bounds(0, tz_name)
 
-    total_now  = commits_now + prs_now * 2 + issues_now * 1.5 + meetings_now
-    total_prev = commits_prev + prs_prev * 2 + issues_prev * 1.5 + meetings_prev
-    score = min(100, round((total_now / max(1, total_prev)) * 65)) if total_prev else min(100, int(total_now * 3))
+    commits  = await _count(profile_id, "github", "^commit", tw_s, tw_e)
+    prs      = await _count(profile_id, "github", "^pr_",    tw_s, tw_e)
+    issues   = await _count(profile_id, "jira",   None,      tw_s, tw_e)
+    meetings = await _count(profile_id, "teams_subscription", None, tw_s, tw_e)
 
-    labels, counts = await _daily_counts(profile_id, days=7)
+    total = commits + prs * 2 + issues * 1.5 + meetings
+    score = min(100, int(total * 3))
+
+    labels, counts = await _daily_counts(profile_id, days=7, tz_name=tz_name)
 
     return JSONResponse({
         "metrics": [
-            {"label": "Commits",      "value": commits_now,  "change": _pct(commits_now,  commits_prev),  "icon": "commit"},
-            {"label": "Pull Requests","value": prs_now,      "change": _pct(prs_now,      prs_prev),      "icon": "pr"},
-            {"label": "Jira Issues",  "value": issues_now,   "change": _pct(issues_now,   issues_prev),   "icon": "jira"},
-            {"label": "Meetings",     "value": meetings_now, "change": _pct(meetings_now, meetings_prev), "icon": "meeting"},
+            {"label": "Commits",       "value": commits},
+            {"label": "Pull Requests", "value": prs},
+            {"label": "Jira Issues",   "value": issues},
+            {"label": "Meetings",      "value": meetings},
         ],
         "ai_score": score,
         "chart": {"labels": labels, "data": counts},
@@ -293,8 +326,9 @@ async def get_github_stats(request: Request):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    tw_s, tw_e = _week_bounds(0)
-    lw_s, lw_e = _week_bounds(1)
+    tz_name = await _get_profile_tz(profile_id)
+    tw_s, tw_e = _week_bounds(0, tz_name)
+    lw_s, lw_e = _week_bounds(1, tz_name)
 
     commits_now   = await _count(profile_id, "github", "^commit",      tw_s, tw_e)
     commits_prev  = await _count(profile_id, "github", "^commit",      lw_s, lw_e)
@@ -305,7 +339,7 @@ async def get_github_stats(request: Request):
     issues_now    = await _count(profile_id, "github", "^issue",       tw_s, tw_e)
     issues_prev   = await _count(profile_id, "github", "^issue",       lw_s, lw_e)
 
-    labels, counts = await _daily_counts(profile_id, "github", "^commit", days=7)
+    labels, counts = await _daily_counts(profile_id, "github", "^commit", days=7, tz_name=tz_name)
     top_repos = await _top_items(profile_id, "github")
 
     return JSONResponse({
@@ -331,8 +365,9 @@ async def get_jira_stats(request: Request):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    tw_s, tw_e = _week_bounds(0)
-    lw_s, lw_e = _week_bounds(1)
+    tz_name = await _get_profile_tz(profile_id)
+    tw_s, tw_e = _week_bounds(0, tz_name)
+    lw_s, lw_e = _week_bounds(1, tz_name)
 
     created_now   = await _count(profile_id, "jira", "issue_created", tw_s, tw_e)
     created_prev  = await _count(profile_id, "jira", "issue_created", lw_s, lw_e)
@@ -343,7 +378,7 @@ async def get_jira_stats(request: Request):
     total_now     = await _count(profile_id, "jira", None,            tw_s, tw_e)
     total_prev    = await _count(profile_id, "jira", None,            lw_s, lw_e)
 
-    labels, counts = await _daily_counts(profile_id, "jira", days=7)
+    labels, counts = await _daily_counts(profile_id, "jira", days=7, tz_name=tz_name)
     top_projects = await _top_items(profile_id, "jira")
 
     return JSONResponse({
@@ -369,13 +404,14 @@ async def get_teams_stats(request: Request):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    tw_s, tw_e = _week_bounds(0)
-    lw_s, lw_e = _week_bounds(1)
+    tz_name = await _get_profile_tz(profile_id)
+    tw_s, tw_e = _week_bounds(0, tz_name)
+    lw_s, lw_e = _week_bounds(1, tz_name)
 
     msgs_now  = await _count(profile_id, "teams_subscription", None, tw_s, tw_e)
     msgs_prev = await _count(profile_id, "teams_subscription", None, lw_s, lw_e)
 
-    labels, counts = await _daily_counts(profile_id, "teams_subscription", days=7)
+    labels, counts = await _daily_counts(profile_id, "teams_subscription", days=7, tz_name=tz_name)
 
     return JSONResponse({
         "metrics": [
@@ -397,8 +433,9 @@ async def get_gitlab_stats(request: Request):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    tw_s, tw_e = _week_bounds(0)
-    lw_s, lw_e = _week_bounds(1)
+    tz_name = await _get_profile_tz(profile_id)
+    tw_s, tw_e = _week_bounds(0, tz_name)
+    lw_s, lw_e = _week_bounds(1, tz_name)
 
     commits_now  = await _count(profile_id, "gitlab", "^commit", tw_s, tw_e)
     commits_prev = await _count(profile_id, "gitlab", "^commit", lw_s, lw_e)
@@ -407,7 +444,7 @@ async def get_gitlab_stats(request: Request):
     issues_now   = await _count(profile_id, "gitlab", "^issue",  tw_s, tw_e)
     issues_prev  = await _count(profile_id, "gitlab", "^issue",  lw_s, lw_e)
 
-    labels, counts = await _daily_counts(profile_id, "gitlab", "^commit", days=7)
+    labels, counts = await _daily_counts(profile_id, "gitlab", "^commit", days=7, tz_name=tz_name)
     top_repos = await _top_items(profile_id, "gitlab")
 
     return JSONResponse({
@@ -460,15 +497,19 @@ async def get_analytics_trend(request: Request, days: int = 28):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
-    now = datetime.now(timezone.utc)
-    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    tz_name = await _get_profile_tz(profile_id)
+    from zoneinfo import ZoneInfo
+    from datetime import datetime as _dt
+    tz = ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     sources = ["github", "jira", "teams_subscription", "gitlab"]
     pipeline = [
         {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
         {"$group": {
             "_id": {
-                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at"}},
+                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
                 "source": "$source",
             },
             "count": {"$sum": 1},
@@ -477,7 +518,7 @@ async def get_analytics_trend(request: Request, days: int = 28):
     ]
     results = await activity_events().aggregate(pipeline).to_list(length=None)
 
-    # Build day labels
+    # Build day labels in user's local time
     labels = []
     for i in range(days - 1, -1, -1):
         d = now - timedelta(days=i)
@@ -491,9 +532,6 @@ async def get_analytics_trend(request: Request, days: int = 28):
         if src in pivot and day in pivot[src]:
             pivot[src][day] = r["count"]
 
-    display_labels = [(datetime.strptime(d, "%Y-%m-%d")).strftime("%b %-d") if hasattr(datetime, "strptime") else d for d in labels]
-    # safe cross-platform label formatting
-    from datetime import datetime as _dt
     display_labels = [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
 
     return JSONResponse({
@@ -527,16 +565,66 @@ async def generate_summary(request: Request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@router.get("/api/debug/today-events")
+async def debug_today_events(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+
+    # All events for this profile, no date filter
+    all_cursor = activity_events().find(
+        {"profile_id": profile_id}, {"raw_payload": 0}
+    ).sort("occurred_at", -1)
+    all_events = await all_cursor.to_list(length=20)
+
+    # Also check if ANY events exist in the collection at all
+    total_in_collection = await activity_events().count_documents({})
+
+    # Check distinct profile_ids stored in MongoDB
+    distinct_pids = await activity_events().distinct("profile_id")
+
+    breakdown = {}
+    for e in all_events:
+        key = f"{e.get('source')}::{e.get('event_type')}"
+        breakdown[key] = breakdown.get(key, 0) + 1
+
+    recent = []
+    for e in all_events[:5]:
+        ts = e.get("occurred_at")
+        recent.append({
+            "source": e.get("source"),
+            "event_type": e.get("event_type"),
+            "occurred_at": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+            "title": e.get("title", "")[:60],
+        })
+
+    return JSONResponse({
+        "session_profile_id": profile_id,
+        "profile_timezone": profile.timezone if profile else None,
+        "total_events_in_collection": total_in_collection,
+        "distinct_profile_ids_in_mongo": distinct_pids,
+        "events_for_this_profile": len(all_events),
+        "breakdown": breakdown,
+        "recent_5": recent,
+    })
+
+
 @router.get("/api/week-stats")
 async def get_week_stats(request: Request, start: str = None, end: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
+    tz_name = await _get_profile_tz(profile_id)
+    from zoneinfo import ZoneInfo
     from datetime import datetime as _dt
+    tz = ZoneInfo(tz_name)
     try:
-        start_dt = _dt.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_dt   = _dt.strptime(end,   "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+        start_dt = _dt.strptime(start, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        end_dt   = (_dt.strptime(end, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=tz).astimezone(timezone.utc)
     except (ValueError, TypeError):
         return JSONResponse({"error": "invalid date"}, status_code=400)
 
@@ -568,11 +656,14 @@ async def get_day_data(request: Request, date: str = None):
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
+    tz_name = await _get_profile_tz(profile_id)
+    from zoneinfo import ZoneInfo
     from datetime import datetime as _dt
+    tz = ZoneInfo(tz_name)
     if not date:
-        date = _dt.now(timezone.utc).strftime("%Y-%m-%d")
+        date = datetime.now(tz).strftime("%Y-%m-%d")
     try:
-        day_start = _dt.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        day_start = _dt.strptime(date, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
     except ValueError:
         return JSONResponse({"error": "invalid date"}, status_code=400)
     day_end = day_start + timedelta(days=1)

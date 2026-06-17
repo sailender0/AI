@@ -390,6 +390,17 @@
           </a>`;
       }
 
+      // Save browser timezone before loading any data — ensures all queries use local time
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        await fetch('/api/profile/timezone', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timezone: tz }),
+          credentials: 'include',
+        });
+      } catch (_) {}
+
       if (typeof onBaseReady === 'function') onBaseReady(data);
     }
 
