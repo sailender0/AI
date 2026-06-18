@@ -163,7 +163,7 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
     import asyncio
     asyncio.create_task(auto_register_webhook(app, profile_id))
 
-    return {"status": "connected", "app": app}
+    return RedirectResponse(url=f"/{app}", status_code=302)
 
 
 async def get_valid_token(profile_id: str, source: str) -> str | None:

@@ -6,7 +6,7 @@
 <div class="space-y-6">
 
   <!-- Calendar -->
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-4" style="max-width:340px">
+  <div class="card p-4" style="max-width:340px">
     <div class="flex items-center justify-between mb-3">
       <button onclick="prevMonth()" id="prev-btn"
         class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition text-gray-400 hover:text-gray-200">
@@ -49,7 +49,7 @@
   </div>
 
   <!-- AI Summary -->
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+  <div class="card p-6">
     <h2 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-3)">AI Summary</h2>
     <p id="summary-content" class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">Loading…</p>
   </div>
@@ -58,7 +58,7 @@
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="today-stats"></div>
 
   <!-- Activity timeline -->
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+  <div class="card p-6">
     <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)">Activity Timeline</h2>
     <div id="events-list" class="space-y-2"></div>
   </div>
@@ -82,7 +82,7 @@
   .cal-cell.clickable:hover { background: var(--surface-2); }
   .cal-cell.future { color: var(--text-3); opacity: 0.4; cursor: default; }
   .cal-cell.today { font-weight: 700; }
-  .cal-cell.selected { background: #4F46E5 !important; color: #fff !important; font-weight: 600; }
+  .cal-cell.selected { background: var(--chrome) !important; color: var(--chrome-text) !important; font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -217,16 +217,20 @@
     const sc       = data.source_counts || {};
     const evtLabel = isToday ? 'events today' : 'events that day';
     document.getElementById('today-stats').innerHTML = [
-      { label: 'GitHub', key: 'github',             icon: '⌥' },
-      { label: 'Jira',   key: 'jira',               icon: '◈' },
-      { label: 'Teams',  key: 'teams_subscription', icon: '◉' },
-      { label: 'GitLab', key: 'gitlab',             icon: '🦊' },
+      { label: 'GitHub', key: 'github',             icon: '⌥', grad: '#f97316,#fb923c', cls: 'kpi-num-github'  },
+      { label: 'Jira',   key: 'jira',               icon: '◈', grad: '#06b6d4,#22d3ee', cls: 'kpi-num-jira'    },
+      { label: 'Teams',  key: 'teams_subscription', icon: '◉', grad: '#8b5cf6,#a78bfa', cls: 'kpi-num-teams'   },
+      { label: 'GitLab', key: 'gitlab',             icon: '🦊', grad: '#10b981,#34d399', cls: 'kpi-num-gitlab'  },
     ].map(s => `
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs mb-1" style="color:var(--text-3)">${s.icon} ${s.label}</p>
-        <p class="text-2xl font-bold">${sc[s.key] || 0}</p>
-        <p class="text-xs mt-1" style="color:var(--text-3)">${evtLabel}</p>
+      <div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
+        <div style="height:2px;background:linear-gradient(90deg,${s.grad})"></div>
+        <div class="p-4">
+          <p class="kpi-label mb-2">${s.icon} ${s.label}</p>
+          <p class="kpi-number ${s.cls}">${sc[s.key] || 0}</p>
+          <p class="text-xs mt-1" style="color:var(--text-3)">${evtLabel}</p>
+        </div>
       </div>`).join('');
+    initKpiTilt();
 
     // Timeline
     const list   = document.getElementById('events-list');
@@ -241,10 +245,10 @@
     list.innerHTML = renderTimeline(events);
   }
 
-  const _DAY_SRC_COLOR = { github:'#22c55e', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const _DAY_SRC_COLOR = { github:'#f97316', jira:'#06b6d4', teams_subscription:'#8b5cf6', gitlab:'#10b981' };
   const _DAY_SRC_LABEL = { github:'GitHub',  jira:'Jira',    teams_subscription:'Teams',   gitlab:'GitLab'  };
 
-  const _DAY_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  const _DAY_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _dayRepoColor(str) {
     let h = 0;
     for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
@@ -274,7 +278,7 @@
     const author   = window._actAuthorName   || 'you';
 
     return sources.map(src => {
-      const color = _DAY_SRC_COLOR[src] || '#6366f1';
+      const color = _DAY_SRC_COLOR[src] || '#64748b';
       const label = _DAY_SRC_LABEL[src] || src;
       const items = bySource[src];
         const groups = {};
@@ -302,8 +306,7 @@
           }).join('')}</div>
         </div>`).join('');
       return `<div class="mb-4">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+        <div class="flex items-center gap-2 mb-2 pl-2.5" style="border-left:2px solid ${color}">
           <span class="text-xs font-semibold" style="color:${color}">${label}</span>
           <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length!==1?'s':''}</span>
         </div>

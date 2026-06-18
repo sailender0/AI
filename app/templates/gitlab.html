@@ -5,6 +5,19 @@
 {% block content %}
 <div class="space-y-6">
 
+  <!-- Not connected banner -->
+  <div id="not-connected" class="hidden bg-gray-900 border border-gray-700 rounded-xl p-8 text-center">
+    <div class="text-4xl mb-3">🦊</div>
+    <h2 class="text-lg font-semibold mb-2">Connect GitLab</h2>
+    <p class="text-gray-400 text-sm mb-6">Connect your GitLab account to track commits, merge requests, issues and more.</p>
+    <a id="connect-btn" href="#" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition">
+      Connect GitLab
+    </a>
+  </div>
+
+  <!-- Main content (hidden until connected) -->
+  <div id="main-content" class="hidden space-y-6">
+
   <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
@@ -14,20 +27,23 @@
   <div class="grid grid-cols-2 lg:grid-cols-3 gap-4" id="metric-cards"></div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 class="text-sm font-semibold text-gray-300 mb-4">Commits (last 7 days)</h2>
+    <div class="lg:col-span-2 card p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold mb-4" style="color:var(--text-1)">
+        Commits (last 7 days)
+        <span class="src-badge" style="background:#10b98118;color:#10b981">GitLab</span>
+      </h2>
       <canvas id="main-chart" height="120"></canvas>
     </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 class="text-sm font-semibold text-gray-300 mb-4" id="top-label">Top Projects</h2>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)" id="top-label">Top Projects</h2>
       <div id="top-items" class="space-y-2"></div>
     </div>
   </div>
 
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+  <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
-        <h2 class="text-sm font-semibold text-gray-300">Recent Activity</h2>
+        <h2 class="text-sm font-semibold" style="color:var(--text-1)">Recent Activity</h2>
         <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
           <button id="evt-today"   onclick="setEvtPeriod('today')"   class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">Today</button>
           <button id="evt-history" onclick="setEvtPeriod('history')" class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">History</button>
@@ -35,21 +51,17 @@
       </div>
       <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh</button>
     </div>
-    <div id="events-list" class="space-y-2 overflow-y-auto" style="max-height:420px">
-      <div id="not-connected" class="hidden text-center py-10">
-        <p class="text-gray-400 text-sm mb-3">GitLab is not connected yet.</p>
-        <a href="/connect/gitlab" class="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-sm transition">Connect GitLab</a>
-      </div>
-    </div>
+    <div id="events-list" class="space-y-2 overflow-y-auto" style="max-height:420px"></div>
   </div>
 
+  </div><!-- /main-content -->
 </div>
 {% endblock %}
 
 {% block scripts %}
 <style>
   .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
-  .period-btn.active { background:#4F46E5; color:#fff; }
+  .period-btn.active { background:var(--chrome); color:var(--chrome-text); }
   .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
 </style>
 <script>
@@ -63,10 +75,13 @@
     window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     if (!meData.integrations.gitlab) {
       document.getElementById('not-connected').classList.remove('hidden');
+      document.getElementById('connect-btn').href = meData.connect_urls.gitlab;
+    } else {
+      document.getElementById('main-content').classList.remove('hidden');
+      setPeriod('week', false);
+      setEvtPeriod('today', false);
+      await Promise.all([loadStats(), loadEvents()]);
     }
-    setPeriod('week', false);
-    setEvtPeriod('today', false);
-    await Promise.all([loadStats(), loadEvents()]);
   }
 
   function setEvtPeriod(p, fetch = true) {
@@ -92,12 +107,16 @@
       const changeHtml = m.change !== undefined
         ? `<p class="text-xs mt-1 ${m.change >= 0 ? 'text-green-400' : 'text-red-400'}">${m.change >= 0 ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>`
         : '';
-      return `<div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500 mb-1">${m.label}</p>
-        <p class="text-2xl font-bold">${m.value}</p>
-        ${changeHtml}
+      return `<div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
+        <div style="height:2px;background:linear-gradient(90deg,#10b981,#34d399)"></div>
+        <div class="p-4">
+          <p class="kpi-label mb-2">${m.label}</p>
+          <p class="kpi-number kpi-num-gitlab">${m.value}</p>
+          ${changeHtml}
+        </div>
       </div>`;
     }).join('');
+    initKpiTilt();
 
     const ctx = document.getElementById('main-chart').getContext('2d');
     if (chart) chart.destroy();
@@ -108,12 +127,12 @@
         datasets: [{
           label: data.chart.label,
           data: data.chart.data,
-          borderColor: '#f97316',
-          backgroundColor: 'rgba(249,115,22,0.1)',
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16,185,129,0.1)',
           borderWidth: 2,
           tension: 0.4,
           fill: true,
-          pointBackgroundColor: '#f97316',
+          pointBackgroundColor: '#10b981',
           pointRadius: 3,
         }]
       },
@@ -146,7 +165,7 @@
     }
   }
 
-  const _GL_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  const _GL_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _glRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _GL_COLORS[h%_GL_COLORS.length]; }
   const _GL_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _GL_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
@@ -177,7 +196,7 @@
     events.forEach(it => { const k=it.event_type||'other'; (groups[k]=groups[k]||[]).push(it); });
     return Object.entries(groups).map(([et,evts]) => `
       <div class="mb-3">
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2 mb-1 pl-2" style="border-left:2px solid #10b981">
           <span class="text-xs font-semibold" style="color:var(--text-2)">${_glFmt(et)}</span>
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>

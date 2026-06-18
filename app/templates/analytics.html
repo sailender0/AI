@@ -97,8 +97,8 @@
     outline: none;
   }
   .bv-btn.bv-active {
-    background: #4F46E5;
-    color: #fff;
+    background: var(--chrome);
+    color: var(--chrome-text);
   }
   .bv-btn:not(.bv-active):hover {
     background: var(--border);
@@ -252,6 +252,8 @@
       },
     ];
 
+    const INTG_GRAD = { github:'#f97316,#fb923c', jira:'#06b6d4,#22d3ee', teams:'#8b5cf6,#a78bfa', gitlab:'#10b981,#34d399' };
+    const INTG_CLS  = { github:'kpi-num-github',  jira:'kpi-num-jira',   teams:'kpi-num-teams',  gitlab:'kpi-num-gitlab'  };
     const cards = INTEGRATIONS
       .filter(intg => {
         const d = data[intg.key];
@@ -259,11 +261,18 @@
       })
       .map(intg => {
         const rows = intg.stats(data[intg.key])
-          .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val">${r.val}</span></div>`)
+          .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val ${INTG_CLS[intg.key]||''}">${r.val}</span></div>`)
           .join('');
-        return `<div class="int-card"><div class="int-card-title">${intg.label}</div>${rows}</div>`;
+        const grad = INTG_GRAD[intg.key] || '#64748b,#94a3b8';
+        return `<div class="int-card kpi-tilt-card" style="overflow:hidden;padding:0">
+          <div style="height:2px;background:linear-gradient(90deg,${grad})"></div>
+          <div style="padding:10px 14px">
+            <div class="int-card-title">${intg.label}</div>${rows}
+          </div>
+        </div>`;
       })
       .join('');
+    setTimeout(initKpiTilt, 0);
 
     el.innerHTML = cards || '<p style="color:var(--text-3);font-size:12px;margin-top:8px">No integration data for this week.</p>';
   }
@@ -283,7 +292,7 @@
   const _breakdownConn  = {};
 
   const SRC_LABELS = { github:'GitHub', jira:'Jira', teams_subscription:'Teams', gitlab:'GitLab' };
-  const SRC_COLOR  = { github:'#22c55e', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const SRC_COLOR  = { github:'#f97316', jira:'#06b6d4', teams_subscription:'#8b5cf6', gitlab:'#10b981' };
   const SOURCES    = ['github','jira','teams_subscription','gitlab'];
 
   function fmtDayLabel(dateStr) {
@@ -302,7 +311,7 @@
     return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
 
-  const _FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  const _FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _feedRepoColor(str) {
     let h = 0;
     for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
@@ -392,8 +401,7 @@
       const connRows = SOURCES.map(src => {
         const c = day.connectors[src] || { count:0, items:[] };
         return `<div class="mb-3">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${SRC_COLOR[src]}"></span>
+          <div class="flex items-center gap-2 mb-2 pl-2" style="border-left:2px solid ${SRC_COLOR[src]}">
             <span class="text-xs font-semibold" style="color:${SRC_COLOR[src]}">${SRC_LABELS[src]}</span>
             <span class="text-xs" style="color:var(--text-3)">${c.count > 0 ? c.count + ' event' + (c.count>1?'s':'') : 'No activity'}</span>
           </div>

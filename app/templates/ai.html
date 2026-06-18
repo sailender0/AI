@@ -32,7 +32,7 @@
 
     <!-- Welcome / empty state -->
     <div id="welcome-state" class="flex-1 flex flex-col items-center justify-center p-8">
-      <div class="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mb-5" style="box-shadow:0 0 0 8px rgba(99,102,241,0.12)">
+      <div class="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mb-5" style="box-shadow:0 0 0 8px rgba(0,0,0,0.12)">
         <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
         </svg>
@@ -67,7 +67,7 @@
           onkeydown="handleInputKey(event)"></textarea>
         <button id="send-btn" onclick="sendMessage()"
           class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition"
-          style="background:#4f46e5;color:#fff">
+          style="background:var(--chrome);color:var(--chrome-text)">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/>
           </svg>
@@ -101,7 +101,7 @@
     transition: background 0.12s; position: relative;
   }
   .conv-item:hover { background: var(--surface-2); }
-  .conv-item.active { background: rgba(99,102,241,0.12); }
+  .conv-item.active { background: var(--surface-2); border: 1px solid var(--border-strong); }
   .conv-del { opacity: 0; transition: opacity 0.12s; flex-shrink: 0; }
   .conv-item:hover .conv-del { opacity: 1; }
 
@@ -109,7 +109,7 @@
     display: flex; justify-content: flex-end; margin-bottom: 18px;
   }
   .msg-user-bubble {
-    max-width: 75%; background: #4f46e5; color: #fff;
+    max-width: 75%; background: var(--chrome); color: var(--chrome-text);
     border-radius: 18px; border-bottom-right-radius: 4px;
     padding: 10px 16px; font-size: 14px; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word;
@@ -119,9 +119,9 @@
   }
   .msg-ai-avatar {
     width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
-    background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+    background: var(--surface-2); border: 1px solid var(--border-strong);
     display: flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; color: #818cf8; margin-top: 1px;
+    font-size: 9px; font-weight: 700; color: var(--text-2); margin-top: 1px;
   }
   .msg-ai-bubble {
     max-width: 75%;
@@ -133,7 +133,7 @@
 
   /* typing dots */
   .typing-dot {
-    width: 7px; height: 7px; border-radius: 50%; background: #818cf8;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--text-2);
     animation: tdot 1.2s infinite;
     display: inline-block;
   }

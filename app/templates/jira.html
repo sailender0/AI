@@ -15,6 +15,9 @@
     </a>
   </div>
 
+  <!-- Main content (hidden until connected) -->
+  <div id="main-content" class="hidden space-y-6">
+
   <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
@@ -24,20 +27,23 @@
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="metric-cards"></div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 class="text-sm font-semibold text-gray-300 mb-4">Issues (last 7 days)</h2>
+    <div class="lg:col-span-2 card p-5">
+      <h2 class="flex items-center gap-2 text-sm font-semibold mb-4" style="color:var(--text-1)">
+        Issues (last 7 days)
+        <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Jira</span>
+      </h2>
       <canvas id="main-chart" height="120"></canvas>
     </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
-      <h2 class="text-sm font-semibold text-gray-300 mb-4" id="top-label">Top Projects</h2>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)" id="top-label">Top Projects</h2>
       <div id="top-items" class="space-y-2"></div>
     </div>
   </div>
 
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+  <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
-        <h2 class="text-sm font-semibold text-gray-300">Recent Activity</h2>
+        <h2 class="text-sm font-semibold" style="color:var(--text-1)">Recent Activity</h2>
         <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
           <button id="evt-today"   onclick="setEvtPeriod('today')"   class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">Today</button>
           <button id="evt-history" onclick="setEvtPeriod('history')" class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">History</button>
@@ -48,13 +54,14 @@
     <div id="events-list" class="space-y-2 overflow-y-auto" style="max-height:420px"></div>
   </div>
 
+  </div><!-- /main-content -->
 </div>
 {% endblock %}
 
 {% block scripts %}
 <style>
   .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
-  .period-btn.active { background:#4F46E5; color:#fff; }
+  .period-btn.active { background:var(--chrome); color:var(--chrome-text); }
   .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
 </style>
 <script>
@@ -69,10 +76,12 @@
     if (!meData.integrations.jira) {
       document.getElementById('not-connected').classList.remove('hidden');
       document.getElementById('connect-btn').href = meData.connect_urls.jira;
+    } else {
+      document.getElementById('main-content').classList.remove('hidden');
+      setPeriod('week', false);
+      setEvtPeriod('today', false);
+      await Promise.all([loadStats(), loadEvents()]);
     }
-    setPeriod('week', false);
-    setEvtPeriod('today', false);
-    await Promise.all([loadStats(), loadEvents()]);
   }
 
   function setEvtPeriod(p, fetch = true) {
@@ -98,12 +107,16 @@
       const changeHtml = m.change !== undefined
         ? `<p class="text-xs mt-1 ${m.change >= 0 ? 'text-green-400' : 'text-red-400'}">${m.change >= 0 ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>`
         : '';
-      return `<div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500 mb-1">${m.label}</p>
-        <p class="text-2xl font-bold">${m.value}</p>
-        ${changeHtml}
+      return `<div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
+        <div style="height:2px;background:linear-gradient(90deg,#06b6d4,#22d3ee)"></div>
+        <div class="p-4">
+          <p class="kpi-label mb-2">${m.label}</p>
+          <p class="kpi-number kpi-num-jira">${m.value}</p>
+          ${changeHtml}
+        </div>
       </div>`;
     }).join('');
+    initKpiTilt();
 
     const ctx = document.getElementById('main-chart').getContext('2d');
     if (chart) chart.destroy();
@@ -114,8 +127,8 @@
         datasets: [{
           label: data.chart.label,
           data: data.chart.data,
-          backgroundColor: 'rgba(59,130,246,0.6)',
-          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(6,182,212,0.6)',
+          borderColor: '#06b6d4',
           borderWidth: 1,
           borderRadius: 4,
         }]
@@ -143,13 +156,13 @@
             <span class="text-gray-500 ml-2 shrink-0">${item.count}</span>
           </div>
           <div class="h-1 bg-gray-800 rounded-full">
-            <div class="h-1 bg-blue-500 rounded-full" style="width:${Math.round(item.count/max*100)}%"></div>
+            <div class="h-1 rounded-full" style="width:${Math.round(item.count/max*100)}%;background:#06b6d4"></div>
           </div>
         </div>`).join('');
     }
   }
 
-  const _JR_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  const _JR_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _jrRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _JR_COLORS[h%_JR_COLORS.length]; }
   const _JR_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _JR_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
@@ -180,7 +193,7 @@
     events.forEach(it => { const k=it.event_type||'other'; (groups[k]=groups[k]||[]).push(it); });
     return Object.entries(groups).map(([et,evts]) => `
       <div class="mb-3">
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2 mb-1 pl-2" style="border-left:2px solid #06b6d4">
           <span class="text-xs font-semibold" style="color:var(--text-2)">${_jrFmt(et)}</span>
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>
