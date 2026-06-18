@@ -120,7 +120,10 @@
 
 {% block scripts %}
 <script>
-  async function onBaseReady() {
+  async function onBaseReady(data) {
+    const raw = (data.email || '').split('@')[0];
+    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
+    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     await loadSummaries();
   }
 
@@ -280,7 +283,7 @@
   const _breakdownConn  = {};
 
   const SRC_LABELS = { github:'GitHub', jira:'Jira', teams_subscription:'Teams', gitlab:'GitLab' };
-  const SRC_COLOR  = { github:'#6366f1', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const SRC_COLOR  = { github:'#22c55e', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
   const SOURCES    = ['github','jira','teams_subscription','gitlab'];
 
   function fmtDayLabel(dateStr) {
@@ -288,6 +291,54 @@
     return new Date(Date.UTC(y,m-1,d)).toLocaleDateString(undefined, {
       timeZone:'UTC', weekday:'long', month:'short', day:'numeric'
     });
+  }
+
+  function fmtEventType(et) {
+    return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function fmtTime(isoStr) {
+    if (!isoStr) return '';
+    return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  const _FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  function _feedRepoColor(str) {
+    let h = 0;
+    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+    return _FEED_COLORS[h % _FEED_COLORS.length];
+  }
+  const _CF_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
+  const _CF_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+
+  function renderItems(items, src) {
+    if (!items || !items.length) return '';
+    const initials = window._actUserInitials || '??';
+    const author   = window._actAuthorName   || 'you';
+    const groups   = {};
+    items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
+    return Object.entries(groups).map(([et, evts]) => `
+      <div class="mb-3">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-xs font-semibold" style="color:var(--text-2)">${fmtEventType(et)}</span>
+          <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
+        </div>
+        <div class="commit-feed">${evts.map(it => {
+          const color = _feedRepoColor(it.workspace || src || '');
+          const time  = fmtTime(it.occurred_at);
+          return `<div class="commit-item">
+            <div class="commit-avatar" style="background:${color}">${initials}</div>
+            <div class="commit-body">
+              <div class="commit-meta">
+                <span class="commit-author">${author}</span>
+                ${it.workspace ? `<span class="commit-repo-pill">${_CF_BRANCH} ${it.workspace}</span>` : ''}
+                ${time ? `<span class="commit-time">${_CF_CLOCK} ${time}</span>` : ''}
+              </div>
+              <div class="commit-title">${it.title || '—'}</div>
+            </div>
+          </div>`;
+        }).join('')}</div>
+      </div>`).join('');
   }
 
   async function loadWeekBreakdown(i) {
@@ -318,9 +369,9 @@
       const btn = document.getElementById('conn-btn-' + i + '-' + s);
       if (!btn) return;
       const active = s === src;
-      btn.style.background  = active ? SRC_COLOR[s]      : 'var(--surface-2)';
-      btn.style.color       = active ? '#fff'             : 'var(--text-2)';
-      btn.style.borderColor = active ? SRC_COLOR[s]      : 'var(--border)';
+      btn.style.background  = active ? SRC_COLOR[s]  : 'var(--surface-2)';
+      btn.style.color       = active ? '#fff'         : 'var(--text-2)';
+      btn.style.borderColor = active ? SRC_COLOR[s]  : 'var(--border)';
     });
     renderBreakdown(i);
   }
@@ -340,23 +391,18 @@
     return days.map(day => {
       const connRows = SOURCES.map(src => {
         const c = day.connectors[src] || { count:0, items:[] };
-        const itemsHtml = c.count > 0
-          ? '<ul class="mt-1 space-y-0.5 pl-2">' + c.items.map(it => {
-              const ws = it.workspace ? ` <span style="color:var(--text-3);font-size:0.68rem">${it.workspace}</span>` : '';
-              return `<li class="text-xs" style="color:var(--text-2)">• ${it.title}${ws}</li>`;
-            }).join('') + '</ul>'
-          : '';
-        return `<div class="mb-2">
-          <div class="flex items-center gap-2">
+        return `<div class="mb-3">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${SRC_COLOR[src]}"></span>
             <span class="text-xs font-semibold" style="color:${SRC_COLOR[src]}">${SRC_LABELS[src]}</span>
             <span class="text-xs" style="color:var(--text-3)">${c.count > 0 ? c.count + ' event' + (c.count>1?'s':'') : 'No activity'}</span>
           </div>
-          ${itemsHtml}
+          ${c.count > 0 ? renderItems(c.items, src) : ''}
         </div>`;
       }).join('');
       return `<div class="mb-5">
-        <div class="text-xs font-bold mb-2" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
-        <div class="pl-3 space-y-1" style="border-left:2px solid var(--border)">${connRows}</div>
+        <div class="text-xs font-bold mb-3" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
+        <div class="pl-3" style="border-left:2px solid var(--border)">${connRows}</div>
       </div>`;
     }).join('');
   }
@@ -365,16 +411,14 @@
     if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
     return days.map(day => {
       const c = day.connectors[src] || { count:0, items:[] };
-      const itemsHtml = c.count > 0
-        ? `<div class="text-xs mb-1" style="color:var(--text-3)">${c.count} event${c.count>1?'s':''}</div>` +
-          '<ul class="space-y-0.5">' + c.items.map(it => {
-            const ws = it.workspace ? ` <span style="color:var(--text-3);font-size:0.68rem">${it.workspace}</span>` : '';
-            return `<li class="text-xs" style="color:var(--text-2)">• ${it.title}${ws}</li>`;
-          }).join('') + '</ul>'
-        : '<span class="text-xs" style="color:var(--text-3)">No activity</span>';
       return `<div class="mb-4">
-        <div class="text-xs font-bold mb-1" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
-        <div class="pl-3" style="border-left:2px solid ${SRC_COLOR[src]}">${itemsHtml}</div>
+        <div class="flex items-center gap-2 mb-2">
+          <div class="text-xs font-bold" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
+          ${c.count > 0 ? `<span class="text-xs" style="color:var(--text-3)">${c.count} event${c.count>1?'s':''}</span>` : ''}
+        </div>
+        <div class="pl-3" style="border-left:2px solid ${SRC_COLOR[src]}">
+          ${c.count > 0 ? renderItems(c.items, src) : '<span class="text-xs" style="color:var(--text-3)">No activity</span>'}
+        </div>
       </div>`;
     }).join('');
   }

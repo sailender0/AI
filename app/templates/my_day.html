@@ -105,7 +105,10 @@
     return d.toISOString().slice(0, 10);
   }
 
-  async function onBaseReady() {
+  async function onBaseReady(data) {
+    const raw = ((data || {}).email || '').split('@')[0];
+    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
+    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     renderCalendar();
     await loadDayData(selectedDate);
   }
@@ -230,16 +233,77 @@
       }</p>`;
       return;
     }
-    list.innerHTML = events.map(e => {
-      const ts = new Date(e.occurred_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      return `<div class="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-3">
-        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5"
-          style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm truncate" style="color:var(--text-1)">${e.title || '—'}${e.workspace
-            ? ` <span style="color:var(--text-3);font-size:11px">${e.workspace}</span>` : ''}</p>
-          <p class="text-xs mt-0.5" style="color:var(--text-3)">${ts}</p>
+    events.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+    list.innerHTML = renderTimeline(events);
+  }
+
+  const _DAY_SRC_COLOR = { github:'#22c55e', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const _DAY_SRC_LABEL = { github:'GitHub',  jira:'Jira',    teams_subscription:'Teams',   gitlab:'GitLab'  };
+
+  const _DAY_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  function _dayRepoColor(str) {
+    let h = 0;
+    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+    return _DAY_FEED_COLORS[h % _DAY_FEED_COLORS.length];
+  }
+
+  const _DY_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
+  const _DY_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+
+  function _dayFmtTime(isoStr) {
+    if (!isoStr) return '';
+    return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function _dayFmtEventType(et) {
+    return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function renderTimeline(events) {
+    const bySource = events.reduce((acc, e) => {
+      (acc[e.source] = acc[e.source] || []).push(e);
+      return acc;
+    }, {});
+    const order    = ['github','jira','teams_subscription','gitlab'];
+    const sources  = [...order.filter(s => bySource[s]), ...Object.keys(bySource).filter(s => !order.includes(s))];
+    const initials = window._actUserInitials || '??';
+    const author   = window._actAuthorName   || 'you';
+
+    return sources.map(src => {
+      const color = _DAY_SRC_COLOR[src] || '#6366f1';
+      const label = _DAY_SRC_LABEL[src] || src;
+      const items = bySource[src];
+        const groups = {};
+      items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
+      const feedHtml = Object.entries(groups).map(([et, evts]) => `
+        <div class="mb-3">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-semibold" style="color:var(--text-2)">${_dayFmtEventType(et)}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
+          </div>
+          <div class="commit-feed">${evts.map(it => {
+            const avatarColor = _dayRepoColor(it.workspace || src || '');
+            const time        = _dayFmtTime(it.occurred_at);
+            return `<div class="commit-item">
+              <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
+              <div class="commit-body">
+                <div class="commit-meta">
+                  <span class="commit-author">${author}</span>
+                  ${it.workspace ? `<span class="commit-repo-pill">${_DY_BRANCH} ${it.workspace}</span>` : ''}
+                  ${time ? `<span class="commit-time">${_DY_CLOCK} ${time}</span>` : ''}
+                </div>
+                <div class="commit-title">${it.title || '—'}</div>
+              </div>
+            </div>`;
+          }).join('')}</div>
+        </div>`).join('');
+      return `<div class="mb-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="text-xs font-semibold" style="color:${color}">${label}</span>
+          <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length!==1?'s':''}</span>
         </div>
+        ${feedHtml}
       </div>`;
     }).join('');
   }

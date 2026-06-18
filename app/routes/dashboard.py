@@ -833,6 +833,7 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
                         "event_type": e.get("event_type", ""),
                         "title":      e.get("title", "") or e.get("event_type", ""),
                         "workspace":  e.get("workspace", ""),
+                        "occurred_at": e["occurred_at"].isoformat(),
                     }
                     for e in src_events[:15]
                 ],

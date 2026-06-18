@@ -19,7 +19,7 @@
   </div>
 
   <!-- KPI row -->
-  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3" id="metric-cards"></div>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="metric-cards"></div>
 
   <!-- Stacked Chart — full width -->
   <div class="card p-5" style="height:340px;display:flex;flex-direction:column">
@@ -48,7 +48,13 @@
   <!-- Activity Timeline — full width below chart -->
   <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
-      <span class="text-sm font-semibold" style="color:var(--text-1)">Activity Timeline</span>
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold" style="color:var(--text-1)">Activity Timeline</span>
+        <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
+          <button id="tl-today"   onclick="setTimelinePeriod('today')"   class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">Today</button>
+          <button id="tl-history" onclick="setTimelinePeriod('history')" class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">History</button>
+        </div>
+      </div>
       <button onclick="loadTimeline()" id="timeline-refresh-btn"
         class="flex items-center gap-1.5 text-xs transition px-2 py-1 rounded-md hover:bg-gray-800"
         style="color:var(--text-3)">
@@ -106,13 +112,25 @@
     teams_subscription: { bg:'rgba(139,92,246,0.15)', text:'#C4B5FD' },
   };
 
-  let activityChart = null;
-  let statsPeriod = 'week';
+  let activityChart   = null;
+  let statsPeriod     = 'week';
+  let timelinePeriod  = 'today';
 
-  async function onBaseReady() {
+  async function onBaseReady(data) {
+    const raw = ((data || {}).email || '').split('@')[0];
+    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
+    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     document.getElementById('main-content').classList.remove('hidden');
-    setStatsPeriod('week', false);  // init toggle state without re-fetching
+    setStatsPeriod('week', false);
+    setTimelinePeriod('today', false);
     await Promise.all([loadStats(), loadChart(7), loadTimeline()]);
+  }
+
+  function setTimelinePeriod(period, fetch = true) {
+    timelinePeriod = period;
+    document.getElementById('tl-today').classList.toggle('active',   period === 'today');
+    document.getElementById('tl-history').classList.toggle('active', period === 'history');
+    if (fetch) loadTimeline();
   }
 
   function setStatsPeriod(period, fetch = true) {
@@ -144,23 +162,6 @@
         </div>`;
     });
 
-    // AI Score
-    const score = data.ai_score || 0;
-    const arc = score >= 70 ? '#22C55E' : score >= 40 ? '#FBBF24' : '#EF4444';
-    const label = score >= 70 ? 'Great' : score >= 40 ? 'Good' : 'Low';
-    grid.innerHTML += `
-      <div class="card p-5 flex flex-col items-center justify-center gap-2">
-        <p class="kpi-label">AI Score</p>
-        <div class="relative w-14 h-14">
-          <svg viewBox="0 0 36 36" class="w-14 h-14 -rotate-90">
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-2)" stroke-width="3"/>
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="${arc}"
-              stroke-width="3" stroke-dasharray="${score} ${100-score}" stroke-linecap="round"/>
-          </svg>
-          <span class="absolute inset-0 flex items-center justify-center text-sm font-bold" style="color:${arc}">${score}</span>
-        </div>
-        <p class="text-xs font-medium" style="color:var(--text-3)">${label}</p>
-      </div>`;
   }
 
   async function loadChart(days = 7) {
@@ -225,42 +226,121 @@
     });
   }
 
-  const SOURCE_LABEL = {
-    github: 'GitHub',
-    gitlab: 'GitLab',
-    jira: 'Jira',
-    teams_subscription: 'Teams',
-  };
+  const TL_SRC_COLOR = { github:'#22c55e', jira:'#3b82f6', teams_subscription:'#8b5cf6', gitlab:'#f97316' };
+  const TL_SRC_LABEL = { github:'GitHub',  jira:'Jira',    teams_subscription:'Teams',   gitlab:'GitLab'  };
+
+  const _TL_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#6366f1'];
+  function _tlRepoColor(str) {
+    let h = 0;
+    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+    return _TL_FEED_COLORS[h % _TL_FEED_COLORS.length];
+  }
+  const _TL_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
+  const _TL_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+
+  function _tlFmtTime(isoStr) {
+    if (!isoStr) return '';
+    return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  function _tlFmtEventType(et) {
+    return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function renderTimelineFeed(events) {
+    const initials = window._actUserInitials || '??';
+    const author   = window._actAuthorName   || 'you';
+    const bySource = events.reduce((acc, e) => {
+      (acc[e.source] = acc[e.source] || []).push(e);
+      return acc;
+    }, {});
+    const order   = ['github','jira','teams_subscription','gitlab'];
+    const sources = [...order.filter(s => bySource[s]), ...Object.keys(bySource).filter(s => !order.includes(s))];
+
+    return sources.map(src => {
+      const color = TL_SRC_COLOR[src] || '#6366f1';
+      const label = TL_SRC_LABEL[src] || src;
+      const items = bySource[src];
+      const groups = {};
+      items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
+      const groupHtml = Object.entries(groups).map(([et, evts]) => `
+        <div class="mb-3">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-semibold" style="color:var(--text-2)">${_tlFmtEventType(et)}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
+          </div>
+          <div class="commit-feed">${evts.map(it => {
+            const avatarColor = _tlRepoColor(it.workspace || src || '');
+            const time        = _tlFmtTime(it.occurred_at);
+            return `<div class="commit-item">
+              <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
+              <div class="commit-body">
+                <div class="commit-meta">
+                  <span class="commit-author">${author}</span>
+                  ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
+                  ${time ? `<span class="commit-time">${_TL_CLOCK} ${time}</span>` : ''}
+                </div>
+                <div class="commit-title">${it.title || '—'}</div>
+              </div>
+            </div>`;
+          }).join('')}</div>
+        </div>`).join('');
+      return `<div class="mb-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-2 h-2 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="text-xs font-semibold" style="color:${color}">${label}</span>
+          <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length!==1?'s':''}</span>
+        </div>
+        <div class="pl-3" style="border-left:1px solid var(--border)">${groupHtml}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderHistoryFeed(events) {
+    const initials = window._actUserInitials || '??';
+    const author   = window._actAuthorName   || 'you';
+    return `<div class="commit-feed">${events.map(it => {
+      const avatarColor = _tlRepoColor(it.workspace || it.source || '');
+      const time        = new Date(it.occurred_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      return `<div class="commit-item">
+        <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
+        <div class="commit-body">
+          <div class="commit-meta">
+            <span class="commit-author">${author}</span>
+            <span class="text-xs font-medium" style="color:${TL_SRC_COLOR[it.source]||'#6366f1'}">${TL_SRC_LABEL[it.source]||it.source}</span>
+            ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
+            <span class="commit-time">${_TL_CLOCK} ${time}</span>
+          </div>
+          <div class="commit-title">${it.title || '—'}</div>
+          <div class="commit-sub">${_tlFmtEventType(it.event_type)}</div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }
 
   async function loadTimeline() {
     const icon = document.getElementById('refresh-icon');
     if (icon) icon.style.animation = 'spin 0.8s linear infinite';
-    const res = await fetch('/api/events/recent?limit=50', { credentials: 'include' });
+    const res  = await fetch('/api/events/recent?limit=50', { credentials: 'include' });
     const data = await res.json();
     const list = document.getElementById('timeline-list');
-
-    const today = new Date().toDateString();
-    const events = (data.events || []).filter(e => new Date(e.occurred_at).toDateString() === today);
-
     if (icon) icon.style.animation = '';
+
+    let events = data.events || [];
+    if (timelinePeriod === 'today') {
+      const today = new Date().toDateString();
+      events = events.filter(e => new Date(e.occurred_at).toDateString() === today);
+    }
+    events.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+
     if (!events.length) {
-      list.innerHTML = '<p class="text-xs px-2 py-1" style="color:var(--text-3)">No activity yet today.</p>';
+      list.innerHTML = `<p class="text-xs px-2 py-1" style="color:var(--text-3)">${
+        timelinePeriod === 'today' ? 'No activity yet today.' : 'No recent activity.'
+      }</p>`;
       return;
     }
-
-    list.innerHTML = events.map(e => {
-      const ts = new Date(e.occurred_at).toLocaleString();
-      const srcLabel = SOURCE_LABEL[e.source] || e.source;
-      const workspace = e.workspace ? ` <span style="color:var(--text-3);font-size:0.7rem">${e.workspace}</span>` : '';
-      return `<div class="flex items-start gap-3 rounded-lg px-4 py-3" style="background:var(--surface-2)">
-        <span class="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5 font-medium"
-          style="background:var(--border-strong);color:var(--text-2)">${e.event_type}</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm truncate" style="color:var(--text-1)">${e.title || '—'}${workspace}</p>
-          <p class="text-xs mt-0.5" style="color:var(--text-3)">${srcLabel} · ${ts}</p>
-        </div>
-      </div>`;
-    }).join('');
+    list.innerHTML = timelinePeriod === 'history'
+      ? renderHistoryFeed(events)
+      : renderTimelineFeed(events);
   }
 </script>
 {% endblock %}
