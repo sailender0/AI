@@ -30,6 +30,7 @@ class Profile(Base):
     integrations = relationship("Integration", back_populates="profile", cascade="all, delete-orphan")
     summaries = relationship("Summary", back_populates="profile", cascade="all, delete-orphan")
     query_logs = relationship("QueryLog", back_populates="profile", cascade="all, delete-orphan")
+    chat_conversations = relationship("ChatConversation", back_populates="profile", cascade="all, delete-orphan")
 
 
 class LinkedIdentity(Base):
@@ -98,3 +99,32 @@ class QueryLog(Base):
     asked_at = Column(DateTime(timezone=True), default=utcnow)
 
     profile = relationship("Profile", back_populates="query_logs")
+
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    title = Column(String(200), nullable=False, default="New chat")
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+    profile = relationship("Profile", back_populates="chat_conversations")
+    messages = relationship(
+        "ChatMessage", back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("chat_conversations.id"), nullable=False)
+    role = Column(String(20), nullable=False)   # user | assistant
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    conversation = relationship("ChatConversation", back_populates="messages")

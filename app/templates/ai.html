@@ -1,130 +1,345 @@
 {% extends "base.html" %}
 {% block title %}Ask AI — Developer Activity Tracker{% endblock %}
-{% block page_subtitle %}Ask questions about your developer activity{% endblock %}
+{% block page_subtitle %}Chat with AI about your developer activity{% endblock %}
+{% block main_class %}overflow-hidden{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto space-y-6">
+<div class="flex h-full min-h-0">
 
-  <!-- Query box -->
-  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
-    <h2 class="text-sm font-semibold text-gray-300 mb-4">Ask about your work</h2>
-    <div class="flex gap-3">
-      <input id="query-input" type="text"
-        placeholder="e.g. what did I push this week? how many PRs did I open today?"
-        class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 placeholder-gray-500"/>
-      <button onclick="runQuery()" id="ask-btn"
-        class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-lg text-sm font-medium transition">
-        Ask
+  <!-- ── Left panel: conversation list ───────────────────────── -->
+  <div class="flex flex-col shrink-0" style="width:256px;border-right:1px solid var(--border);background:var(--surface)">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border)">
+      <span class="text-sm font-semibold" style="color:var(--text-1)">Chats</span>
+      <button onclick="newChat()" title="New chat"
+        class="w-7 h-7 flex items-center justify-center rounded-lg transition"
+        style="color:var(--text-2)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
       </button>
     </div>
 
-    <!-- Suggestions -->
-    <div class="flex flex-wrap gap-2 mt-4">
-      {% for q in [
-        "what did I push today?",
-        "how many PRs this week?",
-        "any issues updated today?",
-        "what did I work on this week?",
-        "recent commits",
-        "how many Jira issues this week?"
-      ] %}
-      <button onclick="setQuery('{{ q }}')"
-        class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-full transition">
-        {{ q }}
-      </button>
-      {% endfor %}
+    <!-- List -->
+    <div id="conv-list" class="flex-1 overflow-y-auto py-2 px-2">
+      <p id="conv-empty" class="text-xs text-center py-8" style="color:var(--text-3)">No conversations yet</p>
     </div>
   </div>
 
-  <!-- Loading -->
-  <div id="query-loading" class="hidden flex items-center gap-3 text-sm text-gray-400 px-2">
-    <svg class="animate-spin w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24">
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-    </svg>
-    Thinking...
-  </div>
+  <!-- ── Right: chat area ─────────────────────────────────────── -->
+  <div class="flex-1 flex flex-col min-w-0 min-h-0">
 
-  <!-- Result -->
-  <div id="query-result" class="hidden bg-gray-900 border border-indigo-800 rounded-xl p-6">
-    <div class="flex items-center gap-2 mb-3">
-      <div class="w-5 h-5 bg-indigo-600 rounded flex items-center justify-center text-xs">AI</div>
-      <span class="text-xs text-gray-400">Answer</span>
+    <!-- Welcome / empty state -->
+    <div id="welcome-state" class="flex-1 flex flex-col items-center justify-center p-8">
+      <div class="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mb-5" style="box-shadow:0 0 0 8px rgba(99,102,241,0.12)">
+        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-semibold mb-2" style="color:var(--text-1)">Ask about your work</h2>
+      <p class="text-sm mb-6 text-center" style="color:var(--text-3);max-width:320px">I have access to your GitHub, Jira, Teams, and GitLab activity. Ask me anything.</p>
+      <div class="flex flex-wrap gap-2 justify-center" style="max-width:480px">
+        <button onclick="setQuestion('What did I push today?')"          class="suggestion-chip">What did I push today?</button>
+        <button onclick="setQuestion('How many PRs this week?')"         class="suggestion-chip">How many PRs this week?</button>
+        <button onclick="setQuestion('Any Jira issues updated today?')"  class="suggestion-chip">Jira issues today?</button>
+        <button onclick="setQuestion('What did I work on this week?')"   class="suggestion-chip">What did I work on this week?</button>
+        <button onclick="setQuestion('Show me recent commits')"          class="suggestion-chip">Recent commits</button>
+        <button onclick="setQuestion('How many meetings this week?')"    class="suggestion-chip">Meetings this week?</button>
+      </div>
     </div>
-    <p id="result-text" class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap"></p>
-  </div>
 
-  <!-- History -->
-  <div id="history-section" class="hidden">
-    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent questions</h3>
-    <div id="history-list" class="space-y-2"></div>
-  </div>
+    <!-- Active chat -->
+    <div id="chat-state" class="hidden flex-1 flex flex-col min-h-0">
+      <div id="messages-area" class="flex-1 overflow-y-auto px-6 py-6">
+        <!-- message bubbles appended here -->
+      </div>
+    </div>
 
+    <!-- ── Input bar (always shown) ────────────────────────────── -->
+    <div class="shrink-0 px-4 pb-4 pt-2" style="border-top:1px solid var(--border)">
+      <div class="flex items-end gap-3 rounded-xl px-4 py-3" style="background:var(--surface-2);border:1px solid var(--border-strong)">
+        <textarea id="chat-input" rows="1"
+          placeholder="Ask anything about your developer activity…"
+          class="flex-1 border-none outline-none resize-none text-sm leading-relaxed"
+          style="background:transparent;color:var(--text-1);max-height:120px;font-family:inherit"
+          oninput="autoResizeTextarea(this)"
+          onkeydown="handleInputKey(event)"></textarea>
+        <button id="send-btn" onclick="sendMessage()"
+          class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition"
+          style="background:#4f46e5;color:#fff">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </div>
+      <p class="text-xs text-center mt-1.5" style="color:var(--text-3)">Enter to send · Shift+Enter for new line</p>
+    </div>
+
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+  .suggestion-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+    font-family: inherit;
+  }
+  .suggestion-chip:hover { border-color: var(--border-strong); color: var(--text-1); }
+
+  .conv-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    transition: background 0.12s; position: relative;
+  }
+  .conv-item:hover { background: var(--surface-2); }
+  .conv-item.active { background: rgba(99,102,241,0.12); }
+  .conv-del { opacity: 0; transition: opacity 0.12s; flex-shrink: 0; }
+  .conv-item:hover .conv-del { opacity: 1; }
+
+  .msg-user {
+    display: flex; justify-content: flex-end; margin-bottom: 18px;
+  }
+  .msg-user-bubble {
+    max-width: 75%; background: #4f46e5; color: #fff;
+    border-radius: 18px; border-bottom-right-radius: 4px;
+    padding: 10px 16px; font-size: 14px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg-ai {
+    display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px;
+  }
+  .msg-ai-avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #818cf8; margin-top: 1px;
+  }
+  .msg-ai-bubble {
+    max-width: 75%;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 18px; border-bottom-left-radius: 4px;
+    padding: 10px 16px; font-size: 14px; line-height: 1.55;
+    color: var(--text-1); white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* typing dots */
+  .typing-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #818cf8;
+    animation: tdot 1.2s infinite;
+    display: inline-block;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes tdot {
+    0%,60%,100% { transform: translateY(0); opacity: 0.4; }
+    30%          { transform: translateY(-6px); opacity: 1; }
+  }
+</style>
 <script>
-  const history = [];
+  let currentConvId = null;
+  let conversations  = [];
+  let isSending      = false;
 
-  async function onBaseReady() {
-    document.getElementById('query-input').focus();
+  async function onBaseReady(data) {
+    const raw = ((data || {}).email || '').split('@')[0];
+    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
+    await loadConversations();
+    document.getElementById('chat-input').focus();
   }
 
-  async function runQuery() {
-    const input = document.getElementById('query-input');
-    const question = input.value.trim();
-    if (!question) return;
+  // ── Conversation list ─────────────────────────────────────────
+  async function loadConversations() {
+    const res  = await fetch('/api/chat/conversations', { credentials: 'include' });
+    const data = await res.json();
+    conversations = Array.isArray(data) ? data : [];
+    renderConvList();
+  }
 
-    document.getElementById('query-result').classList.add('hidden');
-    document.getElementById('query-loading').classList.remove('hidden');
-    document.getElementById('ask-btn').disabled = true;
-
-    try {
-      const res = await fetch('/query', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      });
-      const d = await res.json();
-      const answer = d.answer || d.error || 'No response';
-
-      document.getElementById('result-text').textContent = answer;
-      document.getElementById('query-result').classList.remove('hidden');
-
-      // Add to history
-      history.unshift({ question, answer });
-      renderHistory();
-    } catch (err) {
-      document.getElementById('result-text').textContent = 'Request failed. Check the app is running.';
-      document.getElementById('query-result').classList.remove('hidden');
-    } finally {
-      document.getElementById('query-loading').classList.add('hidden');
-      document.getElementById('ask-btn').disabled = false;
+  function renderConvList() {
+    const list  = document.getElementById('conv-list');
+    const empty = document.getElementById('conv-empty');
+    if (!conversations.length) {
+      list.innerHTML = '';
+      list.appendChild(empty);
+      empty.classList.remove('hidden');
+      return;
     }
-  }
-
-  function renderHistory() {
-    if (history.length < 2) return;
-    const section = document.getElementById('history-section');
-    const list = document.getElementById('history-list');
-    section.classList.remove('hidden');
-    list.innerHTML = history.slice(1).map((h, i) => `
-      <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 cursor-pointer hover:border-gray-600 transition"
-        onclick="setQuery(${JSON.stringify(h.question)})">
-        <p class="text-xs text-gray-400 mb-1">${h.question}</p>
-        <p class="text-xs text-gray-500 truncate">${h.answer}</p>
+    list.innerHTML = conversations.map(c => `
+      <div class="conv-item ${c.id === currentConvId ? 'active' : ''}"
+           onclick="selectConversation('${c.id}')">
+        <div style="flex:1;min-width:0">
+          <p class="text-xs font-medium" style="color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.title)}</p>
+          <p class="text-xs" style="color:var(--text-3)">${timeAgo(c.updated_at)}</p>
+        </div>
+        <button class="conv-del w-5 h-5 flex items-center justify-center rounded transition"
+          style="color:var(--text-3)" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-3)'"
+          onclick="deleteConversation('${c.id}',event)" title="Delete">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+        </button>
       </div>`).join('');
   }
 
-  function setQuery(q) {
-    document.getElementById('query-input').value = q;
-    document.getElementById('query-input').focus();
+  async function selectConversation(id) {
+    currentConvId = id;
+    renderConvList();
+    showChatState();
+    const res  = await fetch(`/api/chat/conversations/${id}/messages`, { credentials: 'include' });
+    const msgs = await res.json();
+    document.getElementById('messages-area').innerHTML = '';
+    (Array.isArray(msgs) ? msgs : []).forEach(m => appendBubble(m.role, m.content));
+    scrollBottom();
   }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && document.activeElement.id === 'query-input') runQuery();
-  });
+  function newChat() {
+    currentConvId = null;
+    renderConvList();
+    showWelcomeState();
+    document.getElementById('chat-input').focus();
+  }
+
+  async function deleteConversation(id, e) {
+    e.stopPropagation();
+    await fetch(`/api/chat/conversations/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (currentConvId === id) { currentConvId = null; showWelcomeState(); }
+    conversations = conversations.filter(c => c.id !== id);
+    renderConvList();
+  }
+
+  // ── Messaging ─────────────────────────────────────────────────
+  async function sendMessage() {
+    if (isSending) return;
+    const input    = document.getElementById('chat-input');
+    const question = input.value.trim();
+    if (!question) return;
+
+    isSending = true;
+    input.value = '';
+    autoResizeTextarea(input);
+    document.getElementById('send-btn').disabled = true;
+
+    showChatState();
+    appendBubble('user', question);
+    showTyping(true);
+    scrollBottom();
+
+    try {
+      if (!currentConvId) {
+        const r = await fetch('/api/chat/conversations', { method: 'POST', credentials: 'include' });
+        const d = await r.json();
+        currentConvId = d.id;
+        conversations.unshift(d);
+        renderConvList();
+      }
+
+      const res  = await fetch(`/api/chat/conversations/${currentConvId}/ask`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+
+      showTyping(false);
+      appendBubble('assistant', data.error ? ('⚠ ' + data.error) : data.ai_message.content);
+
+      // Update local title
+      const conv = conversations.find(c => c.id === currentConvId);
+      if (conv && data.conversation_title) {
+        conv.title      = data.conversation_title;
+        conv.updated_at = (data.ai_message || {}).created_at || conv.updated_at;
+        // Move to top
+        conversations = [conv, ...conversations.filter(c => c.id !== currentConvId)];
+        renderConvList();
+      }
+    } catch {
+      showTyping(false);
+      appendBubble('assistant', '⚠ Request failed. Please try again.');
+    } finally {
+      isSending = false;
+      document.getElementById('send-btn').disabled = false;
+      scrollBottom();
+      input.focus();
+    }
+  }
+
+  function appendBubble(role, content) {
+    const area = document.getElementById('messages-area');
+    const el   = document.createElement('div');
+    if (role === 'user') {
+      el.className = 'msg-user';
+      el.innerHTML = `<div class="msg-user-bubble">${escHtml(content)}</div>`;
+    } else {
+      el.className = 'msg-ai';
+      el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble">${escHtml(content)}</div>`;
+    }
+    area.appendChild(el);
+  }
+
+  function showTyping(on) {
+    const existing = document.getElementById('typing-bubble');
+    if (existing) existing.remove();
+    if (!on) return;
+    const area = document.createElement('div');
+    area.id        = 'typing-bubble';
+    area.className = 'msg-ai';
+    area.innerHTML = `<div class="msg-ai-avatar">AI</div>
+      <div class="msg-ai-bubble" style="padding:12px 16px">
+        <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+      </div>`;
+    document.getElementById('messages-area').appendChild(area);
+  }
+
+  function scrollBottom() {
+    const a = document.getElementById('messages-area');
+    if (a) a.scrollTop = a.scrollHeight;
+  }
+
+  function setQuestion(q) {
+    const inp = document.getElementById('chat-input');
+    inp.value = q;
+    autoResizeTextarea(inp);
+    inp.focus();
+  }
+
+  // ── UI helpers ────────────────────────────────────────────────
+  function showChatState() {
+    document.getElementById('welcome-state').classList.add('hidden');
+    document.getElementById('chat-state').classList.remove('hidden');
+  }
+  function showWelcomeState() {
+    document.getElementById('welcome-state').classList.remove('hidden');
+    document.getElementById('chat-state').classList.add('hidden');
+    document.getElementById('messages-area').innerHTML = '';
+  }
+  function autoResizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+  function handleInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+  function escHtml(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function timeAgo(iso) {
+    const d = Math.floor((Date.now() - new Date(iso)) / 60000);
+    if (d < 1)   return 'just now';
+    if (d < 60)  return `${d}m ago`;
+    const h = Math.floor(d / 60);
+    if (h < 24)  return `${h}h ago`;
+    const dy = Math.floor(h / 24);
+    if (dy < 7)  return `${dy}d ago`;
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
 </script>
 {% endblock %}

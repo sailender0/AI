@@ -94,9 +94,13 @@
   const _today = new Date();
   _today.setHours(0, 0, 0, 0);
 
-  let viewYear  = _today.getFullYear();
-  let viewMonth = _today.getMonth();
-  let selectedDate = dateFmt(_today);
+  const _urlDate   = new URLSearchParams(location.search).get('date');
+  const _initDate  = _urlDate && /^\d{4}-\d{2}-\d{2}$/.test(_urlDate) ? _urlDate : dateFmt(_today);
+  const _initObj   = new Date(_initDate + 'T00:00:00');
+
+  let viewYear  = _initObj.getFullYear();
+  let viewMonth = _initObj.getMonth();
+  let selectedDate = _initDate;
 
   const NOW_MK = viewYear * 12 + viewMonth;
   const MIN_MK = NOW_MK - 3;

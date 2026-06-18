@@ -62,8 +62,7 @@
     ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 
     /* ── Sidebar collapse ──────────────────────────── */
-    #sidebar { transition: width 0.22s cubic-bezier(.4,0,.2,1); overflow: hidden; }
-    #main-wrapper { transition: margin-left 0.22s cubic-bezier(.4,0,.2,1); }
+    #sidebar { transition: width 0.22s cubic-bezier(.4,0,.2,1); overflow-x: hidden; overflow-y: auto; flex-shrink: 0; }
     #sidebar.collapsed { width: 3.5rem; }
     #sidebar.collapsed .sidebar-label { display: none !important; }
     #sidebar.collapsed nav a { justify-content: center; }
@@ -260,10 +259,10 @@
     .text-yellow-400  { color: #FBBF24 !important; }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 flex min-h-screen font-sans">
+<body class="bg-gray-950 text-gray-100 font-sans" style="display:flex;height:100vh;overflow:hidden">
 
   <!-- Sidebar -->
-  <aside id="sidebar" class="w-52 min-h-screen fixed top-0 left-0 flex flex-col z-10" style="background:var(--surface);border-right:1px solid var(--border)">
+  <aside id="sidebar" class="w-52 flex flex-col" style="height:100vh;background:var(--surface);border-right:1px solid var(--border)">
 
     <!-- Logo / Toggle -->
     <div class="px-3 py-4 flex items-center gap-3 border-b border-gray-800 min-h-[64px]">
@@ -358,7 +357,7 @@
   </aside>
 
   <!-- Main -->
-  <div id="main-wrapper" class="ml-52 flex-1 flex flex-col min-h-screen">
+  <div id="main-wrapper" class="flex-1 flex flex-col" style="height:100vh;overflow-y:auto">
     <!-- Top bar -->
     <header class="px-6 py-4 flex items-center justify-between sticky top-0 z-10" style="background:var(--bg);border-bottom:1px solid var(--border)">
       <div>
@@ -366,12 +365,49 @@
         <p class="text-xs text-gray-500 mt-0.5">{% block page_subtitle %}This week's activity summary{% endblock %}</p>
       </div>
       <div class="flex items-center gap-3">
-        <div id="header-avatar" class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold hidden"></div>
+        <div class="relative">
+          <div id="header-avatar" onclick="toggleAppearanceMenu()"
+            class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold hidden"
+            style="cursor:pointer;user-select:none" title="Appearance & settings"></div>
+
+          <!-- Appearance dropdown -->
+          <div id="appearance-menu" class="hidden absolute right-0 top-10 z-50 rounded-xl p-3 w-52"
+            style="background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 24px rgba(0,0,0,0.35)">
+            <p id="appearance-email" class="text-xs truncate mb-3 pb-2" style="color:var(--text-3);border-bottom:1px solid var(--border)"></p>
+            <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">Appearance</p>
+            <div class="flex rounded-lg border p-0.5 gap-0.5" style="border-color:var(--border-strong);background:var(--surface-2)">
+              <button id="amenu-light"  onclick="setTheme('light');event.stopPropagation()"  title="Light"
+                class="flex-1 py-1.5 rounded-md flex flex-col items-center gap-1 text-xs transition" style="color:var(--text-3)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z"/>
+                </svg>
+                <span>Light</span>
+              </button>
+              <button id="amenu-system" onclick="setTheme('system');event.stopPropagation()" title="System"
+                class="flex-1 py-1.5 rounded-md flex flex-col items-center gap-1 text-xs transition" style="color:var(--text-3)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                <span>System</span>
+              </button>
+              <button id="amenu-dark"   onclick="setTheme('dark');event.stopPropagation()"   title="Dark"
+                class="flex-1 py-1.5 rounded-md flex flex-col items-center gap-1 text-xs transition" style="color:var(--text-3)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+                <span>Dark</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
 
     <!-- Page content -->
-    <main class="flex-1 p-6 flex flex-col min-h-0">
+    <main class="flex-1 flex flex-col min-h-0 {% block main_class %}p-6{% endblock %}">
       {% block content %}{% endblock %}
     </main>
   </div>
@@ -389,9 +425,6 @@
       const collapsed = state === 'collapsed';
       localStorage.setItem('sidebar', state);
       document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
-      const wrapper = document.getElementById('main-wrapper');
-      wrapper.classList.toggle('ml-52', !collapsed);
-      wrapper.classList.toggle('ml-14', collapsed);
       // Chevron direction
       const path = document.getElementById('toggle-path');
       if (path) path.setAttribute('d', collapsed ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7');
@@ -423,14 +456,35 @@
 
     function _updateThemeBtns(mode) {
       ['light', 'system', 'dark'].forEach(m => {
+        // sidebar buttons
         const btn = document.getElementById('btn-' + m);
-        if (!btn) return;
-        const active = m === mode;
-        btn.classList.toggle('bg-indigo-600', active);
-        btn.classList.toggle('text-white',    active);
-        btn.classList.toggle('text-gray-400', !active);
+        if (btn) {
+          const active = m === mode;
+          btn.classList.toggle('bg-indigo-600', active);
+          btn.classList.toggle('text-white',    active);
+          btn.classList.toggle('text-gray-400', !active);
+        }
+        // header appearance menu buttons
+        const amBtn = document.getElementById('amenu-' + m);
+        if (amBtn) {
+          const active = m === mode;
+          amBtn.style.background = active ? '#4f46e5' : 'transparent';
+          amBtn.style.color      = active ? '#fff'    : 'var(--text-3)';
+        }
       });
     }
+
+    function toggleAppearanceMenu() {
+      document.getElementById('appearance-menu').classList.toggle('hidden');
+    }
+
+    document.addEventListener('click', e => {
+      const menu   = document.getElementById('appearance-menu');
+      const avatar = document.getElementById('header-avatar');
+      if (menu && !menu.classList.contains('hidden') && !menu.contains(e.target) && e.target !== avatar) {
+        menu.classList.add('hidden');
+      }
+    });
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if ((localStorage.getItem('theme') || 'dark') === 'system') _applyTheme('system');
@@ -478,6 +532,8 @@
       const av = document.getElementById('header-avatar');
       av.textContent = data.email[0].toUpperCase();
       av.classList.remove('hidden');
+      const ae = document.getElementById('appearance-email');
+      if (ae) ae.textContent = data.email;
 
       // Render sidebar connectors
       const container = document.getElementById('sidebar-connectors');

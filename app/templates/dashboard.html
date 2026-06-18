@@ -26,11 +26,13 @@
     <div class="flex items-center justify-between mb-1">
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color:var(--text-1)">Activity</span>
+        <span id="chart-week-label" class="hidden text-xs" style="color:var(--text-3)"></span>
+        <button id="chart-back-btn" onclick="chartDrillBack()" class="hidden text-xs px-2 py-1 rounded-md transition" style="color:var(--text-2);border:1px solid var(--border);cursor:pointer">← Back</button>
         <!-- Range picker -->
-        <div class="flex rounded-lg overflow-hidden" style="border:1px solid var(--border)">
-          <button onclick="loadChart(7)"  data-days="7"  class="range-btn px-3 py-1 text-xs font-medium transition">7D</button>
-          <button onclick="loadChart(14)" data-days="14" class="range-btn px-3 py-1 text-xs font-medium transition" style="border-left:1px solid var(--border);border-right:1px solid var(--border)">14D</button>
-          <button onclick="loadChart(30)" data-days="30" class="range-btn px-3 py-1 text-xs font-medium transition">30D</button>
+        <div id="chart-range-picker" class="flex rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+          <button onclick="loadChart(7,'day')"   data-range="7d" class="range-btn px-3 py-1 text-xs font-medium transition">7D</button>
+          <button onclick="loadChart(30,'week')" data-range="1m" class="range-btn px-3 py-1 text-xs font-medium transition" style="border-left:1px solid var(--border);border-right:1px solid var(--border)">1M</button>
+          <button onclick="loadChart(90,'week')" data-range="3m" class="range-btn px-3 py-1 text-xs font-medium transition">3M</button>
         </div>
       </div>
       <div class="flex gap-4">
@@ -41,7 +43,7 @@
       </div>
     </div>
     <div class="flex-1 relative mt-3">
-      <canvas id="activity-chart"></canvas>
+      <canvas id="activity-chart" style="cursor:pointer"></canvas>
     </div>
   </div>
 
@@ -112,7 +114,12 @@
     teams_subscription: { bg:'rgba(139,92,246,0.15)', text:'#C4B5FD' },
   };
 
-  let activityChart   = null;
+  let activityChart    = null;
+  let chartRawLabels   = [];
+  let chartGroupBy     = 'day';
+  let chartDrillState  = null;   // { days, groupBy } when drilled into a week
+  let _chartTopDays    = 7;
+  let _chartTopGroupBy = 'day';
   let statsPeriod     = 'week';
   let timelinePeriod  = 'today';
 
@@ -123,7 +130,7 @@
     document.getElementById('main-content').classList.remove('hidden');
     setStatsPeriod('week', false);
     setTimelinePeriod('today', false);
-    await Promise.all([loadStats(), loadChart(7), loadTimeline()]);
+    await Promise.all([loadStats(), loadChart(7, 'day'), loadTimeline()]);
   }
 
   function setTimelinePeriod(period, fetch = true) {
@@ -164,31 +171,78 @@
 
   }
 
-  async function loadChart(days = 7) {
-    // Update active button state
+  async function loadChart(days = 7, groupBy = 'day') {
+    chartDrillState  = null;
+    _chartTopDays    = days;
+    _chartTopGroupBy = groupBy;
+    document.getElementById('chart-back-btn').classList.add('hidden');
+    document.getElementById('chart-week-label').classList.add('hidden');
+    document.getElementById('chart-range-picker').classList.remove('hidden');
+
+    const rangeKey = days === 7 ? '7d' : days === 30 ? '1m' : '3m';
     document.querySelectorAll('.range-btn').forEach(btn => {
-      const active = parseInt(btn.dataset.days) === days;
+      const active = btn.dataset.range === rangeKey;
       btn.style.background = active ? '#4f46e5' : 'transparent';
-      btn.style.color = active ? '#fff' : 'var(--text-2)';
+      btn.style.color      = active ? '#fff'     : 'var(--text-2)';
     });
 
-    const res = await fetch(`/api/analytics/trend?days=${days}`, { credentials: 'include' });
+    const res = await fetch(`/api/analytics/trend?days=${days}&group_by=${groupBy}`, { credentials: 'include' });
     const data = await res.json();
+    chartRawLabels = data.raw_labels || [];
+    chartGroupBy   = data.group_by   || groupBy;
+    _renderActivityChart(data);
+  }
+
+  async function drillToWeek(mondayStr, weekLabel) {
+    chartDrillState = { days: _chartTopDays, groupBy: _chartTopGroupBy };
+
+    document.getElementById('chart-range-picker').classList.add('hidden');
+    document.getElementById('chart-back-btn').classList.remove('hidden');
+    const lbl = document.getElementById('chart-week-label');
+    lbl.textContent = 'Week of ' + weekLabel;
+    lbl.classList.remove('hidden');
+
+    const res = await fetch(`/api/analytics/trend?days=7&group_by=day&start_date=${mondayStr}`, { credentials: 'include' });
+    const data = await res.json();
+    chartRawLabels = data.raw_labels || [];
+    chartGroupBy   = 'day';
+    _renderActivityChart(data);
+  }
+
+  function chartDrillBack() {
+    if (!chartDrillState) return;
+    loadChart(chartDrillState.days, chartDrillState.groupBy);
+  }
+
+  function _weekRangeLabel(mondayStr) {
+    const mon = new Date(mondayStr + 'T00:00:00');
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const monDay = mon.getDate();
+    const sunDay = sun.getDate();
+    const monMon = mon.toLocaleDateString(undefined, { month: 'short' });
+    const sunMon = sun.toLocaleDateString(undefined, { month: 'short' });
+    return monMon === sunMon
+      ? `${monDay}–${sunDay} ${sunMon}`
+      : `${monDay} ${monMon}–${sunDay} ${sunMon}`;
+  }
+
+  function _renderActivityChart(data) {
     const cc = chartColors();
-
     const SOURCE_CONFIG = [
-      { key: 'github',             color: '#38BDF8' },  /* sky blue   */
-      { key: 'jira',               color: '#34D399' },  /* emerald    */
-      { key: 'teams_subscription', color: '#FBBF24' },  /* amber      */
-      { key: 'gitlab',             color: '#F87171' },  /* coral-red  */
+      { key: 'github',             color: '#38BDF8' },
+      { key: 'jira',               color: '#34D399' },
+      { key: 'teams_subscription', color: '#FBBF24' },
+      { key: 'gitlab',             color: '#F87171' },
     ];
-
+    const displayLabels = (chartGroupBy === 'week' && data.raw_labels?.length)
+      ? data.raw_labels.map(_weekRangeLabel)
+      : data.labels;
     const ctx = document.getElementById('activity-chart').getContext('2d');
     if (activityChart) activityChart.destroy();
     activityChart = new Chart(ctx, {
       type: 'bar',
       data: {
-        labels: data.labels,
+        labels: displayLabels,
         datasets: SOURCE_CONFIG.map(s => ({
           data: data.sources[s.key] || [],
           backgroundColor: s.color,
@@ -197,11 +251,24 @@
           borderSkipped: true,
           barPercentage: 0.6,
           categoryPercentage: 0.85,
+          maxBarThickness: 48,
         })),
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        onClick(evt, elements) {
+          if (!elements.length) return;
+          const idx  = elements[0].index;
+          const date = chartRawLabels[idx];
+          if (!date) return;
+          if (chartGroupBy === 'week') {
+            const label = activityChart.data.labels[idx];
+            drillToWeek(date, label);
+          } else {
+            window.location.href = `/my-day?date=${date}`;
+          }
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -210,11 +277,14 @@
             borderWidth: 1,
             titleColor: 'var(--text-1)',
             bodyColor: 'var(--text-2)',
+            footerColor: '#818cf8',
+            footerFont: { size: 11 },
             padding: 10,
             cornerRadius: 8,
             callbacks: {
               title: items => items[0].label,
               label: item => ` ${['GitHub','Jira','Teams','GitLab'][item.datasetIndex]}: ${item.raw}`,
+              footer: () => chartGroupBy === 'week' ? ['↓ Click to see daily breakdown'] : [],
             }
           }
         },

@@ -537,7 +537,7 @@ async def get_summaries(request: Request, limit: int = 10):
 
 
 @router.get("/api/analytics/trend")
-async def get_analytics_trend(request: Request, days: int = 28):
+async def get_analytics_trend(request: Request, days: int = 28, group_by: str = "day", start_date: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
@@ -547,7 +547,12 @@ async def get_analytics_trend(request: Request, days: int = 28):
     from datetime import datetime as _dt
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)
-    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+    if start_date:
+        sd = _dt.strptime(start_date, "%Y-%m-%d").date()
+        start = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+    else:
+        start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     sources = ["github", "jira", "teams_subscription", "gitlab"]
     pipeline = [
@@ -565,9 +570,14 @@ async def get_analytics_trend(request: Request, days: int = 28):
 
     # Build day labels in user's local time
     labels = []
-    for i in range(days - 1, -1, -1):
-        d = now - timedelta(days=i)
-        labels.append(d.strftime("%Y-%m-%d"))
+    if start_date:
+        sd = _dt.strptime(start_date, "%Y-%m-%d").date()
+        for i in range(days):
+            labels.append((sd + timedelta(days=i)).strftime("%Y-%m-%d"))
+    else:
+        for i in range(days - 1, -1, -1):
+            d = now - timedelta(days=i)
+            labels.append(d.strftime("%Y-%m-%d"))
 
     # Pivot: source -> {day -> count}
     pivot = {s: {day: 0 for day in labels} for s in sources}
@@ -577,11 +587,30 @@ async def get_analytics_trend(request: Request, days: int = 28):
         if src in pivot and day in pivot[src]:
             pivot[src][day] = r["count"]
 
-    display_labels = [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
+    if group_by == "week":
+        week_data: dict = {}
+        for day_str in labels:
+            d = _dt.strptime(day_str, "%Y-%m-%d").date()
+            monday = d - timedelta(days=d.weekday())
+            monday_str = monday.strftime("%Y-%m-%d")
+            if monday_str not in week_data:
+                week_data[monday_str] = {s: 0 for s in sources}
+            for src in sources:
+                week_data[monday_str][src] += pivot[src].get(day_str, 0)
+        sorted_weeks = sorted(week_data.keys())
+        return JSONResponse({
+            "labels":     [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in sorted_weeks],
+            "raw_labels": sorted_weeks,
+            "sources":    {s: [week_data[w][s] for w in sorted_weeks] for s in sources},
+            "group_by":   "week",
+        })
 
+    display_labels = [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
     return JSONResponse({
-        "labels": display_labels,
-        "sources": {s: list(pivot[s].values()) for s in sources},
+        "labels":     display_labels,
+        "raw_labels": labels,
+        "sources":    {s: list(pivot[s].values()) for s in sources},
+        "group_by":   "day",
     })
 
 
