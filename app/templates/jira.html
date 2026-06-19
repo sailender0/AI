@@ -10,7 +10,7 @@
     <div class="text-4xl mb-3">◈</div>
     <h2 class="text-lg font-semibold mb-2">Connect Jira</h2>
     <p class="text-gray-400 text-sm mb-6">Connect your Atlassian account to track issues, sprints and project activity.</p>
-    <a id="connect-btn" href="#" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium transition">
+    <a id="connect-btn" href="#" class="text-white px-6 py-2.5 rounded-lg text-sm font-medium transition" style="background:var(--chrome);color:var(--chrome-text)">
       Connect Jira
     </a>
   </div>
@@ -28,15 +28,55 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="lg:col-span-2 card p-5">
-      <h2 class="flex items-center gap-2 text-sm font-semibold mb-4" style="color:var(--text-1)">
-        Issues (last 7 days)
-        <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Jira</span>
-      </h2>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-1)">
+          <span id="chart-title">Created</span>
+          <span id="chart-sub" class="text-xs font-normal" style="color:var(--text-3)">· last 7 days</span>
+          <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Jira</span>
+        </h2>
+        <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
+          <button onclick="setChartType('created')"  id="ct-created"  class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Created</button>
+          <button onclick="setChartType('updated')"  id="ct-updated"  class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Updated</button>
+          <button onclick="setChartType('comments')" id="ct-comments" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Comments</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mb-4" style="position:relative">
+        <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
+          <button onclick="setRangeDefault()" id="range-default" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Current Week</button>
+          <button onclick="togglePicker()" id="range-week" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition flex items-center gap-1">
+            <span id="range-week-label">Pick Week</span>
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+        </div>
+        <div id="week-picker" class="hidden" style="position:absolute;top:calc(100% + 6px);left:0;z-index:50;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;padding:12px;min-width:252px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+          <div class="flex items-center justify-between mb-3">
+            <button onclick="pickerPrevMonth()" id="picker-prev" class="w-6 h-6 flex items-center justify-center rounded transition" style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <span id="picker-month-label" class="text-xs font-semibold" style="color:var(--text-1)"></span>
+            <button onclick="pickerNextMonth()" id="picker-next" class="w-6 h-6 flex items-center justify-center rounded transition" style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+          <div class="grid grid-cols-7 mb-1">
+            <div class="pk-hdr">Su</div><div class="pk-hdr">Mo</div><div class="pk-hdr">Tu</div>
+            <div class="pk-hdr">We</div><div class="pk-hdr">Th</div><div class="pk-hdr">Fr</div><div class="pk-hdr">Sa</div>
+          </div>
+          <div id="picker-week-rows"></div>
+        </div>
+      </div>
       <canvas id="main-chart" height="120"></canvas>
     </div>
     <div class="card p-5">
-      <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)" id="top-label">Top Projects</h2>
-      <div id="top-items" class="space-y-2"></div>
+      <div class="flex rounded-lg p-0.5 gap-0.5 mb-4" style="background:var(--surface-2);border:1px solid var(--border)">
+        <button onclick="setPanelTab('activity')" id="panel-tab-activity" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Week Activity</button>
+        <button onclick="setPanelTab('repos')"    id="panel-tab-repos"    class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Top Repos</button>
+      </div>
+      <div id="panel-feed" class="overflow-y-auto" style="max-height:280px"></div>
+      <div id="panel-top-repos" class="space-y-2 hidden">
+        <p class="text-xs font-semibold mb-3" id="top-label" style="color:var(--text-2)">Top Projects</p>
+        <div id="top-items"></div>
+      </div>
     </div>
   </div>
 
@@ -63,11 +103,206 @@
   .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
   .period-btn.active { background:var(--chrome); color:var(--chrome-text); }
   .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
+  .chart-tab { background:transparent; color:var(--text-2); cursor:pointer; }
+  .chart-tab.active { background:var(--chrome); color:var(--chrome-text); }
+  .chart-tab:not(.active):hover { background:var(--border); color:var(--text-1); }
+  .pk-hdr { text-align:center; font-size:10px; color:var(--text-3); padding:2px 0; }
+  .pk-week-row { display:grid; grid-template-columns:repeat(7,1fr); border-radius:6px; cursor:pointer; margin-bottom:1px; }
+  .pk-week-row:hover:not(.pk-future) { background:rgba(6,182,212,0.12); }
+  .pk-week-row.pk-selected { background:rgba(6,182,212,0.2); outline:1px solid #06b6d4; }
+  .pk-week-row.pk-future { cursor:default; opacity:0.35; }
+  .pk-cell { text-align:center; font-size:11px; padding:4px 2px; color:var(--text-2); }
+  .pk-cell.pk-overflow { visibility:hidden; }
+  .pk-cell.pk-today { background:#06b6d4; color:#fff; border-radius:50%; font-weight:600; }
 </style>
 <script>
-  let chart = null;
-  let statsPeriod = 'week';
-  let evtPeriod   = 'today';
+  let chart           = null;
+  let statsPeriod     = 'week';
+  let evtPeriod       = 'today';
+  let _jrChartData    = null;
+  let _chartRepos     = null;
+  let _currentType    = 'created';
+  let _panelEvents    = [];
+  let _panelTab       = 'activity';
+
+  const _ET_FILTER = {
+    created:  e => /issue_created/i.test(e.event_type),
+    updated:  e => /issue_updated/i.test(e.event_type),
+    comments: e => /comment/i.test(e.event_type),
+  };
+
+  async function loadPanelEvents() {
+    if (!_chartStartDate) return;
+    const s = new Date(_chartStartDate + 'T00:00:00');
+    const e = new Date(s); e.setDate(s.getDate() + 7);
+    const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
+    const res = await fetch(`/api/events/recent?source=jira&start_date=${_chartStartDate}&end_date=${endIso}&limit=500`, { credentials: 'include' });
+    const data = await res.json();
+    _panelEvents = data.events || [];
+    renderPanelFeed();
+  }
+  const _PKT = new Date(); _PKT.setHours(0,0,0,0);
+  let _pkYear = _PKT.getFullYear(), _pkMonth = _PKT.getMonth();
+
+  function _cwLabel() {
+    const mon = new Date(_PKT);
+    mon.setDate(_PKT.getDate() - (_PKT.getDay() === 0 ? 6 : _PKT.getDay() - 1));
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return { iso: `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`,
+             label: `${M[mon.getMonth()]} ${mon.getDate()}–${fri.getDate()}` };
+  }
+  let _chartStartDate = _cwLabel().iso;
+
+  function togglePicker() {
+    const pk = document.getElementById('week-picker');
+    if (pk.classList.contains('hidden')) { renderPicker(); pk.classList.remove('hidden'); }
+    else pk.classList.add('hidden');
+  }
+
+  function renderPicker() {
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    document.getElementById('picker-month-label').textContent = `${MONTHS[_pkMonth]} ${_pkYear}`;
+    const prevBtn = document.getElementById('picker-prev');
+    const minDate = new Date(_PKT); minDate.setMonth(minDate.getMonth() - 12);
+    const minMk   = minDate.getFullYear() * 12 + minDate.getMonth();
+    const curMk   = _pkYear * 12 + _pkMonth;
+    prevBtn.style.opacity = curMk <= minMk ? '0.3' : '1';
+    prevBtn.style.pointerEvents = curMk <= minMk ? 'none' : '';
+    const nextBtn = document.getElementById('picker-next');
+    const nowMk   = _PKT.getFullYear() * 12 + _PKT.getMonth();
+    nextBtn.style.opacity = curMk >= nowMk ? '0.3' : '1';
+    nextBtn.style.pointerEvents = curMk >= nowMk ? 'none' : '';
+
+    const first = new Date(_pkYear, _pkMonth, 1);
+    const startSun = new Date(first); startSun.setDate(1 - first.getDay());
+    const rows = []; let d = new Date(startSun);
+    for (let w = 0; w < 6; w++) {
+      const cells = []; const weekStart = new Date(d);
+      let hasCurrentMonth = false;
+      for (let i = 0; i < 7; i++) {
+        if (d.getMonth() === _pkMonth) hasCurrentMonth = true;
+        cells.push({ date: new Date(d), overflow: d.getMonth() !== _pkMonth, isToday: d.toDateString() === _PKT.toDateString() });
+        d.setDate(d.getDate() + 1);
+      }
+      if (hasCurrentMonth) rows.push({ weekStart, cells });
+    }
+
+    const selStr = _chartStartDate;
+    const DAY_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const container = document.getElementById('picker-week-rows');
+    container.innerHTML = rows.map(row => {
+      const mon  = row.cells.find(c => c.date.getDay() === 1) || row.cells[0];
+      const fri  = row.cells.find(c => c.date.getDay() === 5) || row.cells[6];
+      const toISO = d => `${d.date.getFullYear()}-${String(d.date.getMonth()+1).padStart(2,'0')}-${String(d.date.getDate()).padStart(2,'0')}`;
+      const isFuture = row.weekStart > _PKT;
+      const isSelected = selStr === toISO(mon);
+      const label = `${DAY_ABBR[mon.date.getMonth()]} ${mon.date.getDate()}–${fri.date.getDate()}`;
+      const startIso = toISO(mon);
+      const cells = row.cells.map(c =>
+        `<div class="pk-cell${c.overflow?' pk-overflow':''}${c.isToday?' pk-today':''}">${c.date.getDate()}</div>`
+      ).join('');
+      return `<div class="pk-week-row${isSelected?' pk-selected':''}${isFuture?' pk-future':''}" ${!isFuture?`onclick="selectWeek('${startIso}','${label}')"`:''}>${cells}</div>`;
+    }).join('');
+  }
+
+  function pickerPrevMonth() {
+    if (_pkMonth === 0) { _pkMonth = 11; _pkYear--; } else _pkMonth--;
+    renderPicker();
+  }
+  function pickerNextMonth() {
+    if (_pkMonth === 11) { _pkMonth = 0; _pkYear++; } else _pkMonth++;
+    renderPicker();
+  }
+
+  function selectWeek(startIso, label) {
+    _chartStartDate = startIso;
+    document.getElementById('range-week-label').textContent = label;
+    document.getElementById('chart-sub').textContent = `· ${label}`;
+    document.getElementById('week-picker').classList.add('hidden');
+    document.getElementById('range-default').classList.remove('active');
+    document.getElementById('range-week').classList.add('active');
+    loadPanelEvents();
+    loadStats();
+  }
+
+  function setRangeDefault() {
+    const cw = _cwLabel();
+    _chartStartDate = cw.iso;
+    document.getElementById('range-week-label').textContent = 'Pick Week';
+    document.getElementById('chart-sub').textContent = `· ${cw.label}`;
+    document.getElementById('range-default').classList.add('active');
+    document.getElementById('range-week').classList.remove('active');
+    loadPanelEvents();
+    return loadStats();
+  }
+
+  document.addEventListener('click', e => {
+    const pk = document.getElementById('week-picker');
+    if (!pk || pk.classList.contains('hidden')) return;
+    if (!pk.contains(e.target) && !e.target.closest('#range-week')) pk.classList.add('hidden');
+  });
+
+  const _CT_LABELS = { created:'Created', updated:'Updated', comments:'Comments' };
+  const _CT_IDS    = { created:'ct-created', updated:'ct-updated', comments:'ct-comments' };
+
+  function setChartType(type) {
+    if (!_jrChartData) return;
+    _currentType = type;
+    Object.entries(_CT_IDS).forEach(([t, id]) => {
+      document.getElementById(id)?.classList.toggle('active', t === type);
+    });
+    document.getElementById('chart-title').textContent = _CT_LABELS[type];
+    _renderJrChart(_jrChartData.labels, _jrChartData.datasets[type] || [], (_chartRepos || {})[type] || {});
+    renderPanelFeed();
+  }
+
+  function _renderJrChart(labels, data, repos) {
+    const cc = chartColors();
+    const ctx = document.getElementById('main-chart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: 'rgba(6,182,212,0.6)',
+          borderColor: '#06b6d4',
+          borderWidth: 1,
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: items => items[0].label,
+              label: item => {
+                const lines = [`${_CT_LABELS[_currentType]}: ${item.raw}`];
+                const dayRepos = (repos || {})[item.label] || {};
+                Object.entries(dayRepos).forEach(([ws, cnt]) => lines.push(`  · ${ws}: ${cnt}`));
+                return lines;
+              },
+            },
+          },
+        },
+        scales: {
+          x: { grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10 } } },
+          y: { grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10 } }, beginAtZero: true },
+        },
+      }
+    });
+  }
+
+  window.onWSEvent = function(data) {
+    if (data.source !== 'jira') return;
+    loadStats();
+    loadPanelEvents();
+    loadEvents();
+  };
 
   async function onBaseReady(meData) {
     const raw = ((meData || {}).email || '').split('@')[0];
@@ -80,7 +315,7 @@
       document.getElementById('main-content').classList.remove('hidden');
       setPeriod('week', false);
       setEvtPeriod('today', false);
-      await Promise.all([loadStats(), loadEvents()]);
+      await Promise.all([setRangeDefault(), loadEvents(), loadPanelEvents()]);
     }
   }
 
@@ -99,7 +334,9 @@
   }
 
   async function loadStats() {
-    const res = await fetch(`/api/jira/stats?period=${statsPeriod}`, { credentials: 'include' });
+    let url = `/api/jira/stats?period=${statsPeriod}`;
+    if (_chartStartDate) url += `&start_date=${_chartStartDate}`;
+    const res = await fetch(url, { credentials: 'include' });
     const data = await res.json();
 
     const grid = document.getElementById('metric-cards');
@@ -118,30 +355,9 @@
     }).join('');
     initKpiTilt();
 
-    const ctx = document.getElementById('main-chart').getContext('2d');
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: data.chart.labels,
-        datasets: [{
-          label: data.chart.label,
-          data: data.chart.data,
-          backgroundColor: 'rgba(6,182,212,0.6)',
-          borderColor: '#06b6d4',
-          borderWidth: 1,
-          borderRadius: 4,
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { color: chartColors().grid }, ticks: { color: chartColors().tick, font: { size: 10 } } },
-          y: { grid: { color: chartColors().grid }, ticks: { color: chartColors().tick, font: { size: 10 } }, beginAtZero: true },
-        },
-      }
-    });
+    _jrChartData = data.chart;
+    _chartRepos  = data.chart.repos || null;
+    setChartType('created');
 
     document.getElementById('top-label').textContent = data.top_label || 'Top Projects';
     const topEl = document.getElementById('top-items');
@@ -160,7 +376,49 @@
           </div>
         </div>`).join('');
     }
+
   }
+
+  // ── Right panel ───────────────────────────────────────────────────────────
+  function setPanelTab(tab) {
+    _panelTab = tab;
+    document.getElementById('panel-tab-activity').classList.toggle('active', tab === 'activity');
+    document.getElementById('panel-tab-repos').classList.toggle('active',    tab === 'repos');
+    document.getElementById('panel-feed').classList.toggle('hidden',         tab !== 'activity');
+    document.getElementById('panel-top-repos').classList.toggle('hidden',    tab !== 'repos');
+  }
+
+  function renderPanelFeed() {
+    const el = document.getElementById('panel-feed');
+    if (!el || _panelTab !== 'activity') return;
+    const filter = _ET_FILTER[_currentType] || (() => true);
+    const events = (_panelEvents || []).filter(filter).slice(0, 30);
+    const typeName = _CT_LABELS[_currentType] || 'Activity';
+    if (!events.length) {
+      el.innerHTML = `
+        <p class="text-xs font-semibold mb-2" style="color:var(--text-1)">${typeName}</p>
+        <p class="text-xs py-2" style="color:var(--text-3)">No ${typeName.toLowerCase()} this week.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xs font-semibold" style="color:var(--text-1)">${typeName}</span>
+        <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);color:var(--text-3)">${events.length}</span>
+      </div>
+      ${events.map(it => {
+        const color = _jrRepoColor(it.workspace || '');
+        const time  = new Date(it.occurred_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+        return `<div class="flex items-start gap-2 py-2" style="border-bottom:1px solid var(--border)">
+          <div class="w-2 h-2 rounded-full mt-1.5 shrink-0" style="background:${color}"></div>
+          <div class="min-w-0 flex-1">
+            <span class="text-xs font-semibold truncate block" style="color:var(--text-1)">${it.workspace||'—'}</span>
+            <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.title||'—'}</span>
+            <span class="text-xs mt-1 block" style="color:var(--text-3)">${time}</span>
+          </div>
+        </div>`;
+      }).join('')}`;
+  }
+  // ── End right panel ───────────────────────────────────────────────────────
 
   const _JR_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _jrRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _JR_COLORS[h%_JR_COLORS.length]; }
@@ -216,10 +474,10 @@
   }
 
   async function loadEvents() {
-    const res  = await fetch('/api/events/recent?limit=50', { credentials: 'include' });
+    const res  = await fetch('/api/events/recent?source=jira&limit=50', { credentials: 'include' });
     const data = await res.json();
     const list = document.getElementById('events-list');
-    let events = (data.events || []).filter(e => e.source === 'jira');
+    let events = data.events || [];
     if (evtPeriod === 'today') {
       const today = new Date().toDateString();
       events = events.filter(e => new Date(e.occurred_at).toDateString() === today);

@@ -5,42 +5,94 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Calendar -->
-  <div class="card p-4" style="max-width:340px">
-    <div class="flex items-center justify-between mb-3">
-      <button onclick="prevMonth()" id="prev-btn"
-        class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition text-gray-400 hover:text-gray-200">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-        </svg>
-      </button>
-      <span id="month-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
-      <button onclick="nextMonth()" id="next-btn"
-        class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition text-gray-400 hover:text-gray-200">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-        </svg>
-      </button>
+  <!-- Week range header -->
+  <div onclick="toggleCalendar()" id="week-header"
+    class="inline-flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition select-none"
+    style="background:var(--surface-2);border:1px solid var(--border)">
+    <span id="week-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
+    <svg id="week-chevron" class="w-4 h-4 transition-transform" style="color:var(--text-3)"
+      fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+    </svg>
+  </div>
+
+  <!-- Calendar — two-panel layout -->
+  <div class="card p-5" id="cal-card" style="max-width:580px">
+    <div class="flex gap-5">
+
+      <!-- Left: month day grid -->
+      <div style="flex:1;min-width:0">
+        <div class="flex items-center justify-between mb-3">
+          <span id="month-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
+          <div class="flex flex-col gap-0.5">
+            <button onclick="prevMonth()" id="prev-btn"
+              class="w-6 h-6 flex items-center justify-center rounded transition"
+              style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
+              </svg>
+            </button>
+            <button onclick="nextMonth()" id="next-btn"
+              class="w-6 h-6 flex items-center justify-center rounded transition"
+              style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="grid grid-cols-7 mb-1">
+          <div class="cal-hdr">S</div><div class="cal-hdr">M</div><div class="cal-hdr">T</div>
+          <div class="cal-hdr">W</div><div class="cal-hdr">T</div><div class="cal-hdr">F</div>
+          <div class="cal-hdr">S</div>
+        </div>
+        <div id="cal-grid"></div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width:1px;background:var(--border);flex-shrink:0"></div>
+
+      <!-- Right: year + month picker -->
+      <div style="width:192px;flex-shrink:0;display:flex;flex-direction:column">
+        <div class="flex items-center justify-between mb-3">
+          <span id="year-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
+          <div class="flex flex-col gap-0.5">
+            <button onclick="prevYear()" id="prev-year-btn"
+              class="w-6 h-6 flex items-center justify-center rounded transition"
+              style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
+              </svg>
+            </button>
+            <button onclick="nextYear()" id="next-year-btn"
+              class="w-6 h-6 flex items-center justify-center rounded transition"
+              style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="month-grid" class="grid grid-cols-3 gap-2" style="flex:1"></div>
+        <div class="text-right mt-4">
+          <button onclick="goToToday()"
+            class="text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+            style="background:var(--chrome);color:var(--chrome-text)">Today</button>
+        </div>
+      </div>
+
     </div>
-    <div class="grid grid-cols-7 mb-1">
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Su</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Mo</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Tu</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">We</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Th</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Fr</div>
-      <div class="text-center py-0.5" style="color:var(--text-3);font-size:11px">Sa</div>
-    </div>
-    <div id="cal-grid" class="grid grid-cols-7 gap-0.5"></div>
   </div>
 
   <!-- Day header + generate button -->
   <div class="flex items-center gap-3">
     <span id="day-badge"
-      class="text-xs px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-300 font-medium shrink-0"></span>
+      class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+      style="background:var(--surface-2);color:var(--text-2)"></span>
     <span id="day-label" class="text-sm" style="color:var(--text-2)"></span>
     <button onclick="generateSummary()" id="gen-btn"
-      class="ml-auto flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition shrink-0">
+      class="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition shrink-0"
+      style="background:var(--chrome);color:var(--chrome-text)">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
       </svg>
@@ -66,113 +118,224 @@
 </div>
 
 <style>
+  .cal-hdr { text-align:center; padding:2px 0; font-size:11px; color:var(--text-3); }
+
+  .cal-row { display:grid; grid-template-columns:repeat(7,1fr); border-radius:8px; border:1.5px solid transparent; }
+  .cal-row.this-week { border-color:var(--chrome); }
+
   .cal-cell {
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    font-size: 12px;
-    user-select: none;
-    transition: background 0.12s;
-    color: var(--text-1);
+    width:34px; height:34px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%;
+    font-size:12px; user-select:none; transition:background 0.12s;
+    color:var(--text-1);
   }
-  .cal-cell.clickable { cursor: pointer; }
-  .cal-cell.clickable:hover { background: var(--surface-2); }
-  .cal-cell.future { color: var(--text-3); opacity: 0.4; cursor: default; }
-  .cal-cell.today { font-weight: 700; }
-  .cal-cell.selected { background: var(--chrome) !important; color: var(--chrome-text) !important; font-weight: 600; }
+  .cal-cell.overflow   { color:var(--text-3); opacity:0.45; cursor:default; }
+  .cal-cell.clickable  { cursor:pointer; }
+  .cal-cell.clickable:hover { background:var(--surface-2); }
+  .cal-cell.future     { color:var(--text-3); opacity:0.35; cursor:default; }
+  .cal-cell.today      { background:var(--chrome); color:var(--chrome-text); font-weight:700; }
+  .cal-cell.selected:not(.today) {
+    background:var(--surface-2); color:var(--text-1); font-weight:600;
+    outline:1.5px solid var(--border-strong);
+  }
+
+  .month-cell {
+    text-align:center; padding:7px 4px; font-size:12px; border-radius:6px;
+    color:var(--text-2); cursor:pointer; transition:background 0.12s; user-select:none;
+  }
+  .month-cell.active   { background:var(--chrome); color:var(--chrome-text); font-weight:600; }
+  .month-cell.disabled { color:var(--text-3); opacity:0.35; cursor:default; pointer-events:none; }
+  .month-cell:not(.active):not(.disabled):hover { background:var(--surface-2); }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  const MONTHS = ['January','February','March','April','May','June','July',
-                  'August','September','October','November','December'];
+  const MONTHS       = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   const _today = new Date();
   _today.setHours(0, 0, 0, 0);
 
-  const _urlDate   = new URLSearchParams(location.search).get('date');
-  const _initDate  = _urlDate && /^\d{4}-\d{2}-\d{2}$/.test(_urlDate) ? _urlDate : dateFmt(_today);
-  const _initObj   = new Date(_initDate + 'T00:00:00');
+  const _urlDate  = new URLSearchParams(location.search).get('date');
+  const _initDate = _urlDate && /^\d{4}-\d{2}-\d{2}$/.test(_urlDate) ? _urlDate : dateFmt(_today);
+  const _initObj  = new Date(_initDate + 'T00:00:00');
 
-  let viewYear  = _initObj.getFullYear();
-  let viewMonth = _initObj.getMonth();
+  let viewYear     = _initObj.getFullYear();
+  let viewMonth    = _initObj.getMonth();
+  let pickerYear   = viewYear;
   let selectedDate = _initDate;
 
-  const NOW_MK = viewYear * 12 + viewMonth;
-  const MIN_MK = NOW_MK - 3;
+  const NOW_MK = _today.getFullYear() * 12 + _today.getMonth();
+  const MIN_MK = NOW_MK - 12; // allow 1 year back
 
-  function dateFmt(d) {
-    return d.toISOString().slice(0, 10);
-  }
+  function dateFmt(d) { return d.toISOString().slice(0, 10); }
 
   async function onBaseReady(data) {
     const raw = ((data || {}).email || '').split('@')[0];
     window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
     window._actAuthorName   = raw.split(/[._]/)[0] || raw;
+    updateWeekHeader(selectedDate);
     renderCalendar();
+    renderMonthPicker();
     await loadDayData(selectedDate);
   }
 
   function renderCalendar() {
-    const mk = viewYear * 12 + viewMonth;
     document.getElementById('month-label').textContent = `${MONTHS[viewMonth]} ${viewYear}`;
-    document.getElementById('prev-btn').style.visibility = mk <= MIN_MK ? 'hidden' : '';
-    document.getElementById('next-btn').style.visibility = mk >= NOW_MK ? 'hidden' : '';
 
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     const startDow    = new Date(viewYear, viewMonth, 1).getDay();
     const todayStr    = dateFmt(_today);
-    const grid        = document.getElementById('cal-grid');
-    grid.innerHTML    = '';
+    const selObj      = new Date(selectedDate + 'T00:00:00');
 
-    for (let i = 0; i < startDow; i++) {
-      grid.appendChild(Object.assign(document.createElement('div'), { className: 'cal-cell' }));
-    }
+    const prevYear2  = viewMonth === 0 ? viewYear - 1 : viewYear;
+    const prevMonth2 = viewMonth === 0 ? 11 : viewMonth - 1;
+    const prevDays   = new Date(viewYear, viewMonth, 0).getDate();
+    const nextYear2  = viewMonth === 11 ? viewYear + 1 : viewYear;
+    const nextMonth2 = viewMonth === 11 ? 0 : viewMonth + 1;
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(viewYear, viewMonth, d);
-      const dateStr = dateFmt(dateObj);
-      const isFuture = dateObj > _today;
-      const isToday  = dateStr === todayStr;
-      const isSel    = dateStr === selectedDate;
+    // Build cells: overflow-prev + current month + overflow-next
+    const cells = [];
+    for (let i = startDow - 1; i >= 0; i--)
+      cells.push({ day: prevDays - i, month: prevMonth2, year: prevYear2, overflow: true });
+    for (let d = 1; d <= daysInMonth; d++)
+      cells.push({ day: d, month: viewMonth, year: viewYear, overflow: false });
+    let nextDay = 1;
+    const totalRows = Math.ceil(cells.length / 7);
+    while (cells.length < totalRows * 7)
+      cells.push({ day: nextDay++, month: nextMonth2, year: nextYear2, overflow: true });
 
-      let cls = 'cal-cell';
-      if (isFuture) cls += ' future';
-      else          cls += ' clickable';
-      if (isToday)  cls += ' today';
-      if (isSel)    cls += ' selected';
+    const grid = document.getElementById('cal-grid');
+    grid.innerHTML = '';
 
-      const cell = Object.assign(document.createElement('div'), {
-        className: cls,
-        textContent: d,
+    for (let row = 0; row < totalRows; row++) {
+      const rowCells = cells.slice(row * 7, row * 7 + 7);
+      const rowEl = document.createElement('div');
+      rowEl.className = 'cal-row';
+
+      // Highlight the row that contains the selected date
+      const rowHasSel = rowCells.some(c =>
+        !c.overflow &&
+        c.year  === selObj.getFullYear() &&
+        c.month === selObj.getMonth() &&
+        c.day   === selObj.getDate()
+      );
+      if (rowHasSel) rowEl.classList.add('this-week');
+
+      rowCells.forEach(c => {
+        const dateObj     = new Date(c.year, c.month, c.day);
+        const dateStr     = dateFmt(dateObj);
+        const isToday     = dateStr === todayStr;
+        const isSel       = dateStr === selectedDate;
+        const isFuture    = dateObj > _today;
+        const isPastLimit = c.year * 12 + c.month < MIN_MK;
+
+        let cls = 'cal-cell';
+        if (c.overflow)                       cls += ' overflow';
+        else if (isFuture || isPastLimit)     cls += ' future';
+        else                                  cls += ' clickable';
+        if (isToday)                          cls += ' today';
+        else if (isSel && !c.overflow)        cls += ' selected';
+
+        const cell = Object.assign(document.createElement('div'), { className: cls, textContent: c.day });
+        if (!c.overflow && !isFuture && !isPastLimit)
+          cell.onclick = () => selectDay(dateStr);
+        rowEl.appendChild(cell);
       });
-      if (!isFuture) cell.onclick = () => selectDay(dateStr);
-      grid.appendChild(cell);
+
+      grid.appendChild(rowEl);
     }
+
+    const mk = viewYear * 12 + viewMonth;
+    document.getElementById('prev-btn').style.visibility = mk <= MIN_MK ? 'hidden' : '';
+    document.getElementById('next-btn').style.visibility = mk >= NOW_MK ? 'hidden' : '';
+  }
+
+  function renderMonthPicker() {
+    document.getElementById('year-label').textContent = pickerYear;
+    const nowYear = _today.getFullYear();
+    const minYear = nowYear - 1;
+
+    document.getElementById('month-grid').innerHTML = MONTHS_SHORT.map((name, i) => {
+      const mk     = pickerYear * 12 + i;
+      const isCur  = pickerYear === viewYear && i === viewMonth;
+      const isFut  = mk > NOW_MK;
+      const isPast = mk < MIN_MK;
+      let cls = 'month-cell';
+      if (isCur)           cls += ' active';
+      else if (isFut || isPast) cls += ' disabled';
+      return `<div class="${cls}" ${(!isCur && !isFut && !isPast) ? `onclick="selectMonth(${pickerYear},${i})"` : ''}>${name}</div>`;
+    }).join('');
+
+    document.getElementById('prev-year-btn').style.visibility = pickerYear <= minYear ? 'hidden' : '';
+    document.getElementById('next-year-btn').style.visibility = pickerYear >= nowYear ? 'hidden' : '';
+  }
+
+  function selectMonth(year, month) {
+    viewYear = year; viewMonth = month;
+    renderCalendar(); renderMonthPicker();
+  }
+
+  function prevYear() { pickerYear--; renderMonthPicker(); }
+  function nextYear() { pickerYear++; renderMonthPicker(); }
+
+  function goToToday() {
+    viewYear  = _today.getFullYear();
+    viewMonth = _today.getMonth();
+    pickerYear   = viewYear;
+    selectedDate = dateFmt(_today);
+    updateWeekHeader(selectedDate);
+    renderCalendar(); renderMonthPicker();
+    loadDayData(selectedDate);
+  }
+
+  function getWeekLabel(dateStr) {
+    const d   = new Date(dateStr + 'T00:00:00');
+    const dow = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    const fmt = dt => dt.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+    const year = fri.getFullYear();
+    if (mon.getMonth() === fri.getMonth())
+      return `${fmt(mon).replace(/\s\d+$/, '')} ${mon.getDate()}–${fri.getDate()}, ${year}`;
+    return `${fmt(mon)}–${fmt(fri)}, ${year}`;
+  }
+
+  let _calOpen = true;
+
+  function updateWeekHeader(dateStr) {
+    document.getElementById('week-label').textContent = getWeekLabel(dateStr);
+  }
+
+  function toggleCalendar() {
+    _calOpen = !_calOpen;
+    const card    = document.getElementById('cal-card');
+    const chevron = document.getElementById('week-chevron');
+    card.style.display    = _calOpen ? '' : 'none';
+    chevron.style.transform = _calOpen ? '' : 'rotate(-90deg)';
   }
 
   function selectDay(dateStr) {
     selectedDate = dateStr;
+    updateWeekHeader(dateStr);
     renderCalendar();
     loadDayData(dateStr);
   }
 
   function prevMonth() {
-    const mk = viewYear * 12 + viewMonth;
-    if (mk <= MIN_MK) return;
+    if (viewYear * 12 + viewMonth <= MIN_MK) return;
     if (--viewMonth < 0) { viewMonth = 11; viewYear--; }
-    renderCalendar();
+    pickerYear = viewYear;
+    renderCalendar(); renderMonthPicker();
   }
 
   function nextMonth() {
-    const mk = viewYear * 12 + viewMonth;
-    if (mk >= NOW_MK) return;
+    if (viewYear * 12 + viewMonth >= NOW_MK) return;
     if (++viewMonth > 11) { viewMonth = 0; viewYear++; }
-    renderCalendar();
+    pickerYear = viewYear;
+    renderCalendar(); renderMonthPicker();
   }
 
   async function loadDayData(dateStr) {
@@ -267,13 +430,23 @@
     return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  function _dayCommitExtra(it) {
+    const shaHtml = it.sha
+      ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
+      : '';
+    const filesHtml = it.files?.length
+      ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)"> +${it.files.length-4} more</span>`:''}</div>`
+      : '';
+    return { shaHtml, filesHtml };
+  }
+
   function renderTimeline(events) {
     const bySource = events.reduce((acc, e) => {
       (acc[e.source] = acc[e.source] || []).push(e);
       return acc;
     }, {});
-    const order    = ['github','jira','teams_subscription','gitlab'];
-    const sources  = [...order.filter(s => bySource[s]), ...Object.keys(bySource).filter(s => !order.includes(s))];
+    const order   = ['github', 'jira', 'teams_subscription', 'gitlab'];
+    const sources = [...order.filter(s => bySource[s]), ...Object.keys(bySource).filter(s => !order.includes(s))];
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
 
@@ -281,7 +454,7 @@
       const color = _DAY_SRC_COLOR[src] || '#64748b';
       const label = _DAY_SRC_LABEL[src] || src;
       const items = bySource[src];
-        const groups = {};
+      const groups = {};
       items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
       const feedHtml = Object.entries(groups).map(([et, evts]) => `
         <div class="mb-3">
@@ -292,6 +465,7 @@
           <div class="commit-feed">${evts.map(it => {
             const avatarColor = _dayRepoColor(it.workspace || src || '');
             const time        = _dayFmtTime(it.occurred_at);
+            const {shaHtml, filesHtml} = _dayCommitExtra(it);
             return `<div class="commit-item">
               <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
               <div class="commit-body">
@@ -300,7 +474,8 @@
                   ${it.workspace ? `<span class="commit-repo-pill">${_DY_BRANCH} ${it.workspace}</span>` : ''}
                   ${time ? `<span class="commit-time">${_DY_CLOCK} ${time}</span>` : ''}
                 </div>
-                <div class="commit-title">${it.title || '—'}</div>
+                <div class="commit-title">${it.title || '—'}${shaHtml}</div>
+                ${filesHtml}
               </div>
             </div>`;
           }).join('')}</div>
@@ -308,12 +483,18 @@
       return `<div class="mb-4">
         <div class="flex items-center gap-2 mb-2 pl-2.5" style="border-left:2px solid ${color}">
           <span class="text-xs font-semibold" style="color:${color}">${label}</span>
-          <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length!==1?'s':''}</span>
+          <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length !== 1 ? 's' : ''}</span>
         </div>
         ${feedHtml}
       </div>`;
     }).join('');
   }
+
+  window.onWSEvent = function(data) {
+    if (selectedDate === dateFmt(_today)) {
+      loadDayData(selectedDate);
+    }
+  };
 
   async function generateSummary() {
     const label   = document.getElementById('gen-label');
@@ -322,8 +503,7 @@
     content.textContent = 'Generating your daily summary…';
     try {
       const res  = await fetch('/api/summaries/generate', {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period_type: 'daily' }),
       });

@@ -428,6 +428,12 @@
         <p class="text-xs text-gray-500 mt-0.5">{% block page_subtitle %}This week's activity summary{% endblock %}</p>
       </div>
       <div class="flex items-center gap-3">
+        <span id="ws-status" title="Connecting…"
+          class="flex items-center gap-1 text-xs transition-opacity opacity-0"
+          style="color:var(--text-3)">
+          <span class="live-dot" id="ws-live-dot" style="display:none"></span>
+          <span id="ws-label"></span>
+        </span>
         <div class="relative">
           <div id="header-avatar" onclick="toggleAppearanceMenu()"
             class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold hidden"
@@ -656,8 +662,48 @@
       } catch (_) {}
 
       _initPulseDots();
+      _connectWS();
       if (typeof onBaseReady === 'function') onBaseReady(data);
     }
+
+    // ── WebSocket ─────────────────────────────────────────────────
+    let _wsReconnectTimer = null;
+
+    function _connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      window._appWS = ws;
+
+      ws.onopen = () => {
+        const dot   = document.getElementById('ws-live-dot');
+        const label = document.getElementById('ws-label');
+        const status = document.getElementById('ws-status');
+        if (dot)   dot.style.display = '';
+        if (label) label.textContent = 'Live';
+        if (status) { status.style.color = 'var(--positive)'; status.style.opacity = '1'; }
+        clearTimeout(_wsReconnectTimer);
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (typeof window.onWSEvent === 'function') window.onWSEvent(data);
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        const dot   = document.getElementById('ws-live-dot');
+        const label = document.getElementById('ws-label');
+        const status = document.getElementById('ws-status');
+        if (dot)   dot.style.display = 'none';
+        if (label) label.textContent = '';
+        if (status) status.style.opacity = '0';
+        _wsReconnectTimer = setTimeout(_connectWS, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+    // ── /WebSocket ────────────────────────────────────────────────
 
     initBase();
   </script>

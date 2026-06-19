@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -11,6 +11,8 @@ from app.config import settings
 from app.storage.models import Integration, LinkedIdentity, Profile, Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import AsyncSessionLocal
+from app.storage.redis_client import get_redis
+from app.ws_manager import manager as ws_manager
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -66,12 +68,19 @@ async def _count(profile_id, source=None, event_type_regex=None, start=None, end
     return await col.count_documents(q)
 
 
-async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7, tz_name: str = "UTC"):
+async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7, tz_name: str = "UTC", start_date: str = None):
     from zoneinfo import ZoneInfo
     tz = ZoneInfo(tz_name or "UTC")
     now = datetime.now(tz)
-    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-    q = {"profile_id": profile_id, "occurred_at": {"$gte": start}}
+    if start_date:
+        sd    = datetime.strptime(start_date, "%Y-%m-%d")
+        start = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+        end   = start + timedelta(days=days)
+        time_q = {"$gte": start, "$lt": end}
+    else:
+        start  = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        time_q = {"$gte": start}
+    q = {"profile_id": profile_id, "occurred_at": time_q}
     if source:
         q["source"] = source
     if event_type_regex:
@@ -84,10 +93,17 @@ async def _daily_counts(profile_id, source=None, event_type_regex=None, days=7, 
     results = await activity_events().aggregate(pipeline).to_list(length=None)
     days_map = {r["_id"]: r["count"] for r in results}
     labels, counts = [], []
-    for i in range(days - 1, -1, -1):
-        day = now - timedelta(days=i)
-        labels.append(day.strftime("%a"))
-        counts.append(days_map.get(day.strftime("%Y-%m-%d"), 0))
+    if start_date:
+        sd = datetime.strptime(start_date, "%Y-%m-%d")
+        for i in range(days):
+            day = datetime(sd.year, sd.month, sd.day, tzinfo=tz) + timedelta(days=i)
+            labels.append(day.strftime("%a %d"))
+            counts.append(days_map.get(day.strftime("%Y-%m-%d"), 0))
+    else:
+        for i in range(days - 1, -1, -1):
+            day = now - timedelta(days=i)
+            labels.append(day.strftime("%a %d"))
+            counts.append(days_map.get(day.strftime("%Y-%m-%d"), 0))
     return labels, counts
 
 
@@ -101,6 +117,39 @@ async def _top_items(profile_id, source, limit=5):
     ]
     results = await activity_events().aggregate(pipeline).to_list(length=None)
     return [{"name": r["_id"], "count": r["count"]} for r in results]
+
+
+async def _workspace_breakdown(profile_id, source, event_type_regex=None, days=7, tz_name="UTC", top_n=3, start_date: str = None):
+    """Return { day_label: { workspace: count } } for the last `days` days, top_n repos per day."""
+    from zoneinfo import ZoneInfo
+    tz    = ZoneInfo(tz_name or "UTC")
+    now   = datetime.now(tz)
+    if start_date:
+        sd    = datetime.strptime(start_date, "%Y-%m-%d")
+        start = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+        time_q = {"$gte": start, "$lt": start + timedelta(days=days)}
+    else:
+        start  = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        time_q = {"$gte": start}
+    q: dict = {"profile_id": profile_id, "source": source, "workspace": {"$nin": [None, ""]}, "occurred_at": time_q}
+    if event_type_regex:
+        q["event_type"] = {"$regex": event_type_regex}
+    pipeline = [
+        {"$match": q},
+        {"$group": {
+            "_id": {
+                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
+                "ws":  "$workspace",
+            },
+            "count": {"$sum": 1},
+        }},
+    ]
+    raw = await activity_events().aggregate(pipeline).to_list(length=None)
+    result: dict = {}
+    for r in raw:
+        day_label = datetime.strptime(r["_id"]["day"], "%Y-%m-%d").strftime("%a %d")
+        result.setdefault(day_label, {})[r["_id"]["ws"]] = r["count"]
+    return {d: dict(sorted(ws.items(), key=lambda x: -x[1])[:top_n]) for d, ws in result.items()}
 
 
 async def _get_integrations(profile_id: str):
@@ -250,25 +299,73 @@ async def update_profile_timezone(request: Request):
 
 
 @router.get("/api/events/recent")
-async def get_recent_events(request: Request, limit: int = 20):
+async def get_recent_events(
+    request: Request,
+    limit: int = 20,
+    source: str = None,
+    start_date: str = None,
+    end_date: str = None,
+):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    q: dict = {"profile_id": profile_id}
+    if source:
+        q["source"] = source
+    if start_date or end_date:
+        from zoneinfo import ZoneInfo
+        tz_name = await _get_profile_tz(profile_id)
+        tz = ZoneInfo(tz_name or "UTC")
+        time_q: dict = {}
+        if start_date:
+            s = datetime.fromisoformat(start_date)
+            time_q["$gte"] = datetime(s.year, s.month, s.day, tzinfo=tz).astimezone(timezone.utc)
+        if end_date:
+            e = datetime.fromisoformat(end_date)
+            time_q["$lt"] = datetime(e.year, e.month, e.day, tzinfo=tz).astimezone(timezone.utc)
+        q["occurred_at"] = time_q
+
     events = (
         await activity_events()
-        .find({"profile_id": profile_id}, {"raw_payload": 0})
+        .find(q)
         .sort("occurred_at", -1)
         .to_list(length=limit)
     )
     result = []
     for e in events:
-        ts = e.get("occurred_at")
+        ts  = e.get("occurred_at")
+        raw = e.get("raw_payload") or {}
+        src = e.get("source", "")
+
+        sha   = None
+        files = []
+        if src == "github":
+            raw_sha = e.get("source_event_id") or raw.get("after") or ""
+            if raw_sha:
+                sha = raw_sha[:7]
+            head = raw.get("head_commit") or {}
+            files = (head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or [])
+            files = files[:6]
+        elif src == "gitlab":
+            commits = raw.get("commits") or []
+            if commits:
+                raw_sha = commits[-1].get("id") or ""
+                sha = raw_sha[:7] if raw_sha else None
+                files = (
+                    (commits[-1].get("modified") or []) +
+                    (commits[-1].get("added") or []) +
+                    (commits[-1].get("removed") or [])
+                )[:6]
+
         result.append({
-            "source": e.get("source", ""),
+            "source": src,
             "event_type": e.get("event_type", ""),
             "title": e.get("title", ""),
             "workspace": e.get("workspace", ""),
             "occurred_at": (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat() if isinstance(ts, datetime) else str(ts),
+            "sha": sha,
+            "files": files,
         })
     return JSONResponse({"events": result})
 
@@ -321,7 +418,7 @@ async def get_stats(request: Request, period: str = "week"):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/github/stats")
-async def get_github_stats(request: Request, period: str = "week"):
+async def get_github_stats(request: Request, period: str = "week", start_date: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
@@ -357,12 +454,30 @@ async def get_github_stats(request: Request, period: str = "week"):
             {"label": "Issues",        "value": issues,  "change": _pct(issues,  await _count(profile_id, "github", "^issue",       lw_s, lw_e))},
         ]
 
-    labels, counts = await _daily_counts(profile_id, "github", "^commit", days=7, tz_name=tz_name)
+    labels,  commits_daily = await _daily_counts(profile_id, "github", r"^commit",      days=7, tz_name=tz_name, start_date=start_date)
+    _,       pr_daily      = await _daily_counts(profile_id, "github", r"^pr_",         days=7, tz_name=tz_name, start_date=start_date)
+    _,       issue_daily   = await _daily_counts(profile_id, "github", r"^issue",       days=7, tz_name=tz_name, start_date=start_date)
+    _,       review_daily  = await _daily_counts(profile_id, "github", r"^pr_reviewed", days=7, tz_name=tz_name, start_date=start_date)
     top_repos = await _top_items(profile_id, "github")
+    repos = {
+        "commits":       await _workspace_breakdown(profile_id, "github", r"^commit",      tz_name=tz_name, start_date=start_date),
+        "pull_requests": await _workspace_breakdown(profile_id, "github", r"^pr_",         tz_name=tz_name, start_date=start_date),
+        "issues":        await _workspace_breakdown(profile_id, "github", r"^issue",       tz_name=tz_name, start_date=start_date),
+        "reviews":       await _workspace_breakdown(profile_id, "github", r"^pr_reviewed", tz_name=tz_name, start_date=start_date),
+    }
 
     return JSONResponse({
         "metrics": metrics,
-        "chart": {"labels": labels, "data": counts, "label": "Commits"},
+        "chart": {
+            "labels": labels,
+            "datasets": {
+                "commits":       commits_daily,
+                "pull_requests": pr_daily,
+                "issues":        issue_daily,
+                "reviews":       review_daily,
+            },
+            "repos": repos,
+        },
         "top_items": top_repos,
         "top_label": "Top Repositories",
     })
@@ -373,7 +488,7 @@ async def get_github_stats(request: Request, period: str = "week"):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/jira/stats")
-async def get_jira_stats(request: Request, period: str = "week"):
+async def get_jira_stats(request: Request, period: str = "week", start_date: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
@@ -409,12 +524,27 @@ async def get_jira_stats(request: Request, period: str = "week"):
             {"label": "Total",    "value": total_n,    "change": _pct(total_n,    total_p)},
         ]
 
-    labels, counts = await _daily_counts(profile_id, "jira", days=7, tz_name=tz_name)
+    labels,  created_daily = await _daily_counts(profile_id, "jira", "issue_created", days=7, tz_name=tz_name, start_date=start_date)
+    _,       updated_daily = await _daily_counts(profile_id, "jira", "issue_updated", days=7, tz_name=tz_name, start_date=start_date)
+    _,       comment_daily = await _daily_counts(profile_id, "jira", "comment",       days=7, tz_name=tz_name, start_date=start_date)
     top_projects = await _top_items(profile_id, "jira")
+    repos = {
+        "created":  await _workspace_breakdown(profile_id, "jira", "issue_created", tz_name=tz_name, start_date=start_date),
+        "updated":  await _workspace_breakdown(profile_id, "jira", "issue_updated", tz_name=tz_name, start_date=start_date),
+        "comments": await _workspace_breakdown(profile_id, "jira", "comment",       tz_name=tz_name, start_date=start_date),
+    }
 
     return JSONResponse({
         "metrics": metrics,
-        "chart": {"labels": labels, "data": counts, "label": "Issues"},
+        "chart": {
+            "labels": labels,
+            "datasets": {
+                "created":  created_daily,
+                "updated":  updated_daily,
+                "comments": comment_daily,
+            },
+            "repos": repos,
+        },
         "top_items": top_projects,
         "top_label": "Top Projects",
     })
@@ -425,7 +555,7 @@ async def get_jira_stats(request: Request, period: str = "week"):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/teams/stats")
-async def get_teams_stats(request: Request, period: str = "week"):
+async def get_teams_stats(request: Request, period: str = "week", start_date: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
@@ -446,11 +576,18 @@ async def get_teams_stats(request: Request, period: str = "week"):
         msgs_prev = await _count(profile_id, "teams_subscription", None, lw_s, lw_e)
         metrics = [{"label": "Messages", "value": msgs_now, "change": _pct(msgs_now, msgs_prev)}]
 
-    labels, counts = await _daily_counts(profile_id, "teams_subscription", days=7, tz_name=tz_name)
+    labels, messages_daily = await _daily_counts(profile_id, "teams_subscription", days=7, tz_name=tz_name, start_date=start_date)
+    repos = {
+        "messages": await _workspace_breakdown(profile_id, "teams_subscription", tz_name=tz_name, start_date=start_date),
+    }
 
     return JSONResponse({
         "metrics": metrics,
-        "chart": {"labels": labels, "data": counts, "label": "Messages"},
+        "chart": {
+            "labels": labels,
+            "datasets": { "messages": messages_daily },
+            "repos": repos,
+        },
         "top_items": [],
         "top_label": "Top Channels",
     })
@@ -461,7 +598,7 @@ async def get_teams_stats(request: Request, period: str = "week"):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/gitlab/stats")
-async def get_gitlab_stats(request: Request, period: str = "week"):
+async def get_gitlab_stats(request: Request, period: str = "week", start_date: str = None):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
@@ -493,12 +630,27 @@ async def get_gitlab_stats(request: Request, period: str = "week"):
             {"label": "Issues",         "value": issues_n,  "change": _pct(issues_n,  issues_p)},
         ]
 
-    labels, counts = await _daily_counts(profile_id, "gitlab", "^commit", days=7, tz_name=tz_name)
+    labels,  commits_daily = await _daily_counts(profile_id, "gitlab", r"^commit", days=7, tz_name=tz_name, start_date=start_date)
+    _,       mr_daily      = await _daily_counts(profile_id, "gitlab", r"^mr_",    days=7, tz_name=tz_name, start_date=start_date)
+    _,       issue_daily   = await _daily_counts(profile_id, "gitlab", r"^issue",  days=7, tz_name=tz_name, start_date=start_date)
     top_repos = await _top_items(profile_id, "gitlab")
+    repos = {
+        "commits":        await _workspace_breakdown(profile_id, "gitlab", r"^commit", tz_name=tz_name, start_date=start_date),
+        "merge_requests": await _workspace_breakdown(profile_id, "gitlab", r"^mr_",    tz_name=tz_name, start_date=start_date),
+        "issues":         await _workspace_breakdown(profile_id, "gitlab", r"^issue",  tz_name=tz_name, start_date=start_date),
+    }
 
     return JSONResponse({
         "metrics": metrics,
-        "chart": {"labels": labels, "data": counts, "label": "Commits"},
+        "chart": {
+            "labels": labels,
+            "datasets": {
+                "commits":        commits_daily,
+                "merge_requests": mr_daily,
+                "issues":         issue_daily,
+            },
+            "repos": repos,
+        },
         "top_items": top_repos,
         "top_label": "Top Projects",
     })
@@ -605,12 +757,32 @@ async def get_analytics_trend(request: Request, days: int = 28, group_by: str = 
             "group_by":   "week",
         })
 
+    # Event-type breakdown for richer tooltips
+    et_pipeline = [
+        {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
+        {"$group": {
+            "_id": {
+                "day":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
+                "src":  "$source",
+                "type": "$event_type",
+            },
+            "count": {"$sum": 1},
+        }},
+    ]
+    et_results = await activity_events().aggregate(et_pipeline).to_list(length=None)
+    event_types: dict = {}
+    for r in et_results:
+        s, d, t = r["_id"]["src"], r["_id"]["day"], r["_id"]["type"]
+        if d in labels:
+            event_types.setdefault(s, {}).setdefault(d, {})[t] = r["count"]
+
     display_labels = [_dt.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
     return JSONResponse({
-        "labels":     display_labels,
-        "raw_labels": labels,
-        "sources":    {s: list(pivot[s].values()) for s in sources},
-        "group_by":   "day",
+        "labels":      display_labels,
+        "raw_labels":  labels,
+        "sources":     {s: list(pivot[s].values()) for s in sources},
+        "event_types": event_types,
+        "group_by":    "day",
     })
 
 
@@ -746,7 +918,6 @@ async def get_day_data(request: Request, date: str = None):
         activity_events()
         .find(
             {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_end}},
-            {"raw_payload": 0},
         )
         .sort("occurred_at", -1)
     )
@@ -755,10 +926,25 @@ async def get_day_data(request: Request, date: str = None):
     source_counts = {"github": 0, "jira": 0, "teams_subscription": 0, "gitlab": 0}
     result_events = []
     for e in raw_events:
-        ts = e.get("occurred_at")
+        ts  = e.get("occurred_at")
         src = e.get("source", "")
+        raw = e.get("raw_payload") or {}
         if src in source_counts:
             source_counts[src] += 1
+        sha   = None
+        files = []
+        if src == "github":
+            raw_sha = e.get("source_event_id") or raw.get("after") or ""
+            if raw_sha:
+                sha = raw_sha[:7]
+            head  = raw.get("head_commit") or {}
+            files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
+        elif src == "gitlab":
+            commits = raw.get("commits") or []
+            if commits:
+                raw_sha = commits[-1].get("id") or ""
+                sha = raw_sha[:7] if raw_sha else None
+                files = ((commits[-1].get("modified") or []) + (commits[-1].get("added") or []) + (commits[-1].get("removed") or []))[:6]
         result_events.append({
             "source": src,
             "event_type": e.get("event_type", ""),
@@ -769,6 +955,8 @@ async def get_day_data(request: Request, date: str = None):
                 if isinstance(ts, datetime)
                 else str(ts)
             ),
+            "sha":   sha,
+            "files": files,
         })
 
     async with AsyncSessionLocal() as db:
@@ -834,7 +1022,6 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
 
     all_events = await activity_events().find(
         {"profile_id": profile_id, "occurred_at": {"$gte": range_start, "$lt": range_end}},
-        {"raw_payload": 0},
     ).to_list(length=2000)
 
     # Normalise naive timestamps to UTC-aware
@@ -855,22 +1042,55 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
         connectors = {}
         for src in sources:
             src_events = [e for e in day_events if e.get("source") == src]
-            connectors[src] = {
-                "count": len(src_events),
-                "items": [
-                    {
-                        "event_type": e.get("event_type", ""),
-                        "title":      e.get("title", "") or e.get("event_type", ""),
-                        "workspace":  e.get("workspace", ""),
-                        "occurred_at": e["occurred_at"].isoformat(),
-                    }
-                    for e in src_events[:15]
-                ],
-            }
+            items = []
+            for e in src_events[:15]:
+                raw = e.get("raw_payload") or {}
+                sha   = None
+                files = []
+                if src == "github":
+                    raw_sha = e.get("source_event_id") or raw.get("after") or ""
+                    if raw_sha:
+                        sha = raw_sha[:7]
+                    head  = raw.get("head_commit") or {}
+                    files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
+                elif src == "gitlab":
+                    commits = raw.get("commits") or []
+                    if commits:
+                        raw_sha = commits[-1].get("id") or ""
+                        sha = raw_sha[:7] if raw_sha else None
+                        files = ((commits[-1].get("modified") or []) + (commits[-1].get("added") or []) + (commits[-1].get("removed") or []))[:6]
+                items.append({
+                    "event_type":  e.get("event_type", ""),
+                    "title":       e.get("title", "") or e.get("event_type", ""),
+                    "workspace":   e.get("workspace", ""),
+                    "occurred_at": e["occurred_at"].isoformat(),
+                    "sha":         sha,
+                    "files":       files,
+                })
+            connectors[src] = {"count": len(src_events), "items": items}
 
         result_days.append({"date": day.strftime("%Y-%m-%d"), "connectors": connectors})
 
     return JSONResponse({"days": result_days})
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.cookies.get("session")
+    profile_id = None
+    if token:
+        redis = get_redis()
+        profile_id = await redis.get(f"session:{token}")
+    if not profile_id:
+        await websocket.close(code=4001)
+        return
+    pid = str(profile_id)
+    await ws_manager.connect(websocket, pid)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, pid)
 
 
 @router.delete("/api/summaries/{summary_id}")

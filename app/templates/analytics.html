@@ -320,6 +320,16 @@
   const _CF_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _CF_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 
+  function _cfCommitExtra(it) {
+    const shaHtml = it.sha
+      ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
+      : '';
+    const filesHtml = it.files?.length
+      ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)"> +${it.files.length-4} more</span>`:''}</div>`
+      : '';
+    return { shaHtml, filesHtml };
+  }
+
   function renderItems(items, src) {
     if (!items || !items.length) return '';
     const initials = window._actUserInitials || '??';
@@ -335,6 +345,7 @@
         <div class="commit-feed">${evts.map(it => {
           const color = _feedRepoColor(it.workspace || src || '');
           const time  = fmtTime(it.occurred_at);
+          const {shaHtml, filesHtml} = _cfCommitExtra(it);
           return `<div class="commit-item">
             <div class="commit-avatar" style="background:${color}">${initials}</div>
             <div class="commit-body">
@@ -343,7 +354,8 @@
                 ${it.workspace ? `<span class="commit-repo-pill">${_CF_BRANCH} ${it.workspace}</span>` : ''}
                 ${time ? `<span class="commit-time">${_CF_CLOCK} ${time}</span>` : ''}
               </div>
-              <div class="commit-title">${it.title || '—'}</div>
+              <div class="commit-title">${it.title || '—'}${shaHtml}</div>
+              ${filesHtml}
             </div>
           </div>`;
         }).join('')}</div>
@@ -397,7 +409,7 @@
 
   function renderDayView(days) {
     if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
-    return days.map(day => {
+    return [...days].reverse().map(day => {
       const connRows = SOURCES.map(src => {
         const c = day.connectors[src] || { count:0, items:[] };
         return `<div class="mb-3">
@@ -417,7 +429,7 @@
 
   function renderConnectorView(days, src) {
     if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
-    return days.map(day => {
+    return [...days].reverse().map(day => {
       const c = day.connectors[src] || { count:0, items:[] };
       return `<div class="mb-4">
         <div class="flex items-center gap-2 mb-2">

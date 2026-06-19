@@ -126,8 +126,22 @@
   let chartDrillState  = null;   // { days, groupBy } when drilled into a week
   let _chartTopDays    = 7;
   let _chartTopGroupBy = 'day';
+  let _chartEventTypes = null;   // { source: { day: { event_type: count } } }
   let statsPeriod     = 'week';
   let timelinePeriod  = 'today';
+
+  const _ET_MAP = {
+    commit:'Commits', push:'Pushes',
+    pr_merged:'PRs merged', pr_opened:'PRs opened', pr_closed:'PRs closed', pr_review:'Reviews',
+    issue_updated:'Issues', issue_opened:'Issues opened', issue_closed:'Issues closed',
+    comment:'Comments', issue_comment:'Comments',
+    merge_request:'Merge Requests', issue:'Issues',
+    'jira:issue_created':'Created', 'jira:issue_updated':'Updated',
+    message_sent:'Messages', meeting:'Meetings',
+  };
+  function _etLabel(et) {
+    return _ET_MAP[et] || (et || '').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  }
 
   // ── 3D bar plugin ─────────────────────────────────────────────────────────
   const _3dPlugin = {
@@ -270,8 +284,9 @@
 
     const res = await fetch(`/api/analytics/trend?days=${days}&group_by=${groupBy}`, { credentials: 'include' });
     const data = await res.json();
-    chartRawLabels = data.raw_labels || [];
-    chartGroupBy   = data.group_by   || groupBy;
+    chartRawLabels   = data.raw_labels   || [];
+    chartGroupBy     = data.group_by     || groupBy;
+    _chartEventTypes = data.event_types  || null;
     _renderActivityChart(data);
   }
 
@@ -286,8 +301,9 @@
 
     const res = await fetch(`/api/analytics/trend?days=7&group_by=day&start_date=${mondayStr}`, { credentials: 'include' });
     const data = await res.json();
-    chartRawLabels = data.raw_labels || [];
-    chartGroupBy   = 'day';
+    chartRawLabels   = data.raw_labels  || [];
+    chartGroupBy     = 'day';
+    _chartEventTypes = data.event_types || null;
     _renderActivityChart(data);
   }
 
@@ -371,12 +387,26 @@
             bodyColor:   ttBody,
             footerColor: ttBody,
             footerFont:  { size: 11 },
-            padding: 10,
+            padding: 12,
             cornerRadius: 8,
+            filter: item => item.raw > 0,
             callbacks: {
-              title:  items => items[0].label,
-              label:  item  => ` ${['GitHub','Jira','Teams','GitLab'][item.datasetIndex]}: ${item.raw}`,
-              footer: ()    => chartGroupBy === 'week' ? ['↓ Click to see daily breakdown'] : [],
+              title: items => items[0].label,
+              label: item => {
+                const SRCS  = ['github','jira','teams_subscription','gitlab'];
+                const NAMES = ['GitHub','Jira','Teams','GitLab'];
+                const src   = SRCS[item.datasetIndex];
+                const name  = NAMES[item.datasetIndex];
+                const lines = [` ${name}: ${item.raw}`];
+                if (_chartEventTypes && chartGroupBy === 'day') {
+                  const dayStr    = chartRawLabels[item.dataIndex];
+                  const breakdown = (_chartEventTypes[src] || {})[dayStr] || {};
+                  const sorted    = Object.entries(breakdown).sort((a,b) => b[1]-a[1]);
+                  sorted.forEach(([et, cnt]) => lines.push(`   · ${_etLabel(et)}: ${cnt}`));
+                }
+                return lines;
+              },
+              footer: () => chartGroupBy === 'week' ? ['↓ Click to see daily breakdown'] : [],
             }
           }
         },

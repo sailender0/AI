@@ -159,3 +159,13 @@ async def is_duplicate(event: dict) -> bool:
 async def ingest(event: dict):
     if not await is_duplicate(event):
         await activity_events().insert_one(event)
+        import asyncio
+        from app.ws_manager import manager as _ws
+        asyncio.create_task(_ws.notify(
+            str(event.get("profile_id", "")),
+            {
+                "type":       "new_event",
+                "source":     event.get("source", ""),
+                "event_type": event.get("event_type", ""),
+            },
+        ))
