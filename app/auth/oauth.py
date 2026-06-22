@@ -32,7 +32,7 @@ _OAUTH_CONFIGS = {
         "token_url": "https://gitlab.com/oauth/token",
         "client_id": lambda: settings.GITLAB_CLIENT_ID,
         "client_secret": lambda: settings.GITLAB_CLIENT_SECRET,
-        "scopes": "read_api read_user",
+        "scopes": "api read_user",
     },
     "jira": {
         "auth_url": "https://auth.atlassian.com/authorize",

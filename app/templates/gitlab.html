@@ -18,6 +18,25 @@
   <!-- Main content (hidden until connected) -->
   <div id="main-content" class="hidden space-y-6">
 
+  <!-- Connected header with actions -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background:#10b98120;color:#10b981">● Connected</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button onclick="reregisterWebhooks()" id="rereg-btn"
+        class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
+        style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">
+        Sync Webhooks
+      </button>
+      <button onclick="disconnectGitlab()"
+        class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
+        style="background:var(--surface-2);color:#f87171;border:1px solid var(--border)">
+        Disconnect
+      </button>
+    </div>
+  </div>
+
   <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
@@ -34,10 +53,12 @@
           <span id="chart-sub" class="text-xs font-normal" style="color:var(--text-3)">· last 7 days</span>
           <span class="src-badge" style="background:#10b98118;color:#10b981">GitLab</span>
         </h2>
-        <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
-          <button onclick="setChartType('commits')"        id="ct-commits" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Commits</button>
-          <button onclick="setChartType('merge_requests')" id="ct-mrs"     class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Merge Req</button>
-          <button onclick="setChartType('issues')"         id="ct-issues"  class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Issues</button>
+        <div class="flex rounded-lg p-0.5 gap-0.5 flex-wrap" style="background:var(--surface-2);border:1px solid var(--border)">
+          <button onclick="setChartType('commits')"        id="ct-commits"   class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Commits</button>
+          <button onclick="setChartType('merge_requests')" id="ct-mrs"       class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">MRs</button>
+          <button onclick="setChartType('issues')"         id="ct-issues"    class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Issues</button>
+          <button onclick="setChartType('notes')"          id="ct-notes"     class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Comments</button>
+          <button onclick="setChartType('pipelines')"      id="ct-pipelines" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Pipelines</button>
         </div>
       </div>
       <div class="flex items-center gap-2 mb-4" style="position:relative">
@@ -127,9 +148,30 @@
 
   const _ET_FILTER = {
     commits:        e => /^commit/i.test(e.event_type),
-    merge_requests: e => /^mr_/i.test(e.event_type),
+    merge_requests: e => /^merge_request/i.test(e.event_type),
     issues:         e => /^issue/i.test(e.event_type),
+    notes:          e => /^note/i.test(e.event_type),
+    pipelines:      e => /^pipeline/i.test(e.event_type),
   };
+
+  const _ET_COLOR = {
+    commit:         '#10b981',
+    merge_request:  '#6366f1',
+    issue:          '#f59e0b',
+    note:           '#06b6d4',
+    pipeline:       '#8b5cf6',
+    tag_push:       '#ec4899',
+  };
+  const _ET_ICON = {
+    commit:        '⬡',
+    merge_request: '⇄',
+    issue:         '◎',
+    note:          '💬',
+    pipeline:      '⚙',
+    tag_push:      '🏷',
+  };
+  function _etColor(et) { return _ET_COLOR[et] || '#64748b'; }
+  function _etIcon(et)  { return _ET_ICON[et]  || '·'; }
 
   async function loadPanelEvents() {
     if (!_chartStartDate) return;
@@ -245,8 +287,8 @@
     if (!pk.contains(e.target) && !e.target.closest('#range-week')) pk.classList.add('hidden');
   });
 
-  const _CT_LABELS = { commits:'Commits', merge_requests:'Merge Requests', issues:'Issues' };
-  const _CT_IDS    = { commits:'ct-commits', merge_requests:'ct-mrs', issues:'ct-issues' };
+  const _CT_LABELS = { commits:'Commits', merge_requests:'Merge Requests', issues:'Issues', notes:'Comments', pipelines:'Pipelines' };
+  const _CT_IDS    = { commits:'ct-commits', merge_requests:'ct-mrs', issues:'ct-issues', notes:'ct-notes', pipelines:'ct-pipelines' };
 
   function setChartType(type) {
     if (!_glChartData) return;
@@ -411,7 +453,7 @@
         <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);color:var(--text-3)">${events.length}</span>
       </div>
       ${events.map(it => {
-        const color = _glRepoColor(it.workspace || '');
+        const color = _etColor(it.event_type);
         const time  = new Date(it.occurred_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
         const filesHtml = it.files?.length
           ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)">+${it.files.length-4}</span>`:''}</div>` : '';
@@ -423,6 +465,7 @@
               ${it.sha?`<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${it.sha}</code>`:''}
             </div>
             <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.title||'—'}</span>
+            <div class="flex items-center gap-2">${_evtBadge(it.event_type)}</div>
             ${filesHtml}
             <span class="text-xs mt-1 block" style="color:var(--text-3)">${time}</span>
           </div>
@@ -447,12 +490,18 @@
     return { shaHtml, filesHtml };
   }
 
+  function _evtBadge(et) {
+    const color = _etColor(et);
+    const icon  = _etIcon(et);
+    return `<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:${color}22;color:${color}">${icon} ${_glFmt(et)}</span>`;
+  }
+
   function renderConnFeed(events) {
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     if (evtPeriod === 'history') {
       return `<div class="commit-feed">${events.map(it => {
-        const color = _glRepoColor(it.workspace||'');
+        const color = _etColor(it.event_type);
         const time  = new Date(it.occurred_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
         const {shaHtml, filesHtml} = _glCommitExtra(it);
         return `<div class="commit-item">
@@ -464,7 +513,7 @@
               <span class="commit-time">${_GL_CLOCK} ${time}</span>
             </div>
             <div class="commit-title">${it.title||'—'}${shaHtml}</div>
-            <div class="commit-sub">${_glFmt(it.event_type)}</div>
+            <div class="commit-sub">${_evtBadge(it.event_type)}</div>
             ${filesHtml}
           </div>
         </div>`;
@@ -472,18 +521,19 @@
     }
     const groups = {};
     events.forEach(it => { const k=it.event_type||'other'; (groups[k]=groups[k]||[]).push(it); });
-    return Object.entries(groups).map(([et,evts]) => `
+    return Object.entries(groups).map(([et,evts]) => {
+      const etColor = _etColor(et);
+      return `
       <div class="mb-3">
-        <div class="flex items-center gap-2 mb-1 pl-2" style="border-left:2px solid #10b981">
-          <span class="text-xs font-semibold" style="color:var(--text-2)">${_glFmt(et)}</span>
+        <div class="flex items-center gap-2 mb-1 pl-2" style="border-left:2px solid ${etColor}">
+          <span class="text-xs font-semibold" style="color:${etColor}">${_etIcon(et)} ${_glFmt(et)}</span>
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>
         <div class="commit-feed">${evts.map(it => {
-          const color = _glRepoColor(it.workspace||'');
           const time  = new Date(it.occurred_at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
           const {shaHtml, filesHtml} = _glCommitExtra(it);
           return `<div class="commit-item">
-            <div class="commit-avatar" style="background:${color}">${initials}</div>
+            <div class="commit-avatar" style="background:${etColor}">${initials}</div>
             <div class="commit-body">
               <div class="commit-meta">
                 <span class="commit-author">${author}</span>
@@ -495,7 +545,30 @@
             </div>
           </div>`;
         }).join('')}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+  }
+
+  async function disconnectGitlab() {
+    if (!confirm('Disconnect GitLab? This will remove your integration and stop tracking activity.')) return;
+    const res = await fetch('/api/disconnect/gitlab', { method: 'POST', credentials: 'include' });
+    if (res.ok) window.location.reload();
+    else alert('Failed to disconnect — check console.');
+  }
+
+  async function reregisterWebhooks() {
+    const btn = document.getElementById('rereg-btn');
+    btn.textContent = 'Syncing…'; btn.disabled = true;
+    try {
+      const res  = await fetch('/api/gitlab/reregister', { credentials: 'include' });
+      const data = await res.json();
+      if (data.registered !== undefined) {
+        btn.textContent = `✓ ${data.registered}/${data.total} registered`;
+      } else {
+        btn.textContent = data.error || 'Failed';
+      }
+    } catch { btn.textContent = 'Error'; }
+    setTimeout(() => { btn.textContent = 'Sync Webhooks'; btn.disabled = false; }, 3000);
   }
 
   async function loadEvents() {

@@ -623,33 +623,49 @@ async def get_gitlab_stats(request: Request, period: str = "week", start_date: s
         tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
         tw_e = datetime.now(timezone.utc)
         metrics = [
-            {"label": "Commits",        "value": await _count(profile_id, "gitlab", "^commit", tw_s, tw_e)},
-            {"label": "Merge Requests", "value": await _count(profile_id, "gitlab", "^mr_",    tw_s, tw_e)},
-            {"label": "Issues",         "value": await _count(profile_id, "gitlab", "^issue",  tw_s, tw_e)},
+            {"label": "Commits",        "value": await _count(profile_id, "gitlab", "^commit",   tw_s, tw_e)},
+            {"label": "Merge Requests", "value": await _count(profile_id, "gitlab", "^merge_request", tw_s, tw_e)},
+            {"label": "Issues",         "value": await _count(profile_id, "gitlab", "^issue",    tw_s, tw_e)},
+            {"label": "Comments",       "value": await _count(profile_id, "gitlab", "^note",     tw_s, tw_e)},
+            {"label": "Pipelines",      "value": await _count(profile_id, "gitlab", "^pipeline", tw_s, tw_e)},
+            {"label": "Tags",           "value": await _count(profile_id, "gitlab", "^tag_push", tw_s, tw_e)},
         ]
     else:
         tw_s, tw_e = _week_bounds(0, tz_name)
         lw_s, lw_e = _week_bounds(1, tz_name)
-        commits_n = await _count(profile_id, "gitlab", "^commit", tw_s, tw_e)
-        commits_p = await _count(profile_id, "gitlab", "^commit", lw_s, lw_e)
-        mrs_n     = await _count(profile_id, "gitlab", "^mr_",    tw_s, tw_e)
-        mrs_p     = await _count(profile_id, "gitlab", "^mr_",    lw_s, lw_e)
-        issues_n  = await _count(profile_id, "gitlab", "^issue",  tw_s, tw_e)
-        issues_p  = await _count(profile_id, "gitlab", "^issue",  lw_s, lw_e)
+        commits_n   = await _count(profile_id, "gitlab", "^commit",        tw_s, tw_e)
+        commits_p   = await _count(profile_id, "gitlab", "^commit",        lw_s, lw_e)
+        mrs_n       = await _count(profile_id, "gitlab", "^merge_request", tw_s, tw_e)
+        mrs_p       = await _count(profile_id, "gitlab", "^merge_request", lw_s, lw_e)
+        issues_n    = await _count(profile_id, "gitlab", "^issue",         tw_s, tw_e)
+        issues_p    = await _count(profile_id, "gitlab", "^issue",         lw_s, lw_e)
+        notes_n     = await _count(profile_id, "gitlab", "^note",          tw_s, tw_e)
+        notes_p     = await _count(profile_id, "gitlab", "^note",          lw_s, lw_e)
+        pipelines_n = await _count(profile_id, "gitlab", "^pipeline",      tw_s, tw_e)
+        pipelines_p = await _count(profile_id, "gitlab", "^pipeline",      lw_s, lw_e)
+        tags_n      = await _count(profile_id, "gitlab", "^tag_push",      tw_s, tw_e)
+        tags_p      = await _count(profile_id, "gitlab", "^tag_push",      lw_s, lw_e)
         metrics = [
-            {"label": "Commits",        "value": commits_n, "change": _pct(commits_n, commits_p)},
-            {"label": "Merge Requests", "value": mrs_n,     "change": _pct(mrs_n,     mrs_p)},
-            {"label": "Issues",         "value": issues_n,  "change": _pct(issues_n,  issues_p)},
+            {"label": "Commits",        "value": commits_n,   "change": _pct(commits_n,   commits_p)},
+            {"label": "Merge Requests", "value": mrs_n,       "change": _pct(mrs_n,       mrs_p)},
+            {"label": "Issues",         "value": issues_n,    "change": _pct(issues_n,    issues_p)},
+            {"label": "Comments",       "value": notes_n,     "change": _pct(notes_n,     notes_p)},
+            {"label": "Pipelines",      "value": pipelines_n, "change": _pct(pipelines_n, pipelines_p)},
+            {"label": "Tags",           "value": tags_n,      "change": _pct(tags_n,      tags_p)},
         ]
 
-    labels,  commits_daily = await _daily_counts(profile_id, "gitlab", r"^commit", days=7, tz_name=tz_name, start_date=start_date)
-    _,       mr_daily      = await _daily_counts(profile_id, "gitlab", r"^mr_",    days=7, tz_name=tz_name, start_date=start_date)
-    _,       issue_daily   = await _daily_counts(profile_id, "gitlab", r"^issue",  days=7, tz_name=tz_name, start_date=start_date)
+    labels,  commits_daily  = await _daily_counts(profile_id, "gitlab", r"^commit",        days=7, tz_name=tz_name, start_date=start_date)
+    _,       mr_daily       = await _daily_counts(profile_id, "gitlab", r"^merge_request", days=7, tz_name=tz_name, start_date=start_date)
+    _,       issue_daily    = await _daily_counts(profile_id, "gitlab", r"^issue",         days=7, tz_name=tz_name, start_date=start_date)
+    _,       notes_daily    = await _daily_counts(profile_id, "gitlab", r"^note",          days=7, tz_name=tz_name, start_date=start_date)
+    _,       pipeline_daily = await _daily_counts(profile_id, "gitlab", r"^pipeline",      days=7, tz_name=tz_name, start_date=start_date)
     top_repos = await _top_items(profile_id, "gitlab")
     repos = {
-        "commits":        await _workspace_breakdown(profile_id, "gitlab", r"^commit", tz_name=tz_name, start_date=start_date),
-        "merge_requests": await _workspace_breakdown(profile_id, "gitlab", r"^mr_",    tz_name=tz_name, start_date=start_date),
-        "issues":         await _workspace_breakdown(profile_id, "gitlab", r"^issue",  tz_name=tz_name, start_date=start_date),
+        "commits":        await _workspace_breakdown(profile_id, "gitlab", r"^commit",        tz_name=tz_name, start_date=start_date),
+        "merge_requests": await _workspace_breakdown(profile_id, "gitlab", r"^merge_request", tz_name=tz_name, start_date=start_date),
+        "issues":         await _workspace_breakdown(profile_id, "gitlab", r"^issue",         tz_name=tz_name, start_date=start_date),
+        "notes":          await _workspace_breakdown(profile_id, "gitlab", r"^note",          tz_name=tz_name, start_date=start_date),
+        "pipelines":      await _workspace_breakdown(profile_id, "gitlab", r"^pipeline",      tz_name=tz_name, start_date=start_date),
     }
 
     return JSONResponse({
@@ -660,6 +676,8 @@ async def get_gitlab_stats(request: Request, period: str = "week", start_date: s
                 "commits":        commits_daily,
                 "merge_requests": mr_daily,
                 "issues":         issue_daily,
+                "notes":          notes_daily,
+                "pipelines":      pipeline_daily,
             },
             "repos": repos,
         },

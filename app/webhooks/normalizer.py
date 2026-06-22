@@ -27,7 +27,8 @@ def _parse_ts(raw: dict, source: str) -> datetime:
     candidates = {
         "teams":  lambda r: r.get("createdDateTime") or r.get("lastModifiedDateTime"),
         "github": lambda r: r.get("created_at") or r.get("updated_at"),
-        "gitlab": lambda r: r.get("created_at") or r.get("updated_at"),
+        "gitlab": lambda r: (r.get("_commit") or {}).get("timestamp")
+                            or r.get("created_at") or r.get("updated_at"),
         "jira":   lambda r: (r.get("issue", {}) or {}).get("fields", {}).get("updated")
                             or r.get("timestamp"),
     }
@@ -51,6 +52,10 @@ def _extract_title(source: str, raw: dict) -> str:
             or raw.get("head_commit", {}).get("message", "")
         )
     if source == "gitlab":
+        # Push events carry a per-commit dict injected as "_commit"
+        commit = raw.get("_commit")
+        if commit:
+            return commit.get("message", "").split("\n")[0]
         return (
             raw.get("object_attributes", {}).get("title")
             or raw.get("object_attributes", {}).get("description", "")
@@ -90,6 +95,9 @@ def _extract_native_id(source: str, raw: dict) -> str:
             or raw.get("after", "")
         )
     if source == "gitlab":
+        commit = raw.get("_commit")
+        if commit:
+            return commit.get("id", "")
         return str(raw.get("object_attributes", {}).get("id", ""))
     if source == "jira":
         return (raw.get("issue", {}) or {}).get("id", "")
