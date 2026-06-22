@@ -17,3 +17,4 @@ python-multipart>=0.0.7
 tzdata>=2024.1
 jinja2>=3.1.0
 aiofiles>=23.0.0
+fpdf2>=2.7.0

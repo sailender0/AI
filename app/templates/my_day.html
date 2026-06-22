@@ -90,14 +90,25 @@
       class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
       style="background:var(--surface-2);color:var(--text-2)"></span>
     <span id="day-label" class="text-sm" style="color:var(--text-2)"></span>
-    <button onclick="generateSummary()" id="gen-btn"
-      class="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition shrink-0"
-      style="background:var(--chrome);color:var(--chrome-text)">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-      </svg>
-      <span id="gen-label">Generate</span>
-    </button>
+    <div class="ml-auto flex items-center gap-2 shrink-0">
+      <button onclick="downloadDailyPdf()" id="dl-btn"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+        style="display:none;background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Download
+      </button>
+
+      <button onclick="generateSummary()" id="gen-btn"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+        style="background:var(--chrome);color:var(--chrome-text)">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        <span id="gen-label">Generate</span>
+      </button>
+    </div>
   </div>
 
   <!-- AI Summary -->
@@ -363,7 +374,9 @@
     }
 
     const hasEvents = (data.events || []).length > 0;
-    document.getElementById('gen-btn').style.display = hasEvents ? '' : 'none';
+    const hasSummary = !!data.summary;
+    document.getElementById('gen-btn').style.display    = hasEvents ? '' : 'none';
+    document.getElementById('dl-btn').style.display     = hasEvents ? '' : 'none';
 
     // Summary
     const summaryEl = document.getElementById('summary-content');
@@ -520,5 +533,11 @@
       label.textContent   = 'Retry';
     }
   }
+
+  function downloadDailyPdf() {
+    window.location.href = `/api/export/daily-pdf?date=${selectedDate}`;
+  }
+
+
 </script>
 {% endblock %}

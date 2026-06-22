@@ -170,9 +170,20 @@
                 style="background:var(--border-strong);color:var(--text-2)">WEEK</span>
               <span class="text-sm font-semibold" style="color:var(--text-1)">${startLbl} — ${endLbl}</span>
             </div>
-            <svg class="week-chevron w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-            </svg>
+            <div class="flex items-center gap-2">
+              <button onclick="event.stopPropagation();downloadWeeklyPdf('${startStr}')"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition"
+                style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Download
+              </button>
+
+              <svg class="week-chevron w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
           </div>
           <div class="week-body">
             <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">${s.content || '—'}</p>
@@ -471,6 +482,12 @@
     } catch {
       statusEl.textContent = 'Failed — check console';
     }
+  }
+
+  function downloadWeeklyPdf(weekStart) {
+    window.location.href = `/api/export/weekly-pdf?week_start=${weekStart}`;
+  }
+
   }
 </script>
 {% endblock %}
