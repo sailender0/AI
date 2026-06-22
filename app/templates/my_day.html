@@ -348,8 +348,6 @@
       isToday ? 'TODAY' : new Date(dateStr + 'T00:00:00')
         .toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase();
     document.getElementById('day-label').textContent = dateLabel;
-    document.getElementById('gen-btn').style.display = isToday ? '' : 'none';
-
     document.getElementById('summary-content').textContent = 'Loading…';
     document.getElementById('events-list').innerHTML =
       '<p class="text-sm" style="color:var(--text-3)">Loading…</p>';
@@ -364,16 +362,19 @@
       return;
     }
 
+    const hasEvents = (data.events || []).length > 0;
+    document.getElementById('gen-btn').style.display = hasEvents ? '' : 'none';
+
     // Summary
     const summaryEl = document.getElementById('summary-content');
     if (data.summary) {
       summaryEl.textContent = data.summary;
-      if (isToday) document.getElementById('gen-label').textContent = 'Regenerate';
+      document.getElementById('gen-label').textContent = 'Regenerate';
     } else {
-      summaryEl.textContent = isToday
-        ? 'No summary yet for today. Click "Generate" to create one.'
-        : 'No summary for this day.';
-      if (isToday) document.getElementById('gen-label').textContent = 'Generate';
+      summaryEl.textContent = hasEvents
+        ? 'No summary yet. Click "Generate" to create one.'
+        : (isToday ? 'No activity yet today.' : 'No activity on this day.');
+      document.getElementById('gen-label').textContent = 'Generate';
     }
 
     // Stats
@@ -505,7 +506,7 @@
       const res  = await fetch('/api/summaries/generate', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ period_type: 'daily' }),
+        body: JSON.stringify({ period_type: 'daily', date: selectedDate }),
       });
       const data = await res.json();
       if (data.ok) {

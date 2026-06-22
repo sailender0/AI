@@ -26,13 +26,32 @@
     <div class="flex items-center justify-between mb-1">
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color:var(--text-1)">Activity</span>
-        <span id="chart-week-label" class="hidden text-xs" style="color:var(--text-3)"></span>
-        <button id="chart-back-btn" onclick="chartDrillBack()" class="hidden text-xs px-2 py-1 rounded-md transition" style="color:var(--text-2);border:1px solid var(--border);cursor:pointer">← Back</button>
-        <!-- Range picker -->
-        <div id="chart-range-picker" class="flex rounded-lg overflow-hidden" style="border:1px solid var(--border)">
-          <button onclick="loadChart(7,'day')"   data-range="7d" class="range-btn px-3 py-1 text-xs font-medium transition">7D</button>
-          <button onclick="loadChart(30,'week')" data-range="1m" class="range-btn px-3 py-1 text-xs font-medium transition" style="border-left:1px solid var(--border);border-right:1px solid var(--border)">1M</button>
-          <button onclick="loadChart(90,'week')" data-range="3m" class="range-btn px-3 py-1 text-xs font-medium transition">3M</button>
+        <span id="chart-sub" class="text-xs" style="color:var(--text-3)"></span>
+        <!-- Week picker -->
+        <div style="position:relative;z-index:10">
+          <div class="flex gap-0.5 p-0.5 rounded-lg" style="background:var(--surface-2);border:1px solid var(--border)">
+            <button id="range-default" onclick="setRangeDefault()"
+              class="chart-tab active px-3 py-1 rounded-md text-xs font-medium transition">Current Week</button>
+            <button id="range-week" onclick="togglePicker()"
+              class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Pick Week ▾</button>
+          </div>
+          <div id="week-picker" class="hidden"
+            style="position:absolute;top:calc(100% + 6px);left:0;z-index:100;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;padding:12px;min-width:252px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+            <div class="flex items-center justify-between mb-2">
+              <button onclick="pkPrevMonth()" style="background:none;border:none;cursor:pointer;color:var(--text-2);font-size:18px;line-height:1;padding:2px 6px">‹</button>
+              <span id="pk-month-label" class="text-xs font-semibold" style="color:var(--text-1)"></span>
+              <button onclick="pkNextMonth()" style="background:none;border:none;cursor:pointer;color:var(--text-2);font-size:18px;line-height:1;padding:2px 6px">›</button>
+            </div>
+            <div class="grid grid-cols-7 mb-1">
+              <div class="pk-hdr">M</div><div class="pk-hdr">T</div><div class="pk-hdr">W</div>
+              <div class="pk-hdr">T</div><div class="pk-hdr">F</div><div class="pk-hdr">S</div><div class="pk-hdr">S</div>
+            </div>
+            <div id="pk-grid"></div>
+            <div class="mt-2 pt-2" style="border-top:1px solid var(--border)">
+              <button onclick="setRangeDefault()" class="text-xs px-3 py-1.5 rounded-lg w-full"
+                style="background:var(--chrome);color:var(--chrome-text)">Current Week</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="flex gap-4">
@@ -75,36 +94,25 @@
 
 {% block scripts %}
 <style>
-  .range-btn {
-    background: transparent;
-    color: var(--text-2);
-    cursor: pointer;
-    line-height: 1;
-  }
-  .range-btn:hover {
-    background: var(--surface-2);
-    color: var(--text-1);
-  }
+  .chart-tab { background:transparent; color:var(--text-2); cursor:pointer; border:none; outline:none; }
+  .chart-tab.active  { background:var(--chrome); color:var(--chrome-text); }
+  .chart-tab:not(.active):hover { background:var(--border); color:var(--text-1); }
+  .pk-hdr  { text-align:center; font-size:10px; color:var(--text-3); padding:3px 0; }
+  .pk-row  { display:grid; grid-template-columns:repeat(7,1fr); cursor:pointer; border-radius:6px; }
+  .pk-row:hover { background:var(--surface-2); }
+  .pk-row.pk-selected { background:var(--chrome); }
+  .pk-row.pk-selected .pk-cell { color:var(--chrome-text); }
+  .pk-cell { width:32px; height:32px; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--text-1); border-radius:50%; }
+  .pk-cell.pk-overflow { visibility:hidden; }
+  .pk-cell.pk-today   { font-weight:700; }
   @keyframes spin { to { transform: rotate(360deg); } }
   #chart-card { transition: box-shadow 0.3s ease; }
-  [data-theme="light"] #chart-card {
-    box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,0.08) !important;
-  }
+  [data-theme="light"] #chart-card { box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,0.08) !important; }
   #activity-chart { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }
   [data-theme="light"] #activity-chart { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
-  .period-btn {
-    background: transparent;
-    color: var(--text-2);
-    cursor: pointer;
-  }
-  .period-btn.active {
-    background: var(--chrome);
-    color: var(--chrome-text);
-  }
-  .period-btn:not(.active):hover {
-    background: var(--border);
-    color: var(--text-1);
-  }
+  .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
+  .period-btn.active { background:var(--chrome); color:var(--chrome-text); }
+  .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
 </style>
 <script>
   const SOURCE_DOT = {
@@ -123,12 +131,12 @@
   let activityChart    = null;
   let chartRawLabels   = [];
   let chartGroupBy     = 'day';
-  let chartDrillState  = null;   // { days, groupBy } when drilled into a week
-  let _chartTopDays    = 7;
-  let _chartTopGroupBy = 'day';
-  let _chartEventTypes = null;   // { source: { day: { event_type: count } } }
+  let _chartEventTypes = null;
+  let _chartStartDate  = null;
+  let _pkYear = null, _pkMonth = null;
   let statsPeriod     = 'week';
   let timelinePeriod  = 'today';
+  const _PK_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   const _ET_MAP = {
     commit:'Commits', push:'Pushes',
@@ -207,6 +215,12 @@
     },
   };
 
+  window.onWSEvent = function() {
+    loadStats();
+    loadChartForWeek(_chartStartDate);
+    loadTimeline();
+  };
+
   async function onBaseReady(data) {
     const raw = ((data || {}).email || '').split('@')[0];
     window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
@@ -214,7 +228,121 @@
     document.getElementById('main-content').classList.remove('hidden');
     setStatsPeriod('week', false);
     setTimelinePeriod('today', false);
-    await Promise.all([loadStats(), loadChart(7, 'day'), loadTimeline()]);
+    document.addEventListener('click', e => {
+      const pk = document.getElementById('week-picker');
+      const btn = document.getElementById('range-week');
+      if (pk && !pk.classList.contains('hidden') && !pk.contains(e.target) && e.target !== btn) closePicker();
+    });
+    await Promise.all([loadStats(), setRangeDefault(), loadTimeline()]);
+  }
+
+  // ── Week picker ──────────────────────────────────────────────────────────
+  function _cwLabel() {
+    const now = new Date(); now.setHours(0,0,0,0);
+    const dow = now.getDay();
+    const mon = new Date(now); mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    const fmt = d => d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    const start = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
+    const label = mon.getMonth() === fri.getMonth()
+      ? `${fmt(mon).replace(/\s\d+$/, '')} ${mon.getDate()}–${fri.getDate()}`
+      : `${fmt(mon)}–${fmt(fri)}`;
+    return { start, label };
+  }
+
+  function setRangeDefault() {
+    closePicker();
+    const cw = _cwLabel();
+    _chartStartDate = cw.start;
+    document.getElementById('range-default').classList.add('active');
+    document.getElementById('range-week').classList.remove('active');
+    document.getElementById('range-week').textContent = 'Pick Week ▾';
+    document.getElementById('chart-sub').textContent = `· ${cw.label}`;
+    return loadChartForWeek(_chartStartDate);
+  }
+
+  function selectWeek(monIso) {
+    closePicker();
+    _chartStartDate = monIso;
+    const mon = new Date(monIso + 'T00:00:00');
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    const fmt = d => d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    const label = mon.getMonth() === fri.getMonth()
+      ? `${fmt(mon).replace(/\s\d+$/, '')} ${mon.getDate()}–${fri.getDate()}`
+      : `${fmt(mon)}–${fmt(fri)}`;
+    document.getElementById('range-default').classList.remove('active');
+    document.getElementById('range-week').classList.add('active');
+    document.getElementById('range-week').textContent = label + ' ▾';
+    document.getElementById('chart-sub').textContent = `· ${label}`;
+    loadChartForWeek(_chartStartDate);
+  }
+
+  function togglePicker() {
+    document.getElementById('week-picker').classList.contains('hidden') ? openPicker() : closePicker();
+  }
+  function openPicker() {
+    const now = new Date();
+    _pkYear = now.getFullYear(); _pkMonth = now.getMonth();
+    renderPicker();
+    document.getElementById('week-picker').classList.remove('hidden');
+  }
+  function closePicker() { document.getElementById('week-picker')?.classList.add('hidden'); }
+  function pkPrevMonth() { if (--_pkMonth < 0) { _pkMonth = 11; _pkYear--; } renderPicker(); }
+  function pkNextMonth() { if (++_pkMonth > 11) { _pkMonth = 0;  _pkYear++; } renderPicker(); }
+
+  function renderPicker() {
+    document.getElementById('pk-month-label').textContent = `${_PK_MONTHS[_pkMonth]} ${_pkYear}`;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const daysInMonth = new Date(_pkYear, _pkMonth + 1, 0).getDate();
+    let startDow = new Date(_pkYear, _pkMonth, 1).getDay();
+    startDow = startDow === 0 ? 6 : startDow - 1;
+    const prevDays = new Date(_pkYear, _pkMonth, 0).getDate();
+    const cells = [];
+    for (let i = startDow - 1; i >= 0; i--) cells.push({ day: prevDays - i, overflow: true });
+    for (let d = 1; d <= daysInMonth; d++)  cells.push({ day: d, overflow: false });
+    while (cells.length % 7 !== 0) cells.push({ day: cells.length - daysInMonth - startDow + 1, overflow: true });
+    const grid = document.getElementById('pk-grid');
+    grid.innerHTML = '';
+    for (let row = 0; row < cells.length / 7; row++) {
+      const rowCells = cells.slice(row * 7, row * 7 + 7);
+      const c0 = rowCells[0];
+      let monDate;
+      if (c0.overflow && row === 0) {
+        const pm = _pkMonth === 0 ? 11 : _pkMonth - 1, py = _pkMonth === 0 ? _pkYear - 1 : _pkYear;
+        monDate = new Date(py, pm, c0.day);
+      } else if (c0.overflow) {
+        const nm = _pkMonth === 11 ? 0 : _pkMonth + 1, ny = _pkMonth === 11 ? _pkYear + 1 : _pkYear;
+        monDate = new Date(ny, nm, c0.day);
+      } else {
+        monDate = new Date(_pkYear, _pkMonth, c0.day);
+      }
+      monDate.setHours(0,0,0,0);
+      if (monDate > today) continue;
+      const monIso = `${monDate.getFullYear()}-${String(monDate.getMonth()+1).padStart(2,'0')}-${String(monDate.getDate()).padStart(2,'0')}`;
+      const rowEl = document.createElement('div');
+      rowEl.className = `pk-row${monIso === _chartStartDate ? ' pk-selected' : ''}`;
+      rowEl.onclick = () => selectWeek(monIso);
+      rowCells.forEach(c => {
+        const el = document.createElement('div');
+        el.className = `pk-cell${c.overflow ? ' pk-overflow' : ''}`;
+        el.textContent = c.day;
+        if (!c.overflow && new Date(_pkYear, _pkMonth, c.day).toDateString() === today.toDateString())
+          el.classList.add('pk-today');
+        rowEl.appendChild(el);
+      });
+      grid.appendChild(rowEl);
+    }
+  }
+  // ── /Week picker ─────────────────────────────────────────────────────────
+
+  async function loadChartForWeek(startDate) {
+    if (!startDate) return;
+    const res = await fetch(`/api/analytics/trend?days=7&group_by=day&start_date=${startDate}`, { credentials: 'include' });
+    const data = await res.json();
+    chartRawLabels   = data.raw_labels  || [];
+    chartGroupBy     = 'day';
+    _chartEventTypes = data.event_types || null;
+    _renderActivityChart(data);
   }
 
   function setTimelinePeriod(period, fetch = true) {
@@ -267,63 +395,6 @@
     initKpiTilt();
   }
 
-  async function loadChart(days = 7, groupBy = 'day') {
-    chartDrillState  = null;
-    _chartTopDays    = days;
-    _chartTopGroupBy = groupBy;
-    document.getElementById('chart-back-btn').classList.add('hidden');
-    document.getElementById('chart-week-label').classList.add('hidden');
-    document.getElementById('chart-range-picker').classList.remove('hidden');
-
-    const rangeKey = days === 7 ? '7d' : days === 30 ? '1m' : '3m';
-    document.querySelectorAll('.range-btn').forEach(btn => {
-      const active = btn.dataset.range === rangeKey;
-      btn.style.background = active ? 'var(--chrome)' : 'transparent';
-      btn.style.color      = active ? 'var(--chrome-text)' : 'var(--text-2)';
-    });
-
-    const res = await fetch(`/api/analytics/trend?days=${days}&group_by=${groupBy}`, { credentials: 'include' });
-    const data = await res.json();
-    chartRawLabels   = data.raw_labels   || [];
-    chartGroupBy     = data.group_by     || groupBy;
-    _chartEventTypes = data.event_types  || null;
-    _renderActivityChart(data);
-  }
-
-  async function drillToWeek(mondayStr, weekLabel) {
-    chartDrillState = { days: _chartTopDays, groupBy: _chartTopGroupBy };
-
-    document.getElementById('chart-range-picker').classList.add('hidden');
-    document.getElementById('chart-back-btn').classList.remove('hidden');
-    const lbl = document.getElementById('chart-week-label');
-    lbl.textContent = 'Week of ' + weekLabel;
-    lbl.classList.remove('hidden');
-
-    const res = await fetch(`/api/analytics/trend?days=7&group_by=day&start_date=${mondayStr}`, { credentials: 'include' });
-    const data = await res.json();
-    chartRawLabels   = data.raw_labels  || [];
-    chartGroupBy     = 'day';
-    _chartEventTypes = data.event_types || null;
-    _renderActivityChart(data);
-  }
-
-  function chartDrillBack() {
-    if (!chartDrillState) return;
-    loadChart(chartDrillState.days, chartDrillState.groupBy);
-  }
-
-  function _weekRangeLabel(mondayStr) {
-    const mon = new Date(mondayStr + 'T00:00:00');
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    const monDay = mon.getDate();
-    const sunDay = sun.getDate();
-    const monMon = mon.toLocaleDateString(undefined, { month: 'short' });
-    const sunMon = sun.toLocaleDateString(undefined, { month: 'short' });
-    return monMon === sunMon
-      ? `${monDay}–${sunDay} ${sunMon}`
-      : `${monDay} ${monMon}–${sunDay} ${sunMon}`;
-  }
-
   function _renderActivityChart(data) {
     const cc    = chartColors();
     const light = document.documentElement.getAttribute('data-theme') === 'light';
@@ -340,9 +411,7 @@
       { key: 'teams_subscription', color: '#8b5cf6', hover: '#a78bfa' },
       { key: 'gitlab',             color: '#10b981', hover: '#34d399' },
     ];
-    const displayLabels = (chartGroupBy === 'week' && data.raw_labels?.length)
-      ? data.raw_labels.map(_weekRangeLabel)
-      : data.labels;
+    const displayLabels = data.labels;
     const ctx = document.getElementById('activity-chart').getContext('2d');
     if (activityChart) activityChart.destroy();
     activityChart = new Chart(ctx, {
@@ -367,15 +436,8 @@
         maintainAspectRatio: false,
         onClick(evt, elements) {
           if (!elements.length) return;
-          const idx  = elements[0].index;
-          const date = chartRawLabels[idx];
-          if (!date) return;
-          if (chartGroupBy === 'week') {
-            const label = activityChart.data.labels[idx];
-            drillToWeek(date, label);
-          } else {
-            window.location.href = `/my-day?date=${date}`;
-          }
+          const date = chartRawLabels[elements[0].index];
+          if (date) window.location.href = `/my-day?date=${date}`;
         },
         plugins: {
           legend: { display: false },
@@ -406,7 +468,7 @@
                 }
                 return lines;
               },
-              footer: () => chartGroupBy === 'week' ? ['↓ Click to see daily breakdown'] : [],
+              footer: () => ['↓ Click to open My Day'],
             }
           }
         },
@@ -437,6 +499,15 @@
   function _tlFmtEventType(et) {
     return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
+  function _tlCommitExtra(it) {
+    const shaHtml = it.sha
+      ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
+      : '';
+    const filesHtml = it.files?.length
+      ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)"> +${it.files.length-4} more</span>`:''}</div>`
+      : '';
+    return { shaHtml, filesHtml };
+  }
 
   function renderTimelineFeed(events) {
     const initials = window._actUserInitials || '??';
@@ -463,6 +534,7 @@
           <div class="commit-feed">${evts.map(it => {
             const avatarColor = _tlRepoColor(it.workspace || src || '');
             const time        = _tlFmtTime(it.occurred_at);
+            const {shaHtml, filesHtml} = _tlCommitExtra(it);
             return `<div class="commit-item">
               <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
               <div class="commit-body">
@@ -471,7 +543,8 @@
                   ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
                   ${time ? `<span class="commit-time">${_TL_CLOCK} ${time}</span>` : ''}
                 </div>
-                <div class="commit-title">${it.title || '—'}</div>
+                <div class="commit-title">${it.title || '—'}${shaHtml}</div>
+                ${filesHtml}
               </div>
             </div>`;
           }).join('')}</div>
@@ -492,6 +565,7 @@
     return `<div class="commit-feed">${events.map(it => {
       const avatarColor = _tlRepoColor(it.workspace || it.source || '');
       const time        = new Date(it.occurred_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const {shaHtml, filesHtml} = _tlCommitExtra(it);
       return `<div class="commit-item">
         <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
         <div class="commit-body">
@@ -501,8 +575,9 @@
             ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
             <span class="commit-time">${_TL_CLOCK} ${time}</span>
           </div>
-          <div class="commit-title">${it.title || '—'}</div>
+          <div class="commit-title">${it.title || '—'}${shaHtml}</div>
           <div class="commit-sub">${_tlFmtEventType(it.event_type)}</div>
+          ${filesHtml}
         </div>
       </div>`;
     }).join('')}</div>`;

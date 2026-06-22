@@ -1,0 +1,721 @@
+{% extends "base.html" %}
+{% block title %}Help & Guide{% endblock %}
+{% block page_subtitle %}Guides, charts explained, and FAQs{% endblock %}
+{% block main_class %}overflow-hidden{% endblock %}
+
+{% block content %}
+<div class="flex h-full min-h-0">
+
+  <!-- ── Left nav ── -->
+  <div class="shrink-0 overflow-y-auto py-4" style="width:220px;border-right:1px solid var(--border);background:var(--surface)">
+    <div class="px-3 space-y-0.5">
+      <button onclick="showPanel('faq')" id="nav-faq" class="help-nav active">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>FAQ</span>
+      </button>
+
+      <p class="nav-section-label">New User</p>
+      <button onclick="showPanel('new-github')" id="nav-new-github" class="help-nav"><span class="cbadge" style="background:#f9731622;color:#f97316">GH</span><span>Connect GitHub</span></button>
+      <button onclick="showPanel('new-gitlab')" id="nav-new-gitlab" class="help-nav"><span class="cbadge" style="background:#10b98122;color:#10b981">GL</span><span>Connect GitLab</span></button>
+      <button onclick="showPanel('new-jira')"   id="nav-new-jira"   class="help-nav"><span class="cbadge" style="background:#06b6d422;color:#06b6d4">JR</span><span>Connect Jira</span></button>
+      <button onclick="showPanel('new-teams')"  id="nav-new-teams"  class="help-nav"><span class="cbadge" style="background:#8b5cf622;color:#8b5cf6">MS</span><span>Connect Teams</span></button>
+
+      <p class="nav-section-label">Pages</p>
+      <button onclick="showPanel('page-dashboard')" id="nav-page-dashboard" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span>Dashboard</span>
+      </button>
+      <button onclick="showPanel('page-myday')" id="nav-page-myday" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <span>My Day</span>
+      </button>
+      <button onclick="showPanel('page-digest')" id="nav-page-digest" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span>Digest</span>
+      </button>
+      <button onclick="showPanel('page-ai')" id="nav-page-ai" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        <span>Ask AI</span>
+      </button>
+      <button onclick="showPanel('page-github')" id="nav-page-github" class="help-nav"><span class="cbadge" style="background:#f9731622;color:#f97316">GH</span><span>GitHub Page</span></button>
+      <button onclick="showPanel('page-gitlab')" id="nav-page-gitlab" class="help-nav"><span class="cbadge" style="background:#10b98122;color:#10b981">GL</span><span>GitLab Page</span></button>
+      <button onclick="showPanel('page-jira')"   id="nav-page-jira"   class="help-nav"><span class="cbadge" style="background:#06b6d422;color:#06b6d4">JR</span><span>Jira Page</span></button>
+      <button onclick="showPanel('page-teams')"  id="nav-page-teams"  class="help-nav"><span class="cbadge" style="background:#8b5cf622;color:#8b5cf6">MS</span><span>Teams Page</span></button>
+    </div>
+  </div>
+
+  <!-- ── Right content ── -->
+  <div class="flex-1 min-w-0 overflow-y-auto" id="help-scroll">
+    <div style="padding:2rem 3rem 4rem">
+
+
+<!-- ═══════════ FAQ ═══════════ -->
+<div id="panel-faq" class="help-panel">
+  <h2 class="panel-title">Frequently Asked Questions</h2>
+  <p class="panel-desc">Click a question to expand the answer.</p>
+  <div class="faq-list">
+    <details class="faq-item"><summary class="faq-q">How do I connect GitHub?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Go to the GitHub page in the sidebar, click <strong>Connect GitHub</strong>, authorise the GitHub App, and select which repositories to include. You are redirected back automatically and events start flowing on your next push.</p></details>
+    <details class="faq-item"><summary class="faq-q">Why aren't my commits showing up?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Commits arrive via webhook on push. Check: (1) GitHub shows <strong>Active</strong> in the sidebar, (2) the app was running when you pushed, (3) make a test push to trigger the webhook. Commits made while the app was offline won't backfill automatically.</p></details>
+    <details class="faq-item"><summary class="faq-q">What is the green "Live" dot in the top bar?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">It indicates an active WebSocket connection. New events appear in the chart and timeline automatically without a page refresh. It reconnects automatically if the connection drops.</p></details>
+    <details class="faq-item"><summary class="faq-q">How does the AI summary work and what does it cost?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Clicking Generate sends your activity events to GPT-4o which writes a plain-text summary. A typical daily summary (5–20 events) costs under $0.01. A heavy day with 200+ events costs around $0.03.</p></details>
+    <details class="faq-item"><summary class="faq-q">Can I view activity from past weeks?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Yes. On connector pages, click <strong>Pick Week ▾</strong> and choose any past week from the calendar. On My Day use the left arrow to step back day by day. On Digest use the week arrows.</p></details>
+    <details class="faq-item"><summary class="faq-q">How do I generate a summary for a past day?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Navigate to that date in My Day using the arrows. If the day has events a <strong>Generate</strong> button appears — click it to create an AI summary for that exact day. The button is hidden when a day has no recorded events.</p></details>
+    <details class="faq-item"><summary class="faq-q">What can Ask AI answer?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Questions about your own recorded activity — "How many commits this week?", "What Jira tickets did I update last Thursday?". It understands natural time phrases. It cannot fetch live data from GitHub or Jira directly and cannot see events from days the app was offline.</p></details>
+    <details class="faq-item"><summary class="faq-q">Why is Teams not showing my messages?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Teams connects via your Microsoft SSO login. If messages don't appear, sign out and back in to refresh the token. Only messages <em>you send</em> are captured — not messages from other participants.</p></details>
+    <details class="faq-item"><summary class="faq-q">Does the app store my code or message content?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">No. Only event metadata is stored — commit titles, file names, timestamps, event types, repository names. Full code diffs and full message bodies are never stored.</p></details>
+    <details class="faq-item" style="border-bottom:none"><summary class="faq-q">How do I switch between light and dark mode?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Use the Light / System / Dark buttons at the bottom of the left sidebar, or click your avatar in the top-right corner. The preference is saved in your browser.</p></details>
+  </div>
+</div>
+
+
+<!-- ═══════════ NEW — GITHUB ═══════════ -->
+<div id="panel-new-github" class="help-panel hidden">
+  <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#f9731622;color:#f97316">GH</span><h2 class="panel-title" style="margin:0">Connect GitHub</h2></div>
+  <p class="panel-desc">One-time setup. The app installs a GitHub App and registers a webhook — every future push, PR, or review appears within seconds.</p>
+  <div class="two-col">
+    <div>
+      <p class="sub-title">Steps</p>
+      <ol class="step-list">
+        <li class="step-item"><span class="step-num">1</span><span>Sign in with your <strong>Microsoft account</strong> on the login page.</span></li>
+        <li class="step-item"><span class="step-num">2</span><span>Click <strong>GitHub</strong> in the left sidebar under Connectors.</span></li>
+        <li class="step-item"><span class="step-num">3</span><span>Click <strong>Connect GitHub</strong>. You are redirected to GitHub.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>Choose the account or organisation. Select All repositories or specific ones, then click <strong>Install</strong>.</span></li>
+        <li class="step-item"><span class="step-num">5</span><span>GitHub redirects you back. The page shows <strong style="color:#22c55e">Active</strong> and events appear on your next push.</span></li>
+      </ol>
+    </div>
+    <div>
+      <p class="sub-title">What gets captured</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#f97316"></span><span><strong>Commits</strong> — title, SHA, changed file names, timestamp</span></div>
+        <div class="irow"><span class="idot" style="background:#fb923c"></span><span><strong>Pushes</strong> — branch name, commit count</span></div>
+        <div class="irow"><span class="idot" style="background:#c2410c"></span><span><strong>Pull Requests</strong> — opened, merged, closed</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#475569"></span><span><strong>Not stored</strong> — code diffs, full file contents</span></div>
+      </div>
+      <div class="info-box" style="margin-top:12px;border-color:#f9731644;background:#f9731608">
+        <strong style="color:#f97316">Permissions</strong>
+        <p style="margin-top:5px;font-size:12px">read:org · read:user · repo — read-only. The app never writes to your repositories.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ NEW — GITLAB ═══════════ -->
+<div id="panel-new-gitlab" class="help-panel hidden">
+  <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#10b98122;color:#10b981">GL</span><h2 class="panel-title" style="margin:0">Connect GitLab</h2></div>
+  <p class="panel-desc">Connects via OAuth. GitLab registers a webhook on your projects so commits and merge requests arrive in real time.</p>
+  <div class="two-col">
+    <div>
+      <p class="sub-title">Steps</p>
+      <ol class="step-list">
+        <li class="step-item"><span class="step-num">1</span><span>Click <strong>GitLab</strong> in the sidebar under Connectors.</span></li>
+        <li class="step-item"><span class="step-num">2</span><span>Click <strong>Connect GitLab</strong>. You are redirected to GitLab's OAuth page.</span></li>
+        <li class="step-item"><span class="step-num">3</span><span>Sign in to GitLab if prompted, then click <strong>Authorize</strong>.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>You are redirected back. GitLab page shows <strong style="color:#22c55e">Active</strong> and events start flowing.</span></li>
+      </ol>
+    </div>
+    <div>
+      <p class="sub-title">What gets captured</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#10b981"></span><span><strong>Commits</strong> — title, SHA, changed file names</span></div>
+        <div class="irow"><span class="idot" style="background:#34d399"></span><span><strong>Merge Requests</strong> — opened and merged events</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#475569"></span><span><strong>Not stored</strong> — code diffs, full file contents</span></div>
+      </div>
+      <div class="info-box" style="margin-top:12px;border-color:#10b98144;background:#10b98108">
+        <strong style="color:#10b981">Permissions</strong>
+        <p style="margin-top:5px;font-size:12px">read_api · read_user — read-only. The app never writes to your projects.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ NEW — JIRA ═══════════ -->
+<div id="panel-new-jira" class="help-panel hidden">
+  <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#06b6d422;color:#06b6d4">JR</span><h2 class="panel-title" style="margin:0">Connect Jira</h2></div>
+  <p class="panel-desc">Connects via Atlassian OAuth. Ticket updates and comments appear in your feed as you work in Jira.</p>
+  <div class="two-col">
+    <div>
+      <p class="sub-title">Steps</p>
+      <ol class="step-list">
+        <li class="step-item"><span class="step-num">1</span><span>Click <strong>Jira</strong> in the sidebar under Connectors.</span></li>
+        <li class="step-item"><span class="step-num">2</span><span>Click <strong>Connect Jira</strong>. You are redirected to Atlassian OAuth.</span></li>
+        <li class="step-item"><span class="step-num">3</span><span>Select the Jira site to connect (if you have multiple), then click <strong>Accept</strong>.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>You are redirected back. The Jira page shows <strong style="color:#22c55e">Active</strong>.</span></li>
+      </ol>
+    </div>
+    <div>
+      <p class="sub-title">What gets captured</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#06b6d4"></span><span><strong>Ticket Updates</strong> — status changes, field edits, transitions</span></div>
+        <div class="irow"><span class="idot" style="background:#0891b2"></span><span><strong>Comments</strong> — comments you add to tickets</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#475569"></span><span><strong>Not stored</strong> — ticket descriptions, attachments</span></div>
+      </div>
+      <div class="info-box" style="margin-top:12px;border-color:#06b6d444;background:#06b6d408">
+        <strong style="color:#06b6d4">Permissions</strong>
+        <p style="margin-top:5px;font-size:12px">read:jira-work · read:jira-user · manage:jira-webhook</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ NEW — TEAMS ═══════════ -->
+<div id="panel-new-teams" class="help-panel hidden">
+  <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#8b5cf622;color:#8b5cf6">MS</span><h2 class="panel-title" style="margin:0">Connect Microsoft Teams</h2></div>
+  <p class="panel-desc">Teams connects automatically when you sign in with Microsoft — no extra steps. The app registers a Graph subscription in the background.</p>
+  <div class="two-col">
+    <div>
+      <p class="sub-title">How it works</p>
+      <ol class="step-list">
+        <li class="step-item"><span class="step-num">1</span><span>Sign in with your <strong>Microsoft account</strong>. Teams is connected at login automatically.</span></li>
+        <li class="step-item"><span class="step-num">2</span><span>The app registers a <strong>Microsoft Graph subscription</strong> in the background within a few seconds of first login.</span></li>
+        <li class="step-item"><span class="step-num">3</span><span>Messages you send appear in the feed within seconds. The subscription auto-renews.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>If Teams shows Disconnected, <strong>sign out and back in</strong> to refresh the Microsoft token.</span></li>
+      </ol>
+    </div>
+    <div>
+      <p class="sub-title">What gets captured</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#8b5cf6"></span><span><strong>Messages you send</strong> — in chats and channels</span></div>
+        <div class="irow"><span class="idot" style="background:#7c3aed"></span><span><strong>Meetings</strong> — meetings you attend</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#475569"></span><span><strong>Not captured</strong> — messages from others, full message body</span></div>
+      </div>
+      <div class="info-box" style="margin-top:12px;border-color:#8b5cf644;background:#8b5cf608">
+        <strong style="color:#8b5cf6">No Connect button needed</strong>
+        <p style="margin-top:5px;font-size:12px">Unlike GitHub and GitLab, Teams connects automatically through your Microsoft SSO login — no separate OAuth flow.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ PAGE — DASHBOARD ═══════════ -->
+<div id="panel-page-dashboard" class="help-panel hidden">
+  <h2 class="panel-title">Dashboard</h2>
+  <p class="panel-desc">Your central overview — weekly KPI totals across all tools, a stacked bar chart of daily activity, and a live event timeline. Everything updates automatically when new events arrive.</p>
+
+  <p class="sub-title">① KPI Cards</p>
+  <div class="mock-kpi-row">
+    <div class="mock-kpi"><span class="mock-kpi-label">GITHUB</span><span class="mock-kpi-val" style="color:#f97316">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">JIRA</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">TEAMS</span><span class="mock-kpi-val" style="color:#8b5cf6">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">GITLAB</span><span class="mock-kpi-val" style="color:#10b981">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  </div>
+  <p class="body-text">Total event count per tool for the selected week. The percentage badge below each number shows the change vs the same period last week — green = up, red = down.</p>
+
+  <p class="sub-title">② Stacked Bar Chart</p>
+  <div class="mock-card" style="margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <span class="legend-item"><span class="ldot" style="background:#f97316"></span>GitHub</span>
+        <span class="legend-item"><span class="ldot" style="background:#06b6d4"></span>Jira</span>
+        <span class="legend-item"><span class="ldot" style="background:#8b5cf6"></span>Teams</span>
+        <span class="legend-item"><span class="ldot" style="background:#10b981"></span>GitLab</span>
+      </div>
+      <div style="display:flex;gap:6px"><span class="mock-btn-active">Current Week</span><span class="mock-btn">Pick Week ▾</span></div>
+    </div>
+    <div class="bar-chart">
+      <div class="bar-col"><div class="bs" style="height:9px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:22px;background:#8b5cf6"></div><div class="bs" style="height:14px;background:#06b6d4"></div><div class="bs" style="height:54px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:18px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:35px;background:#8b5cf6"></div><div class="bs" style="height:23px;background:#06b6d4"></div><div class="bs" style="height:36px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:27px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:27px;background:#8b5cf6"></div><div class="bs" style="height:9px;background:#06b6d4"></div><div class="bs" style="height:67px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:14px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:18px;background:#8b5cf6"></div><div class="bs" style="height:31px;background:#06b6d4"></div><div class="bs" style="height:27px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:23px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:31px;background:#8b5cf6"></div><div class="bs" style="height:18px;background:#06b6d4"></div><div class="bs" style="height:45px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:4px;background:#10b981;border-radius:3px 3px 0 0"></div><div class="bs" style="height:9px;background:#f97316"></div></div>
+      <div class="bar-col"><div class="bs" style="height:4px;background:#f97316;border-radius:3px 3px 0 0"></div></div>
+    </div>
+    <div class="bar-labels"><span class="bl">Mon</span><span class="bl">Tue</span><span class="bl">Wed</span><span class="bl">Thu</span><span class="bl">Fri</span><span class="bl">Sat</span><span class="bl">Sun</span></div>
+  </div>
+  <ul class="clist">
+    <li class="ci"><span class="cn">A</span><span>Each <strong>bar = one day</strong>. Bar height = total events across all tools that day.</span></li>
+    <li class="ci"><span class="cn">B</span><span>Each <strong>colour segment</strong> = a tool. Taller segment = more events from that tool. Orange = GitHub, Cyan = Jira, Purple = Teams, Green = GitLab.</span></li>
+    <li class="ci"><span class="cn">C</span><span><strong>Hover</strong> a bar to see the exact count per tool and event type in a tooltip.</span></li>
+    <li class="ci" style="border:none"><span class="cn">D</span><span><strong>Click</strong> a bar to open that day in My Day.</span></li>
+  </ul>
+
+  <div class="two-col" style="margin-top:24px;gap:2rem">
+    <div>
+      <p class="sub-title">③ Week Picker</p>
+      <p class="body-text"><strong>Current Week</strong> always jumps back to the current Mon–Sun range. <strong>Pick Week ▾</strong> opens a calendar — each row is a selectable week. Click any row to load that week's data into the chart and KPI cards.</p>
+      <p class="sub-title">④ Live Updates</p>
+      <p class="body-text">The green <strong style="color:#22c55e">Live</strong> dot in the top bar means new events appear in the chart and timeline without a page refresh.</p>
+    </div>
+    <div>
+      <p class="sub-title">⑤ Activity Timeline</p>
+      <p class="body-text">Below the chart, a live feed of recent events. Two tabs:</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#4f46e5"></span><span><strong>Today</strong> — events grouped by tool, then event type, with counts per group</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#64748b"></span><span><strong>History</strong> — flat chronological list of all recent events with source badges</span></div>
+      </div>
+      <p class="body-text" style="margin-top:10px">Commit events in both tabs show a <strong>7-char SHA chip</strong> and <strong>file name tags</strong> for changed files.</p>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ PAGE — MY DAY ═══════════ -->
+<div id="panel-page-myday" class="help-panel hidden">
+  <h2 class="panel-title">My Day</h2>
+  <p class="panel-desc">A full breakdown of one specific day — AI summary, per-tool event counts, and a detailed chronological timeline. Works for today and any past date.</p>
+  <div class="two-col" style="gap:2rem">
+    <div>
+      <p class="sub-title">① Date Navigation</p>
+      <div class="mock-card" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px">
+        <span class="mock-btn">◀</span>
+        <div style="text-align:center"><span style="font-size:11px;font-weight:700;color:#4f46e5;background:#4f46e514;padding:2px 7px;border-radius:4px">TODAY</span><span style="font-size:12px;font-weight:600;color:var(--text-1);margin-left:8px">Monday, 23 Jun</span></div>
+        <span class="mock-btn">▶</span>
+      </div>
+      <p class="body-text">Left/right arrows move one day at a time. The label shows <strong>TODAY</strong> for today or the weekday name for past dates.</p>
+
+      <p class="sub-title">② AI Summary</p>
+      <div class="mock-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em">AI Summary</span>
+          <span class="mock-btn-active" style="font-size:10px">Generate</span>
+        </div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:92%;margin-bottom:5px"></div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:78%;margin-bottom:5px"></div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:85%"></div>
+      </div>
+      <p class="body-text">GPT-4o writes a paragraph covering what you did. <strong>Generate</strong> appears whenever a day has events and no summary yet — works for today and any past date. After creation it becomes <strong>Regenerate</strong>.</p>
+
+      <p class="sub-title">③ Source KPI Cards</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">
+        <div class="mock-card" style="text-align:center;padding:8px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">GITHUB</p><p style="font-size:18px;font-weight:700;color:#f97316">—</p></div>
+        <div class="mock-card" style="text-align:center;padding:8px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">JIRA</p><p style="font-size:18px;font-weight:700;color:#06b6d4">—</p></div>
+        <div class="mock-card" style="text-align:center;padding:8px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">TEAMS</p><p style="font-size:18px;font-weight:700;color:#8b5cf6">—</p></div>
+        <div class="mock-card" style="text-align:center;padding:8px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">GITLAB</p><p style="font-size:18px;font-weight:700;color:#10b981">—</p></div>
+      </div>
+      <p class="body-text">Total event count per tool for the selected day. Updates in real time for today.</p>
+    </div>
+    <div>
+      <p class="sub-title">④ Activity Timeline</p>
+      <div class="mock-card">
+        <p style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Activity Timeline</p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f9731622;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#f97316;flex-shrink:0">SL</div>
+            <div>
+              <div style="font-size:11px;font-weight:600;color:var(--text-1)">feat: add user authentication <span style="font-size:9px;font-weight:700;background:#f9731620;color:#f97316;padding:1px 5px;border-radius:4px;margin-left:4px">a3f9c2e</span></div>
+              <div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap">
+                <span style="font-size:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3);padding:1px 6px;border-radius:4px">auth.py</span>
+                <span style="font-size:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3);padding:1px 6px;border-radius:4px">models.py</span>
+              </div>
+              <div style="font-size:10px;color:var(--text-3);margin-top:3px">9:16 AM</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="width:22px;height:22px;border-radius:50%;background:#06b6d422;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#06b6d4;flex-shrink:0">SL</div>
+            <div>
+              <div style="font-size:11px;font-weight:600;color:var(--text-1)">PROJ-142 — moved to In Review</div>
+              <div style="font-size:10px;color:var(--text-3);margin-top:3px">10:45 AM</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="body-text">All events sorted by time, grouped by tool. Commit events show a <strong>SHA chip</strong> (7-char hash) and <strong>file name tags</strong>. Jira events show the ticket key and status change.</p>
+      <div class="tips-box" style="margin-top:16px">
+        <p>→ Navigate back to any past date to see historical activity and generate missed summaries.</p>
+        <p>→ If a day shows 0 events, check whether the connector was Active and the app was running that day.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ PAGE — DIGEST ═══════════ -->
+<div id="panel-page-digest" class="help-panel hidden">
+  <h2 class="panel-title">Digest (Weekly Summary)</h2>
+  <p class="panel-desc">AI-generated summaries for any past week plus a full day-by-day activity breakdown. Auto-generates every Friday at 11 PM in your local timezone.</p>
+  <div class="two-col" style="gap:2rem">
+    <div>
+      <p class="sub-title">① Week Navigation</p>
+      <div class="mock-card" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px">
+        <span class="mock-btn">◀</span>
+        <span style="font-size:12px;font-weight:600;color:var(--text-1)">Week of Jun 16 – 22</span>
+        <span class="mock-btn">▶</span>
+      </div>
+      <p class="body-text">Arrows move one week at a time. Weeks with a saved summary display it immediately. Weeks without one show a <strong>Generate</strong> button.</p>
+
+      <p class="sub-title">② Weekly Summary Card</p>
+      <div class="mock-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em">Weekly Summary</span>
+          <span class="mock-btn" style="font-size:10px">Regenerate</span>
+        </div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:94%;margin-bottom:5px"></div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:80%;margin-bottom:5px"></div>
+        <div style="height:7px;border-radius:3px;background:var(--border-strong);width:87%"></div>
+      </div>
+      <p class="body-text">AI-written paragraph covering the week's highlights — commits, Jira progress, meetings. <strong>Regenerate</strong> rewrites it without changing the underlying events.</p>
+    </div>
+    <div>
+      <p class="sub-title">③ Activity Breakdown</p>
+      <div class="mock-card">
+        <p style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Activity Breakdown</p>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="padding:8px 10px;border-radius:7px;background:var(--surface-2);display:flex;justify-content:space-between"><span style="font-size:11px;font-weight:600;color:var(--text-2)">Monday, Jun 16</span><span style="font-size:10px;color:var(--text-3)">8 events</span></div>
+          <div style="padding:8px 10px;border-radius:7px;background:var(--surface-2);display:flex;justify-content:space-between"><span style="font-size:11px;font-weight:600;color:var(--text-2)">Tuesday, Jun 17</span><span style="font-size:10px;color:var(--text-3)">13 events</span></div>
+          <div style="padding:8px 10px;border-radius:7px;background:var(--surface-2);opacity:.45;display:flex;justify-content:space-between"><span style="font-size:11px;font-weight:600;color:var(--text-2)">Wednesday, Jun 18</span><span style="font-size:10px;color:var(--text-3)">0 events</span></div>
+        </div>
+      </div>
+      <p class="body-text">Day-by-day list of all events. Expand each day row to see individual events. Commits show SHA and file tags. Days with no events appear greyed out.</p>
+      <div class="tips-box" style="margin-top:16px">
+        <p>→ Use the weekly summary for sprint retrospectives or Monday standups.</p>
+        <p>→ Auto-generation runs at 11 PM Friday. If the app was offline, click Generate manually.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ PAGE — ASK AI ═══════════ -->
+<div id="panel-page-ai" class="help-panel hidden">
+  <h2 class="panel-title">Ask AI</h2>
+  <p class="panel-desc">A conversational assistant that answers questions about your developer activity in natural language. Ask like you would a colleague.</p>
+  <div class="two-col" style="gap:2rem">
+    <div>
+      <p class="sub-title">① Conversations Panel</p>
+      <div class="mock-card" style="padding:0;overflow:hidden">
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:600;color:var(--text-2)">Chats</span><span style="font-size:16px;color:var(--text-3);line-height:1">+</span></div>
+        <div style="padding:6px 8px;display:flex;flex-direction:column;gap:4px">
+          <div style="padding:6px 8px;border-radius:6px;background:var(--surface-2)"><div style="height:6px;border-radius:3px;background:var(--border-strong);width:80%;margin-bottom:3px"></div><div style="height:5px;border-radius:3px;background:var(--border-strong);width:50%"></div></div>
+          <div style="padding:6px 8px"><div style="height:6px;border-radius:3px;background:var(--border-strong);width:65%;margin-bottom:3px"></div><div style="height:5px;border-radius:3px;background:var(--border-strong);width:40%"></div></div>
+        </div>
+      </div>
+      <p class="body-text">Left column lists all saved conversations. Click any to resume — the full history is restored. <strong>+</strong> starts a new chat. Delete with the trash icon that appears on hover.</p>
+
+      <p class="sub-title">② Chat Area</p>
+      <div class="mock-card" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:flex-end"><div style="background:#4f46e5;color:#fff;padding:7px 12px;border-radius:14px 14px 3px 14px;font-size:11px">How many commits this week?</div></div>
+        <div style="display:flex;gap:8px;align-items:flex-start"><div style="width:22px;height:22px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--text-2);flex-shrink:0">AI</div><div style="background:var(--surface-2);border:1px solid var(--border);padding:7px 12px;border-radius:14px 14px 14px 3px;font-size:11px;color:var(--text-1)">You pushed 23 commits across 3 repositories this week.</div></div>
+      </div>
+      <p class="body-text">Your messages (right, dark bubble). AI responses (left). The full conversation history is sent with each message so the AI can answer follow-up questions in context.</p>
+    </div>
+    <div>
+      <p class="sub-title">③ Input Bar</p>
+      <div class="mock-card" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px">
+        <span style="font-size:11px;color:var(--text-3)">Ask anything about your activity…</span>
+        <div style="width:22px;height:22px;border-radius:6px;background:#4f46e5;display:flex;align-items:center;justify-content:center"><svg width="10" height="10" fill="none" stroke="#fff" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+      </div>
+      <p class="body-text">Type and press <strong>Enter</strong> to send. <strong>Shift+Enter</strong> adds a new line. The text area grows automatically as you type.</p>
+
+      <p class="sub-title">④ What it knows</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#22c55e"></span><span>All events stored in your activity database</span></div>
+        <div class="irow"><span class="idot" style="background:#22c55e"></span><span>Natural time: "last Thursday", "this week", "yesterday"</span></div>
+        <div class="irow"><span class="idot" style="background:#22c55e"></span><span>Source filters: "my GitHub commits", "Jira tickets"</span></div>
+        <div class="irow"><span class="idot" style="background:#ef4444"></span><span>Cannot fetch live data from GitHub/Jira directly</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#ef4444"></span><span>Cannot see events from days the app was offline</span></div>
+      </div>
+      <div class="tips-box" style="margin-top:16px">
+        <p>→ Be specific: "Jira tickets I updated last Thursday" beats "show me my work".</p>
+        <p>→ Ask follow-ups: "Which of those were in PROJ?" continues the conversation.</p>
+        <p>→ Each message costs ~$0.005 in API tokens.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════ PAGE — GITHUB ═══════════ -->
+<div id="panel-page-github" class="help-panel hidden">
+  <h2 class="panel-title">GitHub Page</h2>
+  <p class="panel-desc">All your GitHub activity by week — commits, PRs, issues, and reviews. Tabs filter the chart by event type; the right panel lists individual events for quick review.</p>
+
+  <p class="sub-title">① Today / This Week toggle + KPI Cards</p>
+  <div style="display:flex;gap:8px;margin-bottom:10px"><span class="mock-btn">● Today</span><span class="mock-btn-active">This Week</span></div>
+  <div class="mock-kpi-row">
+    <div class="mock-kpi" style="border-top:3px solid #f97316"><span class="mock-kpi-label">PULL REQUESTS</span><span class="mock-kpi-val" style="color:#f97316">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #f97316"><span class="mock-kpi-label">COMMITS</span><span class="mock-kpi-val" style="color:#f97316">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #f97316"><span class="mock-kpi-label">REVIEWS</span><span class="mock-kpi-val" style="color:#f97316">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #f97316"><span class="mock-kpi-label">ISSUES</span><span class="mock-kpi-val" style="color:#f97316">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  </div>
+  <p class="body-text"><strong>Today</strong> shows today's events only. <strong>This Week</strong> shows the full selected week. KPI cards update to match the active period.</p>
+
+  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:600;color:var(--text-1)">Commits</span><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#f9731620;color:#f97316;font-weight:600">GitHub</span></div>
+        <div style="display:flex;gap:3px;flex-wrap:wrap"><span class="mock-tab-active">Commits</span><span class="mock-tab">PRs</span><span class="mock-tab">Issues</span><span class="mock-tab">Reviews</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px"><span class="mock-btn-active" style="font-size:10px">Current Week</span><span class="mock-btn" style="font-size:10px">Pick Week ▾</span></div>
+      <svg viewBox="0 0 480 150" width="100%" height="auto" style="display:block">
+        <line x1="45" y1="10" x2="470" y2="10" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="34" x2="470" y2="34" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="58" x2="470" y2="58" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="82" x2="470" y2="82" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="106" x2="470" y2="106" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="130" x2="470" y2="130" stroke="#e2e8f0" stroke-width="1"/>
+        <text x="38" y="13" text-anchor="end" fill="#94a3b8" font-size="9">1.0</text><text x="38" y="61" text-anchor="end" fill="#94a3b8" font-size="9">0.6</text><text x="38" y="109" text-anchor="end" fill="#94a3b8" font-size="9">0.2</text><text x="38" y="133" text-anchor="end" fill="#94a3b8" font-size="9">0</text>
+        <path d="M 45,25 L 116,75 L 187,42 L 258,98 L 329,58 L 400,114 L 470,120 L 470,130 L 45,130 Z" fill="#f97316" fill-opacity="0.12"/>
+        <path d="M 45,25 L 116,75 L 187,42 L 258,98 L 329,58 L 400,114 L 470,120" fill="none" stroke="#f97316" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="45" cy="25" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="116" cy="75" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="187" cy="42" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="258" cy="98" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="329" cy="58" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="400" cy="114" r="4" fill="white" stroke="#f97316" stroke-width="2"/><circle cx="470" cy="120" r="4" fill="white" stroke="#f97316" stroke-width="2"/>
+        <text x="45" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Mon</text><text x="116" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Tue</text><text x="187" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Wed</text><text x="258" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Thu</text><text x="329" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Fri</text><text x="400" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sat</text><text x="470" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sun</text>
+      </svg>
+    </div>
+    <div class="mock-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;border-bottom:1px solid var(--border)"><span class="mock-tab-active" style="flex:1;text-align:center;padding:8px;border-radius:0;border-bottom:2px solid #4f46e5">Week Activity</span><span class="mock-tab" style="flex:1;text-align:center;padding:8px;border-radius:0">Top Repos</span></div>
+      <div style="padding:10px 12px">
+        <p style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:8px">Commits</p>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <span style="width:8px;height:8px;border-radius:50%;background:#f97316;flex-shrink:0;margin-top:3px"></span>
+          <div>
+            <div style="font-size:11px;color:var(--text-2)">your-org/repo-name <span style="font-size:9px;background:#f9731620;color:#f97316;padding:1px 4px;border-radius:3px;font-weight:600">a3f9c2e</span></div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-1);margin-top:2px">feat: add authentication module</div>
+            <span style="font-size:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3);padding:1px 5px;border-radius:3px;display:inline-block;margin-top:2px">auth.py</span>
+            <div style="font-size:10px;color:var(--text-3);margin-top:2px">Mon, 9:16 AM</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="clist">
+    <li class="ci"><span class="cn">A</span><span><strong>Chart tabs</strong> (Commits / PRs / Issues / Reviews) filter the chart to one event type at a time. Y-axis is normalised 0–1 relative to your busiest day for that event type.</span></li>
+    <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists actual events — commit title, SHA chip, file tags, timestamp. Switch to <strong>Top Repos</strong> to rank repositories by activity volume.</span></li>
+    <li class="ci"><span class="cn">C</span><span><strong>Pick Week ▾</strong> opens a calendar. Click any row to load that week. Chart and panel both update.</span></li>
+    <li class="ci" style="border:none"><span class="cn">D</span><span>Hover a dot on the chart to see the exact event count for that day. Click a dot to open that day in My Day.</span></li>
+  </ul>
+
+  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <div class="mock-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:var(--text-1)">Recent Activity</span>
+      <div style="display:flex;gap:6px;align-items:center"><span class="mock-tab-active">● Today</span><span class="mock-tab">History</span><span style="font-size:11px;color:var(--text-3);margin-left:8px">Refresh</span></div>
+    </div>
+    <div style="border-left:3px solid #f97316;padding-left:10px">
+      <span style="font-size:11px;font-weight:600;color:var(--text-2)">Commit <span style="background:var(--surface-2);border:1px solid var(--border);padding:1px 5px;border-radius:10px;font-size:10px;margin-left:4px">1</span></span>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <div style="width:20px;height:20px;border-radius:50%;background:#f9731622;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#f97316;flex-shrink:0">SL</div>
+        <span style="font-size:11px;color:var(--text-2)">your-org/repo-name <span style="font-size:9px;background:#f9731620;color:#f97316;padding:1px 4px;border-radius:3px;font-weight:600">a3f9c2e</span> — feat: add authentication <span style="font-size:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3);padding:1px 5px;border-radius:3px;margin-left:3px">README.md</span></span>
+      </div>
+    </div>
+  </div>
+  <p class="body-text"><strong>Today</strong> groups events by type with an orange left border and a count badge. <strong>History</strong> is a flat chronological list. Both show SHA chips and file name tags on commits.</p>
+</div>
+
+
+<!-- ═══════════ PAGE — GITLAB ═══════════ -->
+<div id="panel-page-gitlab" class="help-panel hidden">
+  <h2 class="panel-title">GitLab Page</h2>
+  <p class="panel-desc">Same layout as the GitHub page — commits, merge requests, pushes — scoped to your GitLab activity. Uses green throughout.</p>
+
+  <p class="sub-title">① KPI Cards</p>
+  <div class="mock-kpi-row">
+    <div class="mock-kpi" style="border-top:3px solid #10b981"><span class="mock-kpi-label">COMMITS</span><span class="mock-kpi-val" style="color:#10b981">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #10b981"><span class="mock-kpi-label">MR OPENED</span><span class="mock-kpi-val" style="color:#10b981">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #10b981"><span class="mock-kpi-label">MR MERGED</span><span class="mock-kpi-val" style="color:#10b981">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #10b981"><span class="mock-kpi-label">PUSHES</span><span class="mock-kpi-val" style="color:#10b981">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  </div>
+
+  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:600;color:var(--text-1)">Commits</span><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#10b98120;color:#10b981;font-weight:600">GitLab</span></div>
+        <div style="display:flex;gap:3px"><span class="mock-tab-active">Commits</span><span class="mock-tab">MR Opened</span><span class="mock-tab">MR Merged</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px"><span class="mock-btn-active" style="font-size:10px">Current Week</span><span class="mock-btn" style="font-size:10px">Pick Week ▾</span></div>
+      <svg viewBox="0 0 480 150" width="100%" height="auto" style="display:block">
+        <line x1="45" y1="10" x2="470" y2="10" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="34" x2="470" y2="34" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="58" x2="470" y2="58" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="82" x2="470" y2="82" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="106" x2="470" y2="106" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="130" x2="470" y2="130" stroke="#e2e8f0" stroke-width="1"/>
+        <text x="38" y="13" text-anchor="end" fill="#94a3b8" font-size="9">1.0</text><text x="38" y="61" text-anchor="end" fill="#94a3b8" font-size="9">0.6</text><text x="38" y="133" text-anchor="end" fill="#94a3b8" font-size="9">0</text>
+        <path d="M 45,47 L 116,86 L 187,30 L 258,103 L 329,58 L 400,114 L 470,120 L 470,130 L 45,130 Z" fill="#10b981" fill-opacity="0.12"/>
+        <path d="M 45,47 L 116,86 L 187,30 L 258,103 L 329,58 L 400,114 L 470,120" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="45" cy="47" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="116" cy="86" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="187" cy="30" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="258" cy="103" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="329" cy="58" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="400" cy="114" r="4" fill="white" stroke="#10b981" stroke-width="2"/><circle cx="470" cy="120" r="4" fill="white" stroke="#10b981" stroke-width="2"/>
+        <text x="45" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Mon</text><text x="116" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Tue</text><text x="187" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Wed</text><text x="258" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Thu</text><text x="329" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Fri</text><text x="400" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sat</text><text x="470" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sun</text>
+      </svg>
+    </div>
+    <div class="mock-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;border-bottom:1px solid var(--border)"><span class="mock-tab-active" style="flex:1;text-align:center;padding:8px;border-radius:0;border-bottom:2px solid #4f46e5">Week Activity</span><span class="mock-tab" style="flex:1;text-align:center;padding:8px;border-radius:0">Top Repos</span></div>
+      <div style="padding:10px 12px">
+        <p style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:8px">Commits</p>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <span style="width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0;margin-top:3px"></span>
+          <div>
+            <div style="font-size:11px;color:var(--text-2)">your-group/project-name <span style="font-size:9px;background:#10b98120;color:#10b981;padding:1px 4px;border-radius:3px;font-weight:600">b7d1e3f</span></div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-1);margin-top:2px">fix: resolve null pointer in API handler</div>
+            <span style="font-size:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-3);padding:1px 5px;border-radius:3px;display:inline-block;margin-top:2px">api.py</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="clist">
+    <li class="ci"><span class="cn">A</span><span><strong>Tabs</strong> switch between Commits, MR Opened, and MR Merged. Chart updates instantly to show that event type's trend.</span></li>
+    <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists individual events with SHA chip and file tags. <strong>Top Repos</strong> ranks your GitLab projects by event count.</span></li>
+    <li class="ci" style="border:none"><span class="cn">C</span><span>The chart Y-axis is normalised 0–1 relative to your busiest day for the selected event type.</span></li>
+  </ul>
+  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <p class="body-text"><strong>Today</strong> groups events by type with a green left border. <strong>History</strong> shows all GitLab events for the week in chronological order. Commits show SHA chips and file name tags.</p>
+</div>
+
+
+<!-- ═══════════ PAGE — JIRA ═══════════ -->
+<div id="panel-page-jira" class="help-panel hidden">
+  <h2 class="panel-title">Jira Page</h2>
+  <p class="panel-desc">All your Jira activity by week — ticket updates, comments, and new tickets. Tabs filter the chart by event type; the right panel lists the actual tickets you touched.</p>
+
+  <p class="sub-title">① Today / This Week toggle + KPI Cards</p>
+  <div style="display:flex;gap:8px;margin-bottom:10px"><span class="mock-btn">● Today</span><span class="mock-btn-active">This Week</span></div>
+  <div class="mock-kpi-row">
+    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">CREATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">UPDATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">COMMENTS</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">TOTAL</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  </div>
+  <p class="body-text"><strong>Created</strong> = new tickets you opened. <strong>Updated</strong> = status/field changes. <strong>Comments</strong> = comments you added. <strong>Total</strong> = all Jira events combined.</p>
+
+  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:600;color:var(--text-1)">Created</span><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#06b6d420;color:#06b6d4;font-weight:600">Jira</span></div>
+        <div style="display:flex;gap:3px"><span class="mock-tab-active">Created</span><span class="mock-tab">Updated</span><span class="mock-tab">Comments</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px"><span class="mock-btn-active" style="font-size:10px">Current Week</span><span class="mock-btn" style="font-size:10px">Pick Week ▾</span></div>
+      <svg viewBox="0 0 480 150" width="100%" height="auto" style="display:block">
+        <line x1="45" y1="10" x2="470" y2="10" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="34" x2="470" y2="34" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="58" x2="470" y2="58" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="82" x2="470" y2="82" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="106" x2="470" y2="106" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="130" x2="470" y2="130" stroke="#e2e8f0" stroke-width="1"/>
+        <text x="38" y="13" text-anchor="end" fill="#94a3b8" font-size="9">1.0</text><text x="38" y="61" text-anchor="end" fill="#94a3b8" font-size="9">0.6</text><text x="38" y="133" text-anchor="end" fill="#94a3b8" font-size="9">0</text>
+        <path d="M 45,130 L 116,98 L 187,130 L 258,58 L 329,92 L 400,130 L 470,130 L 470,130 L 45,130 Z" fill="#06b6d4" fill-opacity="0.12"/>
+        <path d="M 45,130 L 116,98 L 187,130 L 258,58 L 329,92 L 400,130 L 470,130" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="45" cy="130" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="116" cy="98" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="187" cy="130" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="258" cy="58" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="329" cy="92" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="400" cy="130" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/><circle cx="470" cy="130" r="4" fill="white" stroke="#06b6d4" stroke-width="2"/>
+        <text x="45" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Mon</text><text x="116" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Tue</text><text x="187" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Wed</text><text x="258" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Thu</text><text x="329" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Fri</text><text x="400" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sat</text><text x="470" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sun</text>
+      </svg>
+    </div>
+    <div class="mock-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;border-bottom:1px solid var(--border)"><span class="mock-tab-active" style="flex:1;text-align:center;padding:8px;border-radius:0;border-bottom:2px solid #4f46e5">Week Activity</span><span class="mock-tab" style="flex:1;text-align:center;padding:8px;border-radius:0">Top Repos</span></div>
+      <div style="padding:10px 12px">
+        <p style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:6px">Created</p>
+        <p style="font-size:11px;color:var(--text-3);font-style:italic;margin-bottom:10px">No created this week.</p>
+        <p style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:6px">Comments</p>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <span style="width:8px;height:8px;border-radius:50%;background:#06b6d4;flex-shrink:0;margin-top:3px"></span>
+          <div><div style="font-size:11px;font-weight:600;color:var(--text-1)">PROJ-142 — added review feedback</div><div style="font-size:10px;color:var(--text-3);margin-top:2px">Comment · Thu, 2:15 PM</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="clist">
+    <li class="ci"><span class="cn">A</span><span><strong>Tabs</strong> switch between Created, Updated, and Comments. A flat line at 0 on the active tab means no events of that type — switch tabs to see others.</span></li>
+    <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists tickets you touched — key, title, event type, time. "No created this week" just means zero new tickets opened; other tabs may have activity.</span></li>
+    <li class="ci" style="border:none"><span class="cn">C</span><span><strong>Top Repos</strong> tab ranks Jira projects by event count for the selected week.</span></li>
+  </ul>
+  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <p class="body-text"><strong>Today</strong> groups Jira events by type (Comment Created, Issue Updated) with a cyan left border. <strong>History</strong> shows all Jira events for the selected week chronologically. Each row shows ticket key, title, and event type.</p>
+</div>
+
+
+<!-- ═══════════ PAGE — TEAMS ═══════════ -->
+<div id="panel-page-teams" class="help-panel hidden">
+  <h2 class="panel-title">Teams Page</h2>
+  <p class="panel-desc">Messages you sent and meetings you attended in Microsoft Teams, organised by week. Connects automatically via Microsoft SSO — no separate OAuth step needed.</p>
+
+  <p class="sub-title">① KPI Cards</p>
+  <div class="mock-kpi-row">
+    <div class="mock-kpi" style="border-top:3px solid #8b5cf6"><span class="mock-kpi-label">MESSAGES</span><span class="mock-kpi-val" style="color:#8b5cf6">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #8b5cf6"><span class="mock-kpi-label">MEETINGS</span><span class="mock-kpi-val" style="color:#8b5cf6">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #8b5cf6"><span class="mock-kpi-label">CHANNELS</span><span class="mock-kpi-val" style="color:#8b5cf6">—</span><span class="mock-kpi-delta">vs last week</span></div>
+    <div class="mock-kpi" style="border-top:3px solid #8b5cf6"><span class="mock-kpi-label">TOTAL</span><span class="mock-kpi-val" style="color:#8b5cf6">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  </div>
+
+  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:600;color:var(--text-1)">Messages</span><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#8b5cf620;color:#8b5cf6;font-weight:600">Teams</span></div>
+        <div style="display:flex;gap:3px"><span class="mock-tab-active">Messages</span><span class="mock-tab">Meetings</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px"><span class="mock-btn-active" style="font-size:10px">Current Week</span><span class="mock-btn" style="font-size:10px">Pick Week ▾</span></div>
+      <svg viewBox="0 0 480 150" width="100%" height="auto" style="display:block">
+        <line x1="45" y1="10" x2="470" y2="10" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="34" x2="470" y2="34" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="58" x2="470" y2="58" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="82" x2="470" y2="82" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="106" x2="470" y2="106" stroke="#e2e8f0" stroke-width="1"/><line x1="45" y1="130" x2="470" y2="130" stroke="#e2e8f0" stroke-width="1"/>
+        <text x="38" y="13" text-anchor="end" fill="#94a3b8" font-size="9">1.0</text><text x="38" y="61" text-anchor="end" fill="#94a3b8" font-size="9">0.6</text><text x="38" y="133" text-anchor="end" fill="#94a3b8" font-size="9">0</text>
+        <path d="M 45,36 L 116,19 L 187,42 L 258,70 L 329,53 L 400,114 L 470,130 L 470,130 L 45,130 Z" fill="#8b5cf6" fill-opacity="0.12"/>
+        <path d="M 45,36 L 116,19 L 187,42 L 258,70 L 329,53 L 400,114 L 470,130" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="45" cy="36" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="116" cy="19" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="187" cy="42" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="258" cy="70" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="329" cy="53" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="400" cy="114" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/><circle cx="470" cy="130" r="4" fill="white" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="45" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Mon</text><text x="116" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Tue</text><text x="187" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Wed</text><text x="258" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Thu</text><text x="329" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Fri</text><text x="400" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sat</text><text x="470" y="145" text-anchor="middle" fill="#94a3b8" font-size="9">Sun</text>
+      </svg>
+    </div>
+    <div class="mock-card" style="padding:0;overflow:hidden">
+      <div style="display:flex;border-bottom:1px solid var(--border)"><span class="mock-tab-active" style="flex:1;text-align:center;padding:8px;border-radius:0;border-bottom:2px solid #4f46e5">Week Activity</span><span class="mock-tab" style="flex:1;text-align:center;padding:8px;border-radius:0">Top Repos</span></div>
+      <div style="padding:10px 12px">
+        <p style="font-size:10px;font-weight:600;color:var(--text-2);margin-bottom:8px">Messages Sent</p>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <span style="width:8px;height:8px;border-radius:50%;background:#8b5cf6;flex-shrink:0;margin-top:3px"></span>
+          <div><div style="font-size:11px;font-weight:600;color:var(--text-1)">General — replied to deployment update</div><div style="font-size:10px;color:var(--text-3);margin-top:2px">Tue, 10:30 AM</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="clist">
+    <li class="ci"><span class="cn">A</span><span><strong>Messages tab</strong> shows the daily trend of messages you sent. Switch to <strong>Meetings</strong> for your meeting attendance trend.</span></li>
+    <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists messages and meetings — channel/chat name, subject, and time.</span></li>
+    <li class="ci"><span class="cn">C</span><span>Only messages <strong>you send</strong> are captured. Messages from others in the same chat are not recorded.</span></li>
+    <li class="ci" style="border:none"><span class="cn">D</span><span>If Teams shows 0 events but you were active, sign out and back in to refresh the Microsoft Graph subscription.</span></li>
+  </ul>
+  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <p class="body-text"><strong>Today</strong> groups your Teams events by type (Message Sent, Meeting) with a purple left border. <strong>History</strong> shows all Teams events for the selected week in order.</p>
+</div>
+
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .help-nav{width:100%;display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:13px;font-weight:500;color:var(--text-2);background:transparent;border:none;cursor:pointer;font-family:inherit;text-align:left;transition:background .12s,color .12s}
+  .help-nav:hover,.help-nav.active{background:var(--surface-2);color:var(--text-1)}
+  .nav-section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:14px 12px 5px;display:block}
+  .cbadge{width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+  .cbadge-lg{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+  .help-panel.hidden{display:none}
+  .panel-title{font-size:22px;font-weight:700;color:var(--text-1);margin-bottom:6px}
+  .panel-desc{font-size:13px;color:var(--text-3);line-height:1.7;margin-bottom:28px}
+  .sub-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin:20px 0 8px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  .body-text{font-size:13px;color:var(--text-2);line-height:1.65;margin-bottom:12px}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start}
+  .mock-card{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+  .mock-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+  .mock-kpi{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+  .mock-kpi-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+  .mock-kpi-val{font-size:26px;font-weight:700;line-height:1}
+  .mock-kpi-delta{font-size:11px;color:var(--text-3)}
+  .mock-btn{display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);cursor:default}
+  .mock-btn-active{display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;color:#fff;background:#1e293b;border:1px solid transparent;cursor:default}
+  .mock-tab{display:inline-flex;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;color:var(--text-3);cursor:default}
+  .mock-tab-active{display:inline-flex;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;color:var(--text-1);background:var(--surface-2);border:1px solid var(--border);cursor:default}
+  .bar-chart{display:flex;align-items:flex-end;gap:6px;height:120px;border-bottom:1px solid var(--border-strong);border-left:1px solid var(--border-strong);padding:0 8px}
+  .bar-col{flex:1;display:flex;flex-direction:column;gap:1px;justify-content:flex-end}
+  .bs{border-radius:0}
+  .bar-labels{display:flex;gap:6px;padding:5px 8px 0}
+  .bl{flex:1;text-align:center;font-size:10px;color:var(--text-3)}
+  .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2)}
+  .ldot{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+  .clist{list-style:none;margin:10px 0 0;padding:0}
+  .ci{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2);line-height:1.55}
+  .cn{width:22px;height:22px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border-strong);color:var(--text-2);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+  .info-box{border-radius:10px;border:1px solid var(--border);background:var(--surface-2);padding:12px 14px;font-size:13px;color:var(--text-2);line-height:1.6}
+  .irow{display:flex;gap:10px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2)}
+  .idot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
+  .tips-box{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:12px;color:var(--text-3);line-height:1.8}
+  .tips-box p{margin:0}
+  .step-list{list-style:none;margin:0;padding:0}
+  .step-item{display:flex;gap:12px;align-items:flex-start;padding:9px 0;font-size:13px;color:var(--text-2);line-height:1.6}
+  .step-num{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--border-strong);background:var(--surface-2);color:var(--text-2);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+  .faq-list{display:flex;flex-direction:column}
+  .faq-item{border-bottom:1px solid var(--border)}
+  .faq-item[open] .faq-chevron{transform:rotate(180deg)}
+  .faq-q{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 4px;font-size:14px;font-weight:600;color:var(--text-1);cursor:pointer;list-style:none;user-select:none}
+  .faq-q::-webkit-details-marker{display:none}
+  .faq-chevron{width:16px;height:16px;flex-shrink:0;color:var(--text-3);transition:transform .2s}
+  .faq-a{font-size:13px;color:var(--text-2);line-height:1.7;padding:0 4px 14px}
+</style>
+<script>
+  const _ALL=['faq','new-github','new-gitlab','new-jira','new-teams','page-dashboard','page-myday','page-digest','page-ai','page-github','page-gitlab','page-jira','page-teams'];
+  function showPanel(id){
+    _ALL.forEach(p=>{
+      document.getElementById('panel-'+p).classList.toggle('hidden',p!==id);
+      const n=document.getElementById('nav-'+p);
+      if(n)n.classList.toggle('active',p===id);
+    });
+    document.getElementById('help-scroll').scrollTop=0;
+  }
+</script>
+{% endblock %}

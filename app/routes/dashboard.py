@@ -225,6 +225,14 @@ async def ai_page(request: Request):
     return templates.TemplateResponse(request=request, name="ai.html", context={"active_page": "ai"})
 
 
+@router.get("/help", response_class=HTMLResponse)
+async def help_page(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request=request, name="help.html", context={"active_page": "help"})
+
+
 @router.get("/gitlab", response_class=HTMLResponse)
 async def gitlab_page(request: Request):
     profile_id = await get_profile_from_session(request)
@@ -399,7 +407,11 @@ async def get_stats(request: Request, period: str = "week"):
     total = commits + prs * 2 + issues * 1.5 + meetings
     score = min(100, int(total * 3))
 
-    labels, counts = await _daily_counts(profile_id, days=7, tz_name=tz_name)
+    from zoneinfo import ZoneInfo as _ZI
+    _now_local = datetime.now(_ZI(tz_name or "UTC"))
+    _mon = _now_local - timedelta(days=_now_local.weekday())
+    _mon_str = _mon.strftime("%Y-%m-%d")
+    labels, counts = await _daily_counts(profile_id, days=7, tz_name=tz_name, start_date=_mon_str)
 
     return JSONResponse({
         "metrics": [
@@ -794,6 +806,7 @@ async def generate_summary(request: Request):
 
     body = await request.json()
     period_type = body.get("period_type", "daily")
+    specific_date = body.get("date")  # optional YYYY-MM-DD for past-day generation
     if period_type not in ("daily", "weekly"):
         return JSONResponse({"error": "invalid period_type"}, status_code=400)
 
@@ -804,7 +817,7 @@ async def generate_summary(request: Request):
         return JSONResponse({"error": "profile_not_found"}, status_code=404)
 
     try:
-        await _summarise_profile(profile, profile_id, period_type, full_day=False)
+        await _summarise_profile(profile, profile_id, period_type, full_day=True, specific_date=specific_date)
         return JSONResponse({"ok": True})
     except Exception as exc:
         logger.error("On-demand summary failed: %s", exc)

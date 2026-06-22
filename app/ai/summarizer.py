@@ -120,8 +120,16 @@ async def run_summary_job(period_type: str):
             logger.error("Summary job failed for %s: %s", profile_id, exc)
 
 
-async def _summarise_profile(profile, profile_id: str, period_type: str, full_day: bool = False):
-    period_start, period_end = _period_bounds(profile.timezone, period_type, full_day)
+async def _summarise_profile(profile, profile_id: str, period_type: str, full_day: bool = False, specific_date: str = None):
+    if specific_date and period_type == "daily":
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
+        tz = ZoneInfo(profile.timezone or "UTC")
+        sd = _dt.strptime(specific_date, "%Y-%m-%d").replace(tzinfo=tz)
+        period_start = sd.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        period_end   = (sd + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    else:
+        period_start, period_end = _period_bounds(profile.timezone, period_type, full_day)
 
     cursor = activity_events().find(
         {
@@ -149,6 +157,20 @@ async def _summarise_profile(profile, profile_id: str, period_type: str, full_da
         temperature=0.3,
     )
     summary_text = response.choices[0].message.content.strip()
+
+    usage = response.usage
+    if usage:
+        prompt_tokens     = usage.prompt_tokens
+        completion_tokens = usage.completion_tokens
+        total_tokens      = usage.total_tokens
+        input_cost  = prompt_tokens     / 1_000_000 * 2.50
+        output_cost = completion_tokens / 1_000_000 * 10.00
+        logger.info(
+            "Summary tokens — profile=%s period=%s  in=%d out=%d total=%d  cost=$%.5f",
+            profile_id, period_type,
+            prompt_tokens, completion_tokens, total_tokens,
+            input_cost + output_cost,
+        )
 
     async with AsyncSessionLocal() as db:
         # Anchor window to UTC day boundary so entries stored before/after timezone fix

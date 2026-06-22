@@ -4,7 +4,6 @@ On-demand Q&A endpoint + persistent multi-turn chat conversations.
 import logging
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -22,18 +21,10 @@ from app.webhooks.normalizer import _INJECTION_PATTERNS
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_SOURCES = ["github", "gitlab", "jira", "teams"]
-
 
 class QueryRequest(BaseModel):
     question: str
-
-
-@dataclass
-class Filters:
-    time_range: dict
-    source: str | None
-    event_type: str | None
+    scope: str = "today"
 
 
 def _sanitize_question(text: str) -> str:
@@ -41,44 +32,78 @@ def _sanitize_question(text: str) -> str:
     return cleaned.strip()[:1000]
 
 
-def intent_parser(question: str) -> Filters:
-    q = question.lower()
-
+def _scope_to_range(scope: str) -> dict:
     now = datetime.now(timezone.utc)
-    if "this morning" in q:
-        time_range = {"$gte": now.replace(hour=0, minute=0, second=0), "$lte": now.replace(hour=12, minute=0, second=0)}
-    elif "hour" in q and any(w in q for w in ["last", "past", "few"]):
-        time_range = {"$gte": now - timedelta(hours=3)}
-    elif "last week" in q or "past week" in q:
-        start = (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0)
-        end = start + timedelta(days=7)
-        time_range = {"$gte": start, "$lte": end}
-    elif "this week" in q:
-        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0)
-        time_range = {"$gte": start}
-    elif "yesterday" in q:
-        yesterday = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0)
-        time_range = {"$gte": yesterday, "$lte": yesterday + timedelta(days=1)}
-    else:  # default: today
-        time_range = {"$gte": now.replace(hour=0, minute=0, second=0)}
+    if scope == "week":
+        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        return {"$gte": start}
+    if scope == "month":
+        return {"$gte": now - timedelta(days=30)}
+    if scope == "all":
+        return {"$gte": now - timedelta(days=365)}
+    # default: today
+    return {"$gte": now.replace(hour=0, minute=0, second=0, microsecond=0)}
 
-    source = next((s for s in _SOURCES if s in q), None)
 
-    event_type = None
-    if any(w in q for w in ["commit", "push", "pushed"]):
-        event_type = "commit"
-    elif any(w in q for w in ["pull request", "pull requests", "prs"]):
-        event_type = "pr_"          # prefix — matched with $regex in query builder
-    elif " pr " in q or q.startswith("pr ") or q.endswith(" pr"):
-        event_type = "pr_"
-    elif any(w in q for w in ["issue", "ticket", "pending"]):
-        event_type = "issue_updated"
-    elif "meeting" in q:
-        event_type = "meeting"
-    elif "comment" in q:
-        event_type = "comment"
+async def _gpt_parse_intent(question: str, client, today: str) -> dict:
+    """Ask GPT to extract date_from, date_to, source, event_type from the question."""
+    prompt = (
+        f"Today's date is {today} (UTC). "
+        "Extract the following from the user's question and return ONLY valid JSON — no explanation:\n"
+        '  "date_from": YYYY-MM-DD or null\n'
+        '  "date_to":   YYYY-MM-DD or null  (null = up to now)\n'
+        '  "source":    one of github, gitlab, jira, teams or null\n'
+        '  "event_type": one of commit, pr, issue, meeting, comment or null\n\n'
+        f'Question: "{question}"'
+    )
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=80,
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        import json as _json
+        return _json.loads(resp.choices[0].message.content)
+    except Exception as exc:
+        logger.warning("GPT intent parse failed: %s", exc)
+        return {}
 
-    return Filters(time_range=time_range, source=source, event_type=event_type)
+
+def _intent_to_filter(parsed: dict, scope: str) -> dict:
+    """Convert GPT-parsed intent + UI scope into a MongoDB time range filter."""
+    date_from = parsed.get("date_from")
+    date_to   = parsed.get("date_to")
+
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            time_filter: dict = {"$gte": df}
+            if date_to:
+                dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+                time_filter["$lte"] = dt
+            else:
+                # single-day query when date_from == date_to or only from given
+                if not date_to:
+                    time_filter["$lte"] = df + timedelta(days=1)
+            return time_filter
+        except ValueError:
+            pass
+
+    # GPT found no date — fall back to UI scope
+    return _scope_to_range(scope)
+
+
+def _map_event_type(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    r = raw.lower()
+    if r in ("pr", "pull_request", "pull request"):
+        return "pr_"
+    if r == "issue":
+        return "issue_updated"
+    return r
 
 
 def _build_query_prompt(question: str, events: list[dict]) -> str:
@@ -104,19 +129,18 @@ async def query(request: Request, body: QueryRequest):
     if not raw_question:
         return JSONResponse({"error": "question_required"}, status_code=400)
 
-    # FIX (issue #4): sanitize before building prompt
     question = _sanitize_question(raw_question)
 
-    filters = intent_parser(question)
+    client   = _openai_client()
+    today    = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    parsed   = await _gpt_parse_intent(question, client, today)
 
-    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": filters.time_range}
-    if filters.source:
-        mongo_filter["source"] = filters.source
-    if filters.event_type:
-        if filters.event_type.endswith("_"):
-            mongo_filter["event_type"] = {"$regex": f"^{filters.event_type}"}
-        else:
-            mongo_filter["event_type"] = filters.event_type
+    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
+    if parsed.get("source"):
+        mongo_filter["source"] = parsed["source"]
+    et = _map_event_type(parsed.get("event_type"))
+    if et:
+        mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
 
     events = await activity_events().find(mongo_filter).to_list(length=100)
 
@@ -141,14 +165,22 @@ async def query(request: Request, body: QueryRequest):
         )
     answer = response.choices[0].message.content.strip()
 
+    if response.usage:
+        u = response.usage
+        logger.info("Query tokens — in=%d out=%d total=%d  cost=$%.5f",
+            u.prompt_tokens, u.completion_tokens, u.total_tokens,
+            u.prompt_tokens / 1_000_000 * 2.50 + u.completion_tokens / 1_000_000 * 10.00)
+
     async with AsyncSessionLocal() as db:
         log = QueryLog(
             profile_id=profile_id,
             question=raw_question,
             filters_json={
-                "time_range": str(filters.time_range),
-                "source": filters.source,
-                "event_type": filters.event_type,
+                "source": parsed.get("source"),
+                "event_type": parsed.get("event_type"),
+                "date_from": parsed.get("date_from"),
+                "date_to": parsed.get("date_to"),
+                "scope": body.scope,
             },
             ai_response=answer,
             context_event_ids=[str(e.get("_id")) for e in events],
@@ -224,6 +256,7 @@ async def get_conversation_messages(request: Request, conv_id: str):
 
 class AskRequest(BaseModel):
     question: str
+    scope: str = "today"
 
 
 @router.post("/api/chat/conversations/{conv_id}/ask")
@@ -266,15 +299,15 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
         conv.updated_at = datetime.now(timezone.utc)
 
         # Fetch activity data for latest question
-        filters = intent_parser(question)
-        mongo_filter: dict = {"profile_id": profile_id, "occurred_at": filters.time_range}
-        if filters.source:
-            mongo_filter["source"] = filters.source
-        if filters.event_type:
-            mongo_filter["event_type"] = (
-                {"$regex": f"^{filters.event_type}"} if filters.event_type.endswith("_")
-                else filters.event_type
-            )
+        client2  = _openai_client()
+        today    = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        parsed   = await _gpt_parse_intent(question, client2, today)
+        mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
+        if parsed.get("source"):
+            mongo_filter["source"] = parsed["source"]
+        et = _map_event_type(parsed.get("event_type"))
+        if et:
+            mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
         events = await activity_events().find(mongo_filter).to_list(length=100)
 
         activity_text = _format_events(events) if events else "No activity data found for that period."
@@ -305,6 +338,11 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
             return JSONResponse({"error": f"AI call failed: {exc}"}, status_code=502)
 
         answer = response.choices[0].message.content.strip()
+        if response.usage:
+            u = response.usage
+            logger.info("Chat tokens — conv=%s in=%d out=%d total=%d  cost=$%.5f",
+                conv_id, u.prompt_tokens, u.completion_tokens, u.total_tokens,
+                u.prompt_tokens / 1_000_000 * 2.50 + u.completion_tokens / 1_000_000 * 10.00)
         ai_msg_id = _uuid.uuid4()
         ai_created_at = datetime.now(timezone.utc)
         ai_msg = ChatMessage(

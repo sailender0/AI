@@ -128,6 +128,11 @@
   }
 
   async function loadSummaries() {
+    // Clear stale caches so re-indexed summaries don't render old breakdown data
+    Object.keys(_breakdownCache).forEach(k => delete _breakdownCache[k]);
+    Object.keys(_breakdownView).forEach(k  => delete _breakdownView[k]);
+    Object.keys(_breakdownConn).forEach(k  => delete _breakdownConn[k]);
+
     const res      = await fetch('/api/summaries?limit=52', { credentials: 'include' });
     const data     = await res.json();
     const weeklies = (data.summaries || []).filter(s => s.period_type === 'weekly');
