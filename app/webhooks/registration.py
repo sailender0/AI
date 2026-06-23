@@ -202,6 +202,19 @@ async def _register_gitlab(token: str, profile_id: str):
 
     logger.info("GitLab: %d/%d webhooks active for profile %s", registered, len(projects), profile_id)
 
+    if registered == 0:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(Integration).where(
+                    Integration.profile_id == profile_id,
+                    Integration.source == "gitlab",
+                )
+            )).scalar_one_or_none()
+            if row:
+                row.sync_status = "error"
+                await db.commit()
+        logger.error("GitLab: no webhooks registered for profile %s — marked error", profile_id)
+
 
 async def _register_jira(token: str, profile_id: str):
     async with httpx.AsyncClient() as client:
@@ -233,9 +246,21 @@ async def _register_jira(token: str, profile_id: str):
         )
 
     import logging as _logging
-    _logging.getLogger(__name__).info("Jira webhook registration: %s %s", resp.status_code, resp.text)
+    _log = _logging.getLogger(__name__)
+    _log.info("Jira webhook registration: %s %s", resp.status_code, resp.text)
 
     if resp.status_code not in (200, 201):
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(Integration).where(
+                    Integration.profile_id == profile_id,
+                    Integration.source == "jira",
+                )
+            )).scalar_one_or_none()
+            if row:
+                row.sync_status = "error"
+                await db.commit()
+        _log.error("Jira webhook registration failed for profile %s: %s", profile_id, resp.text)
         return
 
     webhook_ids = resp.json().get("webhookRegistrationResult", [])

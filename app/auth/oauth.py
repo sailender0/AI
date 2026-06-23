@@ -100,6 +100,10 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
     data = resp.json()
 
     access_token = data.get("access_token", "")
+    if not access_token or data.get("error"):
+        error_code = data.get("error") or "auth_failed"
+        return RedirectResponse(url=f"/{app}?error={error_code}", status_code=302)
+
     refresh_token = data.get("refresh_token", "")
     expires_in = data.get("expires_in", 3600)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)

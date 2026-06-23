@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from app.auth.oauth import get_valid_token
 from app.auth.sso import get_profile_from_session
 from app.config import settings
+from app.middleware.rate_limit import limiter
 from app.storage.models import Integration, LinkedIdentity
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest, normalize
@@ -65,6 +66,7 @@ async def _process(body: dict):
 
 
 @router.post("/webhook/gitlab")
+@limiter.limit("200/minute")
 async def gitlab_webhook(
     request: Request,
     background_tasks: BackgroundTasks,

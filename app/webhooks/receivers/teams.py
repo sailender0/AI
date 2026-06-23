@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
+from app.middleware.rate_limit import limiter
 from app.storage.models import Integration
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest, normalize
@@ -56,6 +57,7 @@ async def _process_notification(notification: dict):
 
 
 @router.post("/webhook/teams")
+@limiter.limit("200/minute")
 async def teams_webhook(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
 
@@ -71,6 +73,7 @@ async def teams_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 @router.post("/webhook/teams/lifecycle")
+@limiter.limit("200/minute")
 async def teams_lifecycle(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
 

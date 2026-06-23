@@ -1,6 +1,6 @@
 # Developer Activity Tracker — Project Overview
 
-**Last updated:** June 2026  
+**Last updated:** June 22, 2026  
 **Status:** Active development  
 **Author:** Sailender Reddy Lanka
 
@@ -128,7 +128,8 @@ Two distinct AI uses:
 - Runs **in-process** — only fires when the app is running
 - **11 PM nightly** (user's local timezone) → daily summary for each profile
 - **11 PM Friday** → weekly summary for each profile
-- **Implication:** if the app was offline at 11 PM, that day's summary is not auto-generated. User must click Generate manually on My Day.
+- **Startup catch-up** (`run_startup_catchup()`) — runs once on every boot via `asyncio.create_task`. Generates yesterday's daily summary and last week's weekly summary for each profile if they don't already exist. Covers the most common offline gap (app restarted the next morning).
+- **Remaining gap:** if app is offline for multiple consecutive days, only yesterday is regenerated. User must click Generate manually on My Day for older dates.
 
 ### Authentication
 
@@ -148,16 +149,20 @@ Two distinct AI uses:
 - Permissions: `read:org`, `read:user`, `repo` (read-only)
 
 ### GitLab ✅ Active
-- Connection: GitLab OAuth → `read_api`, `read_user`
-- Webhook: `push`, `merge_request` events
-- Captures: commit title, SHA, changed file names, MR title and state
-- Does NOT capture: code diffs, full file contents
+- Connection: GitLab OAuth → `api`, `read_user` (`api` scope required for webhook registration)
+- Webhook: `push`, `merge_request`, `issues`, `note`, `pipeline`, `tag_push` events — one event per commit on push
+- Captures: commit title + SHA + changed files, MR/issue title + state, comment text, pipeline status, tag name
+- Dedup guard: checks existing hooks before registering — safe to call Sync Webhooks repeatedly
+- Does NOT capture: code diffs, full file contents, MR descriptions
+- **Connected header**: Sync Webhooks (re-registers without reconnecting) + Disconnect buttons
+- **Error state**: if webhook registration fails, `sync_status` is set to `error` and an orange banner is shown on the GitLab page
 
 ### Jira ✅ Active
 - Connection: Atlassian OAuth → `read:jira-work`, `read:jira-user`, `manage:jira-webhook`
 - Webhook: `issue:updated`, `comment_created`, `issue:created` events
 - Captures: ticket key, title, event type, field changes, timestamp
 - Does NOT capture: ticket description body, attachments
+- **Error state**: if webhook POST to Atlassian fails, `sync_status` is set to `error` and an orange banner with a reconnect link is shown on the Jira page
 
 ### Microsoft Teams ✅ Active (auto-connect)
 - Connection: automatic via Microsoft SSO login — no separate Connect button
@@ -165,6 +170,10 @@ Two distinct AI uses:
 - Captures: messages **you send** in chats and channels, meetings you attend
 - Does NOT capture: messages from other participants, full message body
 - If disconnected: sign out and back in to refresh the Microsoft token
+- **Error state**: if subscription creation fails, an orange banner is shown on the Teams page
+
+### All webhook endpoints
+- Rate-limited to **200 requests/minute per IP** via `slowapi`. Returns HTTP 429 if exceeded. Applies to `/webhook/github`, `/webhook/gitlab`, `/webhook/jira`, `/webhook/teams`, `/webhook/teams/lifecycle`.
 
 ---
 
@@ -200,7 +209,8 @@ Two distinct AI uses:
 **Route:** `/ai`
 
 - **Conversations panel:** Saved multi-turn chat sessions. + for new, trash to delete.
-- **Chat interface:** User bubbles (right/dark), AI bubbles (left). Full history sent with each message for context.
+- **Chat interface:** User bubbles (right/dark), AI bubbles (left, streaming token by token). Full history sent with each message for context.
+- **Streaming:** `/api/chat/conversations/{id}/ask/stream` — `StreamingResponse` with `text/event-stream`. Typing dots shown until first token; replaced by live-filling bubble. User message saved to DB before streaming starts; full AI message saved after stream completes.
 - **Intent parsing:** GPT-4o extracts `date_from`, `date_to`, `source`, `event_type` from the question. Understands "last Thursday", "this week", "my Jira tickets".
 - **Data source:** Activity events in MongoDB only — cannot fetch live data from GitHub/Jira/Teams.
 - **Status:** Scope picker UI was added then removed. Backend `scope` field kept as "today" silent fallback.
@@ -217,7 +227,11 @@ Two distinct AI uses:
 ### GitLab Page
 **Route:** `/gitlab`
 
-Same layout as GitHub page. Tabs: Commits / MR Opened / MR Merged. Green colour throughout.
+- **Connected header:** `● Connected` badge + Sync Webhooks + Disconnect buttons
+- **KPI cards (×6):** Commits, Merge Requests, Issues, Comments, Pipelines, Tags — each in its own colour (green, indigo, amber, cyan, purple, pink)
+- **Chart tabs (×5):** Commits / MRs / Issues / Comments / Pipelines
+- **Event colour coding:** green=commit, indigo=merge_request, amber=issue, cyan=note, purple=pipeline, pink=tag_push — applied to chart lines, badges, and timeline left borders
+- **Orange warning banner:** shown if webhook registration failed; directs user to Sync Webhooks
 
 ### Jira Page
 **Route:** `/jira`
@@ -263,35 +277,38 @@ Same layout. Tabs: Messages / Meetings. Purple colour. Only shows activity you g
 
 ```
 app/
-├── main.py                    — FastAPI app, middleware, router includes
+├── main.py                    — FastAPI app, lifespan, router includes, rate-limit wiring
 ├── config.py                  — Settings (env vars, Azure endpoints)
+├── middleware/
+│   └── rate_limit.py          — slowapi Limiter (200 req/min per IP, shared across all webhook routes)
 ├── routes/
-│   ├── dashboard.py           — All page routes + /api/summaries/generate + /help
+│   ├── dashboard.py           — All page routes + /api/me (integrations + integration_errors) + /api/summaries/generate
 │   └── ...
 ├── ai/
-│   ├── summarizer.py          — _summarise_profile(), daily/weekly logic, token logging
-│   └── query.py               — Ask AI endpoints, _gpt_parse_intent(), chat conversations
+│   ├── summarizer.py          — _summarise_profile(), daily/weekly logic, run_startup_catchup()
+│   └── query.py               — Ask AI endpoints, _gpt_parse_intent(), chat conversations, /ask/stream SSE
 ├── auth/
-│   └── sso.py                 — Microsoft SSO, get_profile_from_session()
+│   ├── sso.py                 — Microsoft SSO, get_profile_from_session()
+│   └── oauth.py               — OAuth callbacks; detects empty token → redirect with ?error=
 ├── storage/
 │   ├── mongodb.py             — activity_events() collection accessor
 │   ├── postgres.py            — AsyncSessionLocal, engine
-│   └── models.py              — SQLAlchemy models (Profile, Connector, Summary, QueryLog, Chat*)
+│   └── models.py              — SQLAlchemy models (Profile, Integration, Summary, QueryLog, Chat*)
 ├── webhooks/
 │   ├── normalizer.py          — Strips PII, maps raw webhook payloads to standard shape
-│   └── ...                    — Per-connector webhook receivers
-├── scheduler.py               — APScheduler setup, nightly/weekly summary jobs
+│   ├── registration.py        — auto_register_webhook(); sets sync_status=error on failure
+│   └── receivers/             — Per-connector webhook receivers (all rate-limited)
 ├── ws_manager.py              — WebSocket ConnectionManager, broadcast()
 └── templates/
     ├── base.html              — Sidebar, theme toggle, Live dot, Help link
     ├── dashboard.html         — Overview page (stacked bar chart, week picker JS)
     ├── my_day.html            — My Day page (date nav, generate for any date)
     ├── digest.html            — Digest page
-    ├── ai.html                — Ask AI page (conversations, chat)
+    ├── ai.html                — Ask AI page (conversations, streaming chat)
     ├── github.html            — GitHub connector page
-    ├── gitlab.html            — GitLab connector page
-    ├── jira.html              — Jira connector page
-    ├── teams.html             — Teams connector page
+    ├── gitlab.html            — GitLab connector page (6 KPI, 5 chart tabs, error banners)
+    ├── jira.html              — Jira connector page (error banners)
+    ├── teams.html             — Teams connector page (subscription error banner)
     └── help.html              — Help page (master-detail, FAQ accordion, SVG charts)
 ```
 
@@ -302,28 +319,36 @@ app/
 | Area | Issue | Workaround / Note |
 |---|---|---|
 | **Event backfill** | Events from when the app was offline are never captured. No backfill mechanism exists. | User can manually Generate AI summary for days with events, but zero-event days will always show as empty. |
-| **Scheduling dependency** | APScheduler only fires when the app is running. If app is down at 11 PM, that day's auto-summary is skipped. | Generate button on My Day / Digest lets user manually trigger for any date. |
-| **Teams capture scope** | Only messages *you* send are captured. Other participants in a chat are not recorded. | By design (privacy) — document this clearly, which the Help page does. |
-| **GitHub offline gaps** | If app is down when a push fires, the webhook is not replayed. Event is permanently missed. | GitHub does retry webhooks for a short window, but no guaranteed delivery. |
-| **No mobile layout** | UI is desktop-only. No responsive breakpoints. | N/A — personal tool, used on desktop. |
-| **No multi-user isolation testing** | Only ever tested with a single user (profile). Multi-user scenarios (same org, shared repos) are untested. | N/A for now. |
-| **GitLab / Jira / Teams "Connect" UI** | Connection flow pages exist but were not tested in this session. Status banners on those pages may not yet handle all error states gracefully. | Test the connect flows end-to-end per connector. |
-| **Chart Y-axis normalisation** | Connector page charts normalise 0–1 relative to busiest day. If only 1 event exists all week, that day shows 1.0 — can look misleading. | Label tooltips show the raw count, which helps. |
-| **Redis dependency** | App requires Redis for sessions. If Redis is down, all sessions fail. | Run Redis as a service. No fallback implemented. |
+| **Scheduling dependency** | APScheduler only fires when the app is running. Startup catch-up regenerates yesterday + last week's summaries, but gaps older than 1 day require manual Generate. | Generate button on My Day / Digest lets user trigger for any date. |
+| **Teams capture scope** | Only messages *you* send are captured. Other participants in a chat are not recorded. | By design (privacy). |
+| **GitHub offline gaps** | If app is down when a push fires, the webhook is not replayed. | GitHub retries for a short window; no guaranteed delivery. |
+| **No mobile layout** | UI is desktop-only. No responsive breakpoints. | Personal tool — desktop only. |
+| **No multi-user isolation testing** | Only ever tested with a single user. Multi-user scenarios (shared repos) are untested. | N/A for now. |
+| **Chart Y-axis normalisation** | Connector page charts normalise 0–1 relative to busiest day. 1 event all week shows as 1.0. | Tooltips show raw count. |
+| **Redis dependency** | App requires Redis for sessions. If Redis is down, all sessions fail. No fallback. | Run Redis as a service alongside the app. |
 | **No test suite** | No unit or integration tests exist. | Manual testing only. |
-| **Ask AI — no streaming** | AI responses appear all at once after the full completion. No token streaming. | Works fine for current response lengths (~2–4 sentences). |
-| **Help page screenshots** | Help page uses HTML/SVG mockups instead of actual screenshots. Mockups may drift from reality as UI evolves. | Update SVG mockups when major UI changes are made. |
+| **Help page screenshots** | Help page uses HTML/SVG mockups. Mockups may drift as UI evolves. | Update SVG mockups when major UI changes are made. |
+| **Connector error surfaces** ✅ Done | ~~GitLab / Jira / Teams error states not surfaced.~~ | OAuth failures redirect with `?error=`; webhook failures set `sync_status=error` and show orange banners. |
+| **Webhook rate limiting** ✅ Done | ~~No rate limiting on webhook endpoints.~~ | `slowapi` 200 req/min per IP on all `/webhook/*` routes. |
+| **Ask AI streaming** ✅ Done | ~~Responses appear all at once.~~ | SSE streaming via `/ask/stream`; tokens render as they arrive. |
+| **Startup catch-up** ✅ Done | ~~Missed summaries silently skipped.~~ | `run_startup_catchup()` regenerates yesterday + last week on every boot. |
 
 ---
 
-## 9. Recent Changes (This Session)
+## 9. Recent Changes
 
-1. **Dashboard week picker** — Replaced 7D/1M/3M buttons with a calendar week picker (same structure as connector pages). `setRangeDefault()`, `selectWeek()`, `togglePicker()`, `renderPicker()`.
-2. **File names in activity timeline** — Added SHA chip + file name tags to Dashboard and all connector page timelines (`_tlCommitExtra()` helper).
-3. **Generate for past days** — My Day now shows Generate for any day with events, not just today. Sends `specific_date` to `/api/summaries/generate`. Backend uses exact midnight-to-midnight window for that date.
-4. **Token / cost logging** — All AI calls (summaries, queries, chat) log `prompt_tokens`, `completion_tokens`, `total_tokens`, and `$cost` to the app logger.
-5. **Ask AI GPT intent parsing** — Replaced keyword-based `intent_parser()` with `_gpt_parse_intent()`. Now understands natural language time references. Removed scope picker UI (Option 4) after implementing; backend `scope` kept as silent fallback.
-6. **Help page** — Built from scratch: master-detail layout, FAQ accordion, all four connector setup guides (New User section), full page explanations with SVG line chart mockups, Recent Activity mockups, annotated callout lists.
+1. **GitLab — full event type support** — Now captures and displays all 6 event types: commits, merge requests, issues, comments (notes), pipelines, tag pushes. Six KPI cards (3×2 grid), 5 chart tabs, per-type colour coding throughout. Disconnect + Sync Webhooks buttons in connected header.
+2. **GitLab — duplicate webhook prevention** — `GET /projects/{id}/hooks` called before `POST`; skips registration if URL already present. Safe to call Sync Webhooks repeatedly.
+3. **Startup catch-up for missed summaries** — `run_startup_catchup()` fires on every boot via `asyncio.create_task`. Checks PostgreSQL for yesterday's daily and last week's weekly summary per profile; generates any that are missing.
+4. **Ask AI streaming** — New `POST /api/chat/conversations/{id}/ask/stream` endpoint returns `text/event-stream`. Azure OpenAI called with `stream=True`. User message saved before streaming; AI message saved after. Frontend uses `ReadableStream` to render tokens as they arrive; typing dots shown until first token.
+5. **Webhook rate limiting** — `slowapi` added (`200/minute` per IP). Applied to all 5 webhook endpoints. `RateLimitExceeded` handler returns HTTP 429. Shared `Limiter` in `app/middleware/rate_limit.py`.
+6. **Connector error surfacing** — OAuth callback now detects empty/error token and redirects to `/{app}?error=<code>` instead of silently saving a broken token. `_register_jira` and `_register_gitlab` set `sync_status=error` on failure. `/api/me` now returns `integration_errors: {source: bool}` alongside `integrations`. GitLab, Jira, and Teams pages show orange warning banners for auth failures and webhook registration failures.
+7. **Dashboard week picker** — Replaced 7D/1M/3M buttons with a calendar week picker. `setRangeDefault()`, `selectWeek()`, `togglePicker()`, `renderPicker()`.
+8. **File names in activity timeline** — SHA chip + file name tags added to Dashboard and all connector page timelines.
+9. **Generate for past days** — My Day now shows Generate for any day with events. Backend uses exact midnight-to-midnight window for `specific_date`.
+10. **Token / cost logging** — All AI calls log `prompt_tokens`, `completion_tokens`, `total_tokens`, and `$cost`.
+11. **Ask AI GPT intent parsing** — Replaced keyword-based parser with `_gpt_parse_intent()`. Understands natural language time references.
+12. **Help page** — Built from scratch: master-detail layout, FAQ accordion, all four connector setup guides, page explanations with SVG mockups.
 
 ---
 
@@ -332,11 +357,10 @@ app/
 > Not committed — just a parking lot for ideas.
 
 - [ ] Add event backfill endpoint (replay missed webhooks from connector APIs)
-- [ ] Stream AI responses token-by-token (OpenAI streaming API)
 - [ ] Add notification system (email/push when weekly summary is ready)
 - [ ] Screenshot-based help page illustrations (replace SVG mockups with real screenshots)
 - [ ] Mobile-responsive layout
-- [ ] Rate limiting on webhook endpoints
-- [ ] Integration tests for the connector pipelines
-- [ ] GitLab / Jira connection flow end-to-end testing
+- [ ] Redis session fallback (cookie-based fallback if Redis is unavailable)
+- [ ] Integration tests for the connector pipelines (especially normalizer + period bounds)
+- [ ] Multi-user isolation smoke test before onboarding second user
 - [ ] Export activity to CSV / PDF for performance review use

@@ -18,14 +18,6 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
 
-_LABELS = {
-    "github": "GitHub",
-    "gitlab": "GitLab",
-    "jira": "Jira",
-    "teams_subscription": "Teams",
-}
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -156,22 +148,18 @@ async def _get_integrations(profile_id: str):
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(select(Integration).where(Integration.profile_id == profile_id))).scalars().all()
         linked = (await db.execute(select(LinkedIdentity).where(LinkedIdentity.profile_id == profile_id))).scalars().all()
-    connected = {r.source for r in rows if r.sync_status == "active"}
+    status_map = {r.source: r.sync_status for r in rows}
     linked_providers = {l.provider for l in linked}
-    result = {}
+    connected = {}
+    errors = {}
     for source in ["github", "gitlab", "jira", "teams_subscription"]:
-        result[source] = source in connected or (source == "github" and "github" in linked_providers)
-    return result
-
-
-def _greeting(email: str) -> str:
-    hour = datetime.now(timezone.utc).hour
-    name = email.split("@")[0].split(".")[0].capitalize()
-    if hour < 12:
-        return f"Good morning, {name}"
-    if hour < 17:
-        return f"Good afternoon, {name}"
-    return f"Good evening, {name}"
+        is_conn = (
+            status_map.get(source) in ("active", "error")
+            or (source == "github" and "github" in linked_providers)
+        )
+        connected[source] = is_conn
+        errors[source] = status_map.get(source) == "error"
+    return connected, errors
 
 
 # ---------------------------------------------------------------------------
@@ -270,13 +258,14 @@ async def get_me(request: Request):
         profile = await db.get(Profile, profile_id)
         if not profile:
             return JSONResponse({"authenticated": False})
-    integrations = await _get_integrations(profile_id)
+    integrations, integration_errors = await _get_integrations(profile_id)
     return JSONResponse({
         "authenticated": True,
         "email": profile.email,
 
         "profile_id": str(profile.id),
         "integrations": integrations,
+        "integration_errors": integration_errors,
         "connect_urls": {
             "github": f"https://github.com/apps/{settings.GITHUB_APP_SLUG}/installations/new",
             "gitlab": f"{settings.APP_BASE_URL}/connect/gitlab",

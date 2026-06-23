@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.storage.mongodb import init_indexes
 from app.storage.postgres import init_db
@@ -28,7 +30,8 @@ from app.webhooks.renewal import (
     renew_jira_webhooks,
     renew_teams_subscriptions,
 )
-from app.ai.summarizer import run_summary_job
+from app.ai.summarizer import run_summary_job, run_startup_catchup
+from app.middleware.rate_limit import limiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +58,10 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started")
 
+    # Generate any daily/weekly summaries missed while the app was offline
+    import asyncio
+    asyncio.create_task(run_startup_catchup())
+
     yield
 
     scheduler.shutdown()
@@ -66,6 +73,8 @@ app = FastAPI(
     lifespan=lifespan,
     swagger_ui_parameters={"withCredentials": True},
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.include_router(dashboard_router)
 app.include_router(sso_router)
@@ -127,32 +136,3 @@ async def setup_github_app(request: Request):
     })
 
 
-@app.get("/summaries")
-async def get_summary(period: str = "daily", date: str = ""):
-    from datetime import datetime
-    from app.storage.redis_client import get_redis
-    from app.storage.postgres import AsyncSessionLocal
-    from app.storage.models import Summary
-    from sqlalchemy import select
-
-    redis = get_redis()
-    cache_key = f"summary:placeholder:{date}"
-    cached = await redis.get(cache_key)
-    if cached:
-        return JSONResponse({"content": cached})
-
-    async with AsyncSessionLocal() as db:
-        query = select(Summary).where(Summary.period_type == period)
-        if date:
-            try:
-                d = datetime.fromisoformat(date)
-                query = query.where(Summary.period_start >= d)
-            except ValueError:
-                pass
-        summary = (await db.execute(query.order_by(Summary.period_start.desc()))).scalar_one_or_none()
-
-    if not summary:
-        return JSONResponse({"error": "not_found"}, status_code=404)
-
-    await redis.set(cache_key, summary.content, ex=3600)
-    return JSONResponse({"content": summary.content})

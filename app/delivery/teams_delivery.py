@@ -16,8 +16,6 @@ from app.storage.postgres import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
-_BOT_TOKEN_CACHE: dict = {}
-
 
 def _build_adaptive_card(summary_text: str) -> dict:
     return {

@@ -129,12 +129,6 @@ async def auth_callback(request: Request, code: str, state: str):
     session_token = secrets.token_urlsafe(32)
     await redis.set(f"session:{session_token}", profile_id, ex=86400)
 
-    # Teams subscription only registered when Chat.Read scope is present
-    if "https://graph.microsoft.com/Chat.Read" in _GRAPH_SCOPES:
-        from app.webhooks.registration import auto_register_teams_subscription
-        import asyncio
-        asyncio.create_task(auto_register_teams_subscription(profile_id))
-
     is_https = settings.APP_BASE_URL.startswith("https://")
     response = RedirectResponse(url="/")
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")

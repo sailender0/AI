@@ -62,6 +62,7 @@
     <details class="faq-item"><summary class="faq-q">How do I generate a summary for a past day?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Navigate to that date in My Day using the arrows. If the day has events a <strong>Generate</strong> button appears — click it to create an AI summary for that exact day. The button is hidden when a day has no recorded events.</p></details>
     <details class="faq-item"><summary class="faq-q">What can Ask AI answer?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Questions about your own recorded activity — "How many commits this week?", "What Jira tickets did I update last Thursday?". It understands natural time phrases. It cannot fetch live data from GitHub or Jira directly and cannot see events from days the app was offline.</p></details>
     <details class="faq-item"><summary class="faq-q">Why is Teams not showing my messages?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Teams connects via your Microsoft SSO login. If messages don't appear, sign out and back in to refresh the token. Only messages <em>you send</em> are captured — not messages from other participants.</p></details>
+    <details class="faq-item"><summary class="faq-q">What does the orange warning banner on a connector page mean?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">There are two types: <strong>Authentication failed</strong> — the OAuth handshake didn't complete (e.g. you denied access or the code expired). Click the retry link to reconnect. <strong>Webhook registration failed</strong> — the OAuth succeeded but the app couldn't register a webhook on your projects. For GitLab, click <strong>Sync Webhooks</strong> on the GitLab page to retry. For Jira, click the <strong>Reconnect</strong> link in the banner. Once webhooks are registered the banner disappears on the next page load.</p></details>
     <details class="faq-item"><summary class="faq-q">Does the app store my code or message content?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">No. Only event metadata is stored — commit titles, file names, timestamps, event types, repository names. Full code diffs and full message bodies are never stored.</p></details>
     <details class="faq-item" style="border-bottom:none"><summary class="faq-q">How do I switch between light and dark mode?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Use the Light / System / Dark buttons at the bottom of the left sidebar, or click your avatar in the top-right corner. The preference is saved in your browser.</p></details>
   </div>
@@ -118,6 +119,7 @@
         <p>→ <strong>Sync Webhooks</strong> button re-registers on all projects without reconnecting — useful if you join new projects later.</p>
         <p>→ <strong>Disconnect</strong> removes the integration and all stored webhook links. You can reconnect any time.</p>
         <p>→ Webhooks are registered per-project. If you have a GitLab Premium/Ultimate account, group-level hooks are tried first (covering all projects in a group at once).</p>
+        <p>→ If an <strong>orange warning banner</strong> appears after connecting, webhook registration failed. Click <strong>Sync Webhooks</strong> on the GitLab page to retry without reconnecting.</p>
       </div>
     </div>
     <div>
@@ -151,7 +153,8 @@
         <li class="step-item"><span class="step-num">1</span><span>Click <strong>Jira</strong> in the sidebar under Connectors.</span></li>
         <li class="step-item"><span class="step-num">2</span><span>Click <strong>Connect Jira</strong>. You are redirected to Atlassian OAuth.</span></li>
         <li class="step-item"><span class="step-num">3</span><span>Select the Jira site to connect (if you have multiple), then click <strong>Accept</strong>.</span></li>
-        <li class="step-item"><span class="step-num">4</span><span>You are redirected back. The Jira page shows <strong style="color:#22c55e">Active</strong>.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>You are redirected back. The app registers a webhook in the background.</span></li>
+        <li class="step-item"><span class="step-num">5</span><span>The Jira page shows <strong style="color:#22c55e">Active</strong>. If an <strong style="color:#f59e0b">orange banner</strong> appears, the webhook could not be registered — click the reconnect link in the banner to retry.</span></li>
       </ol>
     </div>
     <div>
@@ -181,7 +184,7 @@
         <li class="step-item"><span class="step-num">1</span><span>Sign in with your <strong>Microsoft account</strong>. Teams is connected at login automatically.</span></li>
         <li class="step-item"><span class="step-num">2</span><span>The app registers a <strong>Microsoft Graph subscription</strong> in the background within a few seconds of first login.</span></li>
         <li class="step-item"><span class="step-num">3</span><span>Messages you send appear in the feed within seconds. The subscription auto-renews.</span></li>
-        <li class="step-item"><span class="step-num">4</span><span>If Teams shows Disconnected, <strong>sign out and back in</strong> to refresh the Microsoft token.</span></li>
+        <li class="step-item"><span class="step-num">4</span><span>If Teams shows Disconnected or an <strong style="color:#f59e0b">orange warning banner</strong> appears, <strong>sign out and back in</strong> to refresh the Microsoft token and re-trigger the subscription.</span></li>
       </ol>
     </div>
     <div>
@@ -400,7 +403,7 @@
         <div style="display:flex;justify-content:flex-end"><div style="background:#4f46e5;color:#fff;padding:7px 12px;border-radius:14px 14px 3px 14px;font-size:11px">How many commits this week?</div></div>
         <div style="display:flex;gap:8px;align-items:flex-start"><div style="width:22px;height:22px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:var(--text-2);flex-shrink:0">AI</div><div style="background:var(--surface-2);border:1px solid var(--border);padding:7px 12px;border-radius:14px 14px 14px 3px;font-size:11px;color:var(--text-1)">You pushed 23 commits across 3 repositories this week.</div></div>
       </div>
-      <p class="body-text">Your messages (right, dark bubble). AI responses (left). The full conversation history is sent with each message so the AI can answer follow-up questions in context.</p>
+      <p class="body-text">Your messages (right, dark bubble). AI responses (left, streaming token by token — text appears as it is generated). The full conversation history is sent with each message so the AI can answer follow-up questions in context.</p>
     </div>
     <div>
       <p class="sub-title">③ Input Bar</p>
@@ -575,6 +578,7 @@
   <p class="body-text"><strong>Today</strong> groups events by type — each group has a left border and badge in its event colour (green for commits, indigo for MRs, amber for issues, etc.). <strong>History</strong> shows all GitLab events for the selected week chronologically. Commits display a SHA chip and file-name tags.</p>
   <div class="tips-box" style="margin-top:12px">
     <p>→ No activity showing? Check that webhooks are registered — use <strong>Sync Webhooks</strong> on the GitLab page.</p>
+    <p>→ If an <strong>orange banner</strong> is visible at the top of the GitLab page, webhook registration failed — click <strong>Sync Webhooks</strong> to retry without disconnecting.</p>
     <p>→ Events only arrive for actions taken after connecting. Past activity is not backfilled.</p>
     <p>→ Pipeline events fire on every status change (pending → running → passed/failed), so a single pipeline run produces multiple events.</p>
   </div>
@@ -633,6 +637,10 @@
   </ul>
   <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
   <p class="body-text"><strong>Today</strong> groups Jira events by type (Comment Created, Issue Updated) with a cyan left border. <strong>History</strong> shows all Jira events for the selected week chronologically. Each row shows ticket key, title, and event type.</p>
+  <div class="tips-box" style="margin-top:12px">
+    <p>→ No events arriving? If an <strong>orange banner</strong> is visible, the webhook wasn't registered — click the reconnect link to re-run the OAuth flow and re-register.</p>
+    <p>→ Events only arrive for Jira actions taken after connecting. Historical tickets are not backfilled.</p>
+  </div>
 </div>
 
 
@@ -681,7 +689,7 @@
     <li class="ci"><span class="cn">A</span><span><strong>Messages tab</strong> shows the daily trend of messages you sent. Switch to <strong>Meetings</strong> for your meeting attendance trend.</span></li>
     <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists messages and meetings — channel/chat name, subject, and time.</span></li>
     <li class="ci"><span class="cn">C</span><span>Only messages <strong>you send</strong> are captured. Messages from others in the same chat are not recorded.</span></li>
-    <li class="ci" style="border:none"><span class="cn">D</span><span>If Teams shows 0 events but you were active, sign out and back in to refresh the Microsoft Graph subscription.</span></li>
+    <li class="ci" style="border:none"><span class="cn">D</span><span>If Teams shows 0 events or an <strong>orange banner</strong> appears, sign out and back in to refresh the Microsoft Graph subscription.</span></li>
   </ul>
   <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
   <p class="body-text"><strong>Today</strong> groups your Teams events by type (Message Sent, Meeting) with a purple left border. <strong>History</strong> shows all Teams events for the selected week in order.</p>

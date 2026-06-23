@@ -120,8 +120,18 @@ async def run_summary_job(period_type: str):
             logger.error("Summary job failed for %s: %s", profile_id, exc)
 
 
-async def _summarise_profile(profile, profile_id: str, period_type: str, full_day: bool = False, specific_date: str = None):
-    if specific_date and period_type == "daily":
+async def _summarise_profile(
+    profile,
+    profile_id: str,
+    period_type: str,
+    full_day: bool = False,
+    specific_date: str = None,
+    period_start_utc: datetime | None = None,
+    period_end_utc: datetime | None = None,
+):
+    if period_start_utc and period_end_utc:
+        period_start, period_end = period_start_utc, period_end_utc
+    elif specific_date and period_type == "daily":
         from zoneinfo import ZoneInfo
         from datetime import datetime as _dt
         tz = ZoneInfo(profile.timezone or "UTC")
@@ -213,3 +223,88 @@ async def _summarise_profile(profile, profile_id: str, period_type: str, full_da
 
     from app.delivery.teams_delivery import deliver_to_teams
     await deliver_to_teams(profile, summary_text)
+
+
+async def run_startup_catchup():
+    """
+    Called once on startup. For each profile, generates any daily or weekly
+    summaries that were missed while the app was offline.
+
+    Daily:  generates yesterday's summary if it doesn't exist yet.
+    Weekly: generates last week's summary if the Friday 17:00 trigger window
+            has already passed but no summary was saved for that week.
+    """
+    from zoneinfo import ZoneInfo
+
+    async with AsyncSessionLocal() as db:
+        profiles = (await db.execute(select(Profile))).scalars().all()
+
+    for profile in profiles:
+        profile_id = str(profile.id)
+        tz         = ZoneInfo(profile.timezone or "UTC")
+        now        = datetime.now(tz)
+
+        # ── Missed daily: yesterday ───────────────────────────────────────
+        try:
+            ydate  = (now - timedelta(days=1)).date()
+            ystart = datetime(ydate.year, ydate.month, ydate.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+            yend   = ystart + timedelta(days=1)
+
+            async with AsyncSessionLocal() as db:
+                has_daily = (await db.execute(
+                    select(Summary.id).where(
+                        Summary.profile_id == profile_id,
+                        Summary.period_type == "daily",
+                        Summary.period_start >= ystart,
+                        Summary.period_start <  yend,
+                    )
+                )).scalar_one_or_none()
+
+            if not has_daily:
+                await _summarise_profile(
+                    profile, profile_id, "daily",
+                    full_day=True,
+                    specific_date=ydate.isoformat(),
+                )
+                logger.info("Startup catch-up: daily summary generated for %s (%s)", profile_id, ydate)
+        except Exception as exc:
+            logger.error("Startup catch-up daily failed for %s: %s", profile_id, exc)
+
+        # ── Missed weekly: last Friday's window ───────────────────────────
+        try:
+            dow       = now.weekday()            # 0=Mon … 4=Fri … 6=Sun
+            days_back = (dow - 4) % 7            # days since last Friday
+            if days_back == 0 and now.hour < 17:
+                days_back = 7                    # It's Friday but before the 17:00 trigger
+
+            if days_back == 0 and now.hour >= 17:
+                # It IS Friday at or past trigger time — current week is the target
+                mon = now.date() - timedelta(days=dow)
+            elif days_back > 0:
+                last_fri = now.date() - timedelta(days=days_back)
+                mon      = last_fri - timedelta(days=last_fri.weekday())
+            else:
+                continue  # Friday before 17:00 — no missed window yet
+
+            wstart = datetime(mon.year, mon.month, mon.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+            wend   = wstart + timedelta(days=7)
+
+            async with AsyncSessionLocal() as db:
+                has_weekly = (await db.execute(
+                    select(Summary.id).where(
+                        Summary.profile_id == profile_id,
+                        Summary.period_type == "weekly",
+                        Summary.period_start >= wstart,
+                        Summary.period_start <  wend,
+                    )
+                )).scalar_one_or_none()
+
+            if not has_weekly:
+                await _summarise_profile(
+                    profile, profile_id, "weekly",
+                    period_start_utc=wstart,
+                    period_end_utc=wend,
+                )
+                logger.info("Startup catch-up: weekly summary generated for %s (week of %s)", profile_id, mon)
+        except Exception as exc:
+            logger.error("Startup catch-up weekly failed for %s: %s", profile_id, exc)

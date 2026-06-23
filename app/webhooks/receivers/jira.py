@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app.config import settings
+from app.middleware.rate_limit import limiter
 from app.storage.models import LinkedIdentity
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest, normalize
@@ -54,6 +55,7 @@ async def _process(body: dict, jira_event: str):
 
 
 @router.post("/webhook/jira")
+@limiter.limit("200/minute")
 async def jira_webhook(
     request: Request,
     background_tasks: BackgroundTasks,

@@ -5,12 +5,21 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Info banner -->
+  <!-- Info banner (subscription not yet active) -->
   <div id="not-connected" class="hidden bg-gray-900 border border-yellow-800 rounded-xl p-6 flex items-start gap-4">
     <span class="text-yellow-400 text-xl mt-0.5">◉</span>
     <div>
       <h2 class="text-sm font-semibold mb-1">Teams is auto-registered</h2>
       <p class="text-gray-400 text-xs">Teams events are captured automatically when you sign in with Microsoft. No manual connection needed — just make sure you're signed in.</p>
+    </div>
+  </div>
+
+  <!-- Subscription error banner -->
+  <div id="subscription-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
+    <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
+    <div>
+      <p class="text-sm font-semibold" style="color:#fbbf24">Teams subscription failed</p>
+      <p class="text-xs mt-0.5" style="color:#92400e">The Teams change-notification subscription could not be created. Sign out and back in to retry.</p>
     </div>
   </div>
 
@@ -219,6 +228,8 @@
     window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     if (!meData.integrations.teams_subscription) {
       document.getElementById('not-connected').classList.remove('hidden');
+    } else if (meData.integration_errors?.teams_subscription) {
+      document.getElementById('subscription-error').classList.remove('hidden');
     }
     setPeriod('week', false);
     setEvtPeriod('today', false);

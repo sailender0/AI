@@ -5,8 +5,10 @@ import logging
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 
+import json as _json
+
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -64,7 +66,6 @@ async def _gpt_parse_intent(question: str, client, today: str) -> dict:
             temperature=0,
             response_format={"type": "json_object"},
         )
-        import json as _json
         return _json.loads(resp.choices[0].message.content)
     except Exception as exc:
         logger.warning("GPT intent parse failed: %s", exc)
@@ -131,9 +132,9 @@ async def query(request: Request, body: QueryRequest):
 
     question = _sanitize_question(raw_question)
 
-    client   = _openai_client()
-    today    = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    parsed   = await _gpt_parse_intent(question, client, today)
+    client = _openai_client()
+    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    parsed = await _gpt_parse_intent(question, client, today)
 
     mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
     if parsed.get("source"):
@@ -148,8 +149,6 @@ async def query(request: Request, body: QueryRequest):
         return JSONResponse({"answer": "No activity found for that filter."})
 
     prompt = _build_query_prompt(question, events)
-
-    client = _openai_client()
     try:
         response = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT,
@@ -357,6 +356,106 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
         "ai_message":     {"id": str(ai_msg_id), "role": "assistant", "content": answer, "created_at": ai_created_at.isoformat()},
         "conversation_title": conv.title,
     })
+
+
+@router.post("/api/chat/conversations/{conv_id}/ask/stream")
+async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRequest):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    raw_question = body.question.strip()
+    if not raw_question:
+        return JSONResponse({"error": "question_required"}, status_code=400)
+    question = _sanitize_question(raw_question)
+
+    # Fetch conversation + history, save user message eagerly
+    async with AsyncSessionLocal() as db:
+        conv = (await db.execute(
+            select(ChatConversation)
+            .where(ChatConversation.id == conv_id, ChatConversation.profile_id == profile_id)
+        )).scalar_one_or_none()
+        if not conv:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+
+        history = (await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == conv_id)
+            .order_by(ChatMessage.created_at.asc())
+        )).scalars().all()
+
+        if not history:
+            conv.title = raw_question[:80]
+        conv_title = conv.title
+
+        user_msg_id     = _uuid.uuid4()
+        user_created_at = datetime.now(timezone.utc)
+        db.add(ChatMessage(
+            id=user_msg_id, conversation_id=conv.id,
+            role="user", content=raw_question, created_at=user_created_at,
+        ))
+        conv.updated_at = user_created_at
+        await db.commit()
+
+    # Fetch activity context
+    client = _openai_client()
+    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    parsed = await _gpt_parse_intent(question, client, today)
+    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
+    if parsed.get("source"):
+        mongo_filter["source"] = parsed["source"]
+    et = _map_event_type(parsed.get("event_type"))
+    if et:
+        mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
+    events = await activity_events().find(mongo_filter).to_list(length=100)
+
+    activity_text   = _format_events(events) if events else "No activity data found for that period."
+    system_content  = (
+        "You are a personal work assistant for a software developer. "
+        "Answer questions about their activity using only the data provided. "
+        "Be concise. If the answer is a count, state it first. "
+        "Do not invent anything not in the data.\n\n"
+        f"ACTIVITY DATA:\n{activity_text}"
+    )
+    openai_messages = [{"role": "system", "content": system_content}]
+    for m in history:
+        openai_messages.append({"role": m.role, "content": m.content})
+    openai_messages.append({"role": "user", "content": question})
+
+    async def event_stream():
+        tokens: list[str] = []
+        try:
+            stream = await client.chat.completions.create(
+                model=settings.AZURE_OPENAI_DEPLOYMENT,
+                messages=openai_messages,
+                max_tokens=400,
+                temperature=0.3,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    tokens.append(delta)
+                    yield f"data: {_json.dumps({'token': delta})}\n\n"
+        except Exception as exc:
+            logger.error("Streaming OpenAI call failed: %s", exc)
+            yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
+            return
+
+        answer      = "".join(tokens)
+        ai_msg_id   = _uuid.uuid4()
+        ai_created  = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            db.add(ChatMessage(
+                id=ai_msg_id, conversation_id=conv_id,
+                role="assistant", content=answer, created_at=ai_created,
+            ))
+            await db.commit()
+
+        logger.info("Stream chat — conv=%s tokens=%d", conv_id, len(tokens))
+        yield f"data: {_json.dumps({'done': True, 'ai_message': {'id': str(ai_msg_id), 'role': 'assistant', 'content': answer, 'created_at': ai_created.isoformat()}, 'conversation_title': conv_title})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.delete("/api/chat/conversations/{conv_id}")

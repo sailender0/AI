@@ -15,6 +15,25 @@
     </a>
   </div>
 
+  <!-- Auth error banner (shown when OAuth callback returns ?error=...) -->
+  <div id="auth-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
+    <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
+    <div>
+      <p class="text-sm font-semibold" style="color:#fbbf24">GitLab authentication failed</p>
+      <p class="text-xs mt-0.5" style="color:#92400e" id="auth-error-detail">The connection could not be completed.</p>
+      <a id="auth-error-retry" href="#" class="text-xs mt-1 inline-block" style="color:#f59e0b">Try connecting again →</a>
+    </div>
+  </div>
+
+  <!-- Webhook error banner (shown when webhook registration failed) -->
+  <div id="webhook-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
+    <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
+    <div>
+      <p class="text-sm font-semibold" style="color:#fbbf24">Webhook registration failed</p>
+      <p class="text-xs mt-0.5" style="color:#92400e">GitLab is connected but webhooks could not be registered — events may not be captured. Use <strong>Sync Webhooks</strong> to retry, or disconnect and reconnect.</p>
+    </div>
+  </div>
+
   <!-- Main content (hidden until connected) -->
   <div id="main-content" class="hidden space-y-6">
 
@@ -355,10 +374,20 @@
     const raw = ((meData || {}).email || '').split('@')[0];
     window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
     window._actAuthorName   = raw.split(/[._]/)[0] || raw;
+    const urlError = new URLSearchParams(window.location.search).get('error');
+    if (urlError) {
+      const el = document.getElementById('auth-error');
+      el.classList.remove('hidden');
+      document.getElementById('auth-error-detail').textContent = `Error: ${urlError}`;
+      document.getElementById('auth-error-retry').href = meData.connect_urls.gitlab;
+    }
     if (!meData.integrations.gitlab) {
       document.getElementById('not-connected').classList.remove('hidden');
       document.getElementById('connect-btn').href = meData.connect_urls.gitlab;
     } else {
+      if (meData.integration_errors?.gitlab) {
+        document.getElementById('webhook-error').classList.remove('hidden');
+      }
       document.getElementById('main-content').classList.remove('hidden');
       setPeriod('week', false);
       setEvtPeriod('today', false);

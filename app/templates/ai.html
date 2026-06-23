@@ -244,25 +244,58 @@
         renderConvList();
       }
 
-      const res  = await fetch(`/api/chat/conversations/${currentConvId}/ask`, {
+      const res = await fetch(`/api/chat/conversations/${currentConvId}/ask/stream`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question }),
       });
-      const data = await res.json();
 
-      showTyping(false);
-      appendBubble('assistant', data.error ? ('⚠ ' + data.error) : data.ai_message.content);
-
-      // Update local title
-      const conv = conversations.find(c => c.id === currentConvId);
-      if (conv && data.conversation_title) {
-        conv.title      = data.conversation_title;
-        conv.updated_at = (data.ai_message || {}).created_at || conv.updated_at;
-        // Move to top
-        conversations = [conv, ...conversations.filter(c => c.id !== currentConvId)];
-        renderConvList();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showTyping(false);
+        appendBubble('assistant', '⚠ ' + (data.error || `Error ${res.status}`));
+        return;
       }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer    = '';
+      let bubbleEl  = null;   // created on first token
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();   // keep incomplete trailing line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let msg;
+          try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (msg.token) {
+            if (!bubbleEl) { showTyping(false); bubbleEl = _createStreamBubble(); }
+            bubbleEl.textContent += msg.token;
+            scrollBottom();
+          } else if (msg.done) {
+            const conv = conversations.find(c => c.id === currentConvId);
+            if (conv && msg.conversation_title) {
+              conv.title      = msg.conversation_title;
+              conv.updated_at = (msg.ai_message || {}).created_at || conv.updated_at;
+              conversations   = [conv, ...conversations.filter(c => c.id !== currentConvId)];
+              renderConvList();
+            }
+          } else if (msg.error) {
+            showTyping(false);
+            if (!bubbleEl) bubbleEl = _createStreamBubble();
+            bubbleEl.textContent = '⚠ ' + msg.error;
+          }
+        }
+      }
+
+      if (!bubbleEl) { showTyping(false); appendBubble('assistant', '⚠ No response received.'); }
+
     } catch {
       showTyping(false);
       appendBubble('assistant', '⚠ Request failed. Please try again.');
@@ -272,6 +305,15 @@
       scrollBottom();
       input.focus();
     }
+  }
+
+  function _createStreamBubble() {
+    const area = document.getElementById('messages-area');
+    const el   = document.createElement('div');
+    el.className = 'msg-ai';
+    el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble"></div>`;
+    area.appendChild(el);
+    return el.querySelector('.msg-ai-bubble');
   }
 
   function appendBubble(role, content) {
