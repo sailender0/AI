@@ -151,7 +151,7 @@ async def test_teams_valid_notification_calls_ingest():
 
     mock_ingest.assert_called_once()
     event = mock_ingest.call_args[0][0]
-    assert event["source"] == "teams"
+    assert event["source"] == "teams_subscription"
     assert event["profile_id"] == TEAMS_PROFILE
 
 

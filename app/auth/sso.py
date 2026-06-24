@@ -68,8 +68,12 @@ async def acquire_delegated_token(profile_id: str) -> str | None:
 @router.get("/auth/login")
 async def login(request: Request):
     state = secrets.token_urlsafe(16)
+    next_url = request.query_params.get("next", "/")
+    # Only allow relative paths to prevent open-redirect
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/"
     redis = get_redis()
-    await redis.set(f"oauth_state:{state}", "pending", ex=600)
+    await redis.set(f"oauth_state:{state}", next_url, ex=600)
 
     app = _build_msal_app()
     auth_url = app.get_authorization_request_url(
@@ -83,7 +87,8 @@ async def login(request: Request):
 @router.get("/auth/callback")
 async def auth_callback(request: Request, code: str, state: str):
     redis = get_redis()
-    if not await redis.get(f"oauth_state:{state}"):
+    next_url = await redis.get(f"oauth_state:{state}")
+    if not next_url:
         return {"error": "invalid_state"}
     await redis.delete(f"oauth_state:{state}")
 
@@ -130,8 +135,19 @@ async def auth_callback(request: Request, code: str, state: str):
     await redis.set(f"session:{session_token}", profile_id, ex=86400)
 
     is_https = settings.APP_BASE_URL.startswith("https://")
-    response = RedirectResponse(url="/")
+    safe_next = next_url if (next_url and next_url.startswith("/") and not next_url.startswith("//")) else "/"
+    response = RedirectResponse(url=safe_next)
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
+    return response
+
+
+@router.get("/auth/logout")
+async def logout(request: Request):
+    token = request.cookies.get("session")
+    if token:
+        await get_redis().delete(f"session:{token}")
+    response = RedirectResponse(url="/")
+    response.delete_cookie("session")
     return response
 
 

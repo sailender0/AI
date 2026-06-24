@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +17,13 @@ from sqlalchemy import select
 router = APIRouter()
 
 
+_VALID_SOURCES = {"github", "gitlab", "jira", "teams_subscription"}
+
+
 @router.get("/api/events/recent")
 async def get_recent_events(
     request: Request,
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=200),
     source: str = None,
     start_date: str = None,
     end_date: str = None,
@@ -29,6 +32,9 @@ async def get_recent_events(
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
+
+    if source and source not in _VALID_SOURCES:
+        return JSONResponse({"error": "invalid_source"}, status_code=400)
 
     q: dict = {"profile_id": profile_id}
     if source:

@@ -68,7 +68,7 @@ async def _process_notification(notification: dict):
     if sender_id == settings.BOT_SERVICE_PRINCIPAL_ID:
         return
 
-    event = normalize(message, source="teams", profile_id=profile_id)
+    event = normalize(message, source="teams_subscription", profile_id=profile_id)
     await ingest(event)
 
 
@@ -139,7 +139,7 @@ async def backfill_teams_delta(profile_id: str):
                 sender_id = (message.get("from") or {}).get("user", {}).get("id", "")
                 if sender_id == settings.BOT_SERVICE_PRINCIPAL_ID:
                     continue
-                event = normalize(message, source="teams", profile_id=profile_id)
+                event = normalize(message, source="teams_subscription", profile_id=profile_id)
                 await ingest(event)
 
             next_link = data.get("@odata.nextLink")

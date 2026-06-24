@@ -77,7 +77,7 @@ async def test_single_page_with_delta_link_ingests_messages():
 
     mock_ingest.assert_called_once()
     event = mock_ingest.call_args[0][0]
-    assert event["source"] == "teams"
+    assert event["source"] == "teams_subscription"
     assert event["profile_id"] == PROFILE
 
 

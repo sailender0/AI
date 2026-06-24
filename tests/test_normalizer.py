@@ -186,17 +186,17 @@ _TEAMS_MSG = {
 }
 
 def test_teams_event_type():
-    event = normalize(_TEAMS_MSG, source="teams", profile_id=PROFILE)
+    event = normalize(_TEAMS_MSG, source="teams_subscription", profile_id=PROFILE)
     assert event["event_type"] == "message_sent"
 
 
 def test_teams_title_from_body_content():
-    event = normalize(_TEAMS_MSG, source="teams", profile_id=PROFILE)
+    event = normalize(_TEAMS_MSG, source="teams_subscription", profile_id=PROFILE)
     assert event["title"] == "Pushed auth fix to main"
 
 
 def test_teams_source_event_id():
-    event = normalize(_TEAMS_MSG, source="teams", profile_id=PROFILE)
+    event = normalize(_TEAMS_MSG, source="teams_subscription", profile_id=PROFILE)
     assert event["source_event_id"] == "msg-001"
 
 

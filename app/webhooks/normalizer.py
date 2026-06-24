@@ -25,7 +25,7 @@ def sanitize(text: str) -> str:
 
 def _parse_ts(raw: dict, source: str) -> datetime:
     candidates = {
-        "teams":  lambda r: r.get("createdDateTime") or r.get("lastModifiedDateTime"),
+        "teams_subscription": lambda r: r.get("createdDateTime") or r.get("lastModifiedDateTime"),
         "github": lambda r: r.get("created_at") or r.get("updated_at"),
         "gitlab": lambda r: (r.get("_commit") or {}).get("timestamp")
                             or r.get("created_at") or r.get("updated_at"),
@@ -42,7 +42,7 @@ def _parse_ts(raw: dict, source: str) -> datetime:
 
 
 def _extract_title(source: str, raw: dict) -> str:
-    if source == "teams":
+    if source == "teams_subscription":
         body = raw.get("body", {})
         return body.get("content", "") if isinstance(body, dict) else str(body)
     if source == "github":
@@ -80,13 +80,13 @@ def _map_event_type(source: str, raw: dict, event_type: str | None) -> str:
         return raw.get("object_kind", "unknown")
     if source == "jira":
         return raw.get("webhookEvent", "unknown")
-    if source == "teams":
+    if source == "teams_subscription":
         return "message_sent"
     return "unknown"
 
 
 def _extract_native_id(source: str, raw: dict) -> str:
-    if source == "teams":
+    if source == "teams_subscription":
         return raw.get("id", "")
     if source == "github":
         return str(
@@ -144,29 +144,33 @@ def normalize(raw: dict, source: str, profile_id: str, event_type: str | None = 
     }
 
 
+def _dedup_key(event: dict) -> str:
+    return f"dedup:{event['profile_id']}:{event['source']}:{event['source_event_id']}:{event['event_type']}"
+
+
 async def is_duplicate(event: dict) -> bool:
-    key = f"dedup:{event['source']}:{event['source_event_id']}"
+    key = _dedup_key(event)
     redis = get_redis()
     if await redis.exists(key):
         return True
-    # Fallback to MongoDB
     exists = await activity_events().find_one(
         {
             "profile_id": event["profile_id"],
             "source": event["source"],
             "source_event_id": event["source_event_id"],
+            "event_type": event["event_type"],
         }
     )
     if exists:
         await redis.set(key, "1", ex=86400)
         return True
-    await redis.set(key, "1", ex=86400)
     return False
 
 
 async def ingest(event: dict):
     if not await is_duplicate(event):
         await activity_events().insert_one(event)
+        await get_redis().set(_dedup_key(event), "1", ex=86400)
         import asyncio
         from app.ws_manager import manager as _ws
         asyncio.create_task(_ws.notify(

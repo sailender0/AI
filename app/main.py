@@ -37,6 +37,7 @@ from app.webhooks.renewal import (
 )
 from app.ai.summarizer import run_summary_job, run_startup_catchup
 from app.middleware.rate_limit import limiter
+from app.middleware.request_id import RequestIDMiddleware
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
-    scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
+    scheduler.add_job(run_summary_job, "cron", hour=23, minute=59, args=["daily"], id="daily_summary")
     scheduler.add_job(run_summary_job, "cron", day_of_week="fri", hour=17, minute=0, args=["weekly"], id="weekly_summary")
 
     scheduler.start()
@@ -78,6 +79,7 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(RequestIDMiddleware)
 
 app.include_router(pages_router)
 app.include_router(profile_router)

@@ -51,19 +51,21 @@ def _scope_to_range(scope: str) -> dict:
 
 async def _gpt_parse_intent(question: str, client, today: str) -> dict:
     """Ask GPT to extract date_from, date_to, source, event_type from the question."""
-    prompt = (
+    system_prompt = (
         f"Today's date is {today} (UTC). "
-        "Extract the following from the user's question and return ONLY valid JSON — no explanation:\n"
+        "The user will provide a question. Extract the following fields and return ONLY valid JSON — no explanation:\n"
         '  "date_from": YYYY-MM-DD or null\n'
         '  "date_to":   YYYY-MM-DD or null  (null = up to now)\n'
         '  "source":    one of github, gitlab, jira, teams or null\n'
-        '  "event_type": one of commit, pr, issue, meeting, comment or null\n\n'
-        f'Question: "{question}"'
+        '  "event_type": one of commit, pr, issue, meeting, comment or null'
     )
     try:
         resp = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question},
+            ],
             max_tokens=80,
             temperature=0,
             response_format={"type": "json_object"},
