@@ -3,6 +3,7 @@ GitLab webhook receiver.
 Verified via X-Gitlab-Token header (shared secret).
 Push events create one activity entry per commit.
 """
+import hmac
 import logging
 
 import httpx
@@ -72,7 +73,7 @@ async def gitlab_webhook(
     background_tasks: BackgroundTasks,
     x_gitlab_token: str = Header(default=""),
 ):
-    if x_gitlab_token != settings.GITLAB_WEBHOOK_SECRET:
+    if not hmac.compare_digest(x_gitlab_token, settings.GITLAB_WEBHOOK_SECRET):
         return JSONResponse({"error": "invalid_token"}, status_code=401)
 
     body = await request.json()
@@ -85,8 +86,6 @@ async def disconnect_gitlab(request: Request):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
-    if isinstance(profile_id, bytes):
-        profile_id = profile_id.decode()
 
     async with AsyncSessionLocal() as db:
         await db.execute(delete(Integration).where(
@@ -108,8 +107,6 @@ async def reregister_gitlab_webhooks(request: Request):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return JSONResponse({"error": "not_authenticated"}, status_code=401)
-    if isinstance(profile_id, bytes):
-        profile_id = profile_id.decode()
 
     token = await get_valid_token(profile_id, "gitlab")
     if not token:

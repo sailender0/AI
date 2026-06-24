@@ -12,7 +12,10 @@ from sqlalchemy import select
 from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
-from app.storage.models import Integration
+from app.storage.models import Integration, TeamsIntegration
+# AsyncSessionLocal() is used intentionally here — registration functions are
+# called from background tasks and OAuth callbacks, not FastAPI request handlers,
+# so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 
 
@@ -58,7 +61,7 @@ async def auto_register_teams_subscription(profile_id: str):
         ).scalar_one_or_none()
 
         if not row:
-            row = Integration(profile_id=profile_id, source="teams_subscription")
+            row = TeamsIntegration(profile_id=profile_id)
             db.add(row)
 
         row.subscription_id = data["id"]

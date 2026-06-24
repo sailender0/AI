@@ -1,7 +1,9 @@
 """
 Jira webhook receiver.
-Verified via a shared secret passed as a query parameter.
+Verified via a shared secret passed as a query parameter (Jira's webhook API
+does not support custom delivery headers, so query param is the only option).
 """
+import hmac
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Request
@@ -63,7 +65,10 @@ async def jira_webhook(
     # Jira passes the secret as a query param or Authorization header
     auth = request.headers.get("Authorization", "")
     qs_secret = request.query_params.get("secret", "")
-    if qs_secret != settings.JIRA_WEBHOOK_SECRET and auth != f"Bearer {settings.JIRA_WEBHOOK_SECRET}":
+    secret = settings.JIRA_WEBHOOK_SECRET
+    qs_ok = hmac.compare_digest(qs_secret, secret)
+    auth_ok = hmac.compare_digest(auth, f"Bearer {secret}")
+    if not qs_ok and not auth_ok:
         return JSONResponse({"error": "invalid_secret"}, status_code=401)
 
     body = await request.json()

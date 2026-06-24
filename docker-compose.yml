@@ -8,7 +8,10 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "python scripts/migrate.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Single worker is intentional: APScheduler runs inside the process.
+    # For live reload during development, create docker-compose.override.yml
+    # (already gitignored) and add: command: sh -c "... --reload"
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,6 +19,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   postgres:

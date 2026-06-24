@@ -1,24 +1,29 @@
-"""
-FastAPI application entry point.
-Mounts all routers, starts APScheduler background jobs, and initialises storage.
-"""
+"""FastAPI application entry point."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.storage.mongodb import init_indexes
-from app.storage.postgres import init_db
+from app.storage.postgres import get_db
 from app.storage.redis_client import close_redis
 
-from app.auth.sso import router as sso_router
+from app.auth.sso import router as sso_router, get_profile_from_session
 from app.auth.oauth import router as oauth_router
 from app.auth.github_app import router as github_app_router
-from app.routes.dashboard import router as dashboard_router
+from app.routes.pages import router as pages_router
+from app.routes.profile import router as profile_router
+from app.routes.activity import router as activity_router
+from app.routes.stats import router as stats_router
+from app.routes.summaries import router as summaries_router
+from app.routes.exports import router as exports_router
 from app.webhooks.receivers.teams import router as teams_router
 from app.webhooks.receivers.github import router as github_router
 from app.webhooks.receivers.gitlab import router as gitlab_router
@@ -41,26 +46,24 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
     await init_indexes()
 
-    # Teams: every 45 minutes
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
-    # Jira: every 20 days
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
-    # GitHub: health check every 6 hours
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
-    # Daily summary: fires every hour at :59; summarizer skips users not yet at local 23:xx
     scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
-    # Weekly summary: 5 PM every Friday
     scheduler.add_job(run_summary_job, "cron", day_of_week="fri", hour=17, minute=0, args=["weekly"], id="weekly_summary")
 
     scheduler.start()
     logger.info("Scheduler started")
 
-    # Generate any daily/weekly summaries missed while the app was offline
-    import asyncio
-    asyncio.create_task(run_startup_catchup())
+    _catchup_task = asyncio.create_task(run_startup_catchup())
+
+    def _log_catchup_error(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("run_startup_catchup failed: %s", t.exception(), exc_info=t.exception())
+
+    _catchup_task.add_done_callback(_log_catchup_error)
 
     yield
 
@@ -76,7 +79,12 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.include_router(dashboard_router)
+app.include_router(pages_router)
+app.include_router(profile_router)
+app.include_router(activity_router)
+app.include_router(stats_router)
+app.include_router(summaries_router)
+app.include_router(exports_router)
 app.include_router(sso_router)
 app.include_router(oauth_router)
 app.include_router(github_app_router)
@@ -93,13 +101,10 @@ async def health():
 
 
 @app.post("/setup/github-app")
-async def setup_github_app(request: Request):
+async def setup_github_app(request: Request, db: AsyncSession = Depends(get_db)):
     """One-time: maps your GitHub App installation ID to your logged-in profile."""
-    from app.auth.sso import get_profile_from_session
     from app.config import settings
     from app.storage.models import LinkedIdentity
-    from app.storage.postgres import AsyncSessionLocal
-    from sqlalchemy import select
 
     profile_id = await get_profile_from_session(request)
     if not profile_id:
@@ -108,31 +113,36 @@ async def setup_github_app(request: Request):
     if not settings.GITHUB_APP_INSTALLATION_ID:
         return JSONResponse({"error": "GITHUB_APP_INSTALLATION_ID not set in .env"}, status_code=400)
 
-    async with AsyncSessionLocal() as db:
-        existing = (
-            await db.execute(
-                select(LinkedIdentity).where(
-                    LinkedIdentity.profile_id == profile_id,
-                    LinkedIdentity.provider == "github",
-                )
-            )
-        ).scalar_one_or_none()
+    conflict = (await db.execute(
+        select(LinkedIdentity).where(
+            LinkedIdentity.provider == "github",
+            LinkedIdentity.tenant_id == settings.GITHUB_APP_INSTALLATION_ID,
+            LinkedIdentity.profile_id != profile_id,
+        )
+    )).scalar_one_or_none()
+    if conflict:
+        return JSONResponse({"error": "installation_already_claimed"}, status_code=409)
 
-        if existing:
-            existing.tenant_id = settings.GITHUB_APP_INSTALLATION_ID
-        else:
-            db.add(LinkedIdentity(
-                profile_id=profile_id,
-                provider="github",
-                tenant_id=settings.GITHUB_APP_INSTALLATION_ID,
-                workspace_label=settings.GITHUB_ORG,
-            ))
-        await db.commit()
+    existing = (await db.execute(
+        select(LinkedIdentity).where(
+            LinkedIdentity.profile_id == profile_id,
+            LinkedIdentity.provider == "github",
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.tenant_id = settings.GITHUB_APP_INSTALLATION_ID
+    else:
+        db.add(LinkedIdentity(
+            profile_id=profile_id,
+            provider="github",
+            tenant_id=settings.GITHUB_APP_INSTALLATION_ID,
+            workspace_label=settings.GITHUB_ORG,
+        ))
+    await db.commit()
 
     return JSONResponse({
         "status": "ok",
         "installation_id": settings.GITHUB_APP_INSTALLATION_ID,
         "profile_id": profile_id,
     })
-
-

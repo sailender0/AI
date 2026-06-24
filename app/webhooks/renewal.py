@@ -13,7 +13,9 @@ from sqlalchemy import select
 from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
-from app.storage.models import Integration
+from app.storage.models import GitHubIntegration, Integration, JiraIntegration, TeamsIntegration
+# AsyncSessionLocal() is used intentionally here — renewal jobs are APScheduler
+# background tasks, not FastAPI requests, so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.registration import auto_register_teams_subscription, auto_register_webhook
 
@@ -26,14 +28,14 @@ async def renew_teams_subscriptions():
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                select(Integration).where(
-                    Integration.source == "teams_subscription",
-                    Integration.subscription_expires_at < threshold,
-                    Integration.sync_status == "active",
+                select(TeamsIntegration).where(
+                    TeamsIntegration.subscription_expires_at < threshold,
+                    TeamsIntegration.sync_status == "active",
                 )
             )
         ).scalars().all()
 
+    logger.info("Teams renewal: %d subscription(s) expiring within 15 min", len(rows))
     for row in rows:
         profile_id = str(row.profile_id)
         token = await acquire_delegated_token(profile_id)
@@ -41,6 +43,8 @@ async def renew_teams_subscriptions():
             continue
         try:
             new_expiry = (datetime.now(timezone.utc) + timedelta(minutes=55)).isoformat()
+            # First session closes before the HTTP call so no connection is held
+            # during network I/O. A second session handles the write after.
             async with httpx.AsyncClient() as client:
                 resp = await client.patch(
                     f"https://graph.microsoft.com/v1.0/subscriptions/{row.subscription_id}",
@@ -66,14 +70,14 @@ async def renew_jira_webhooks():
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                select(Integration).where(
-                    Integration.source == "jira",
-                    Integration.jira_webhook_expires_at < threshold,
-                    Integration.sync_status == "active",
+                select(JiraIntegration).where(
+                    JiraIntegration.jira_webhook_expires_at < threshold,
+                    JiraIntegration.sync_status == "active",
                 )
             )
         ).scalars().all()
 
+    logger.info("Jira renewal: %d webhook(s) expiring within 12 days", len(rows))
     if not rows:
         return
 
@@ -114,13 +118,13 @@ async def check_github_webhook_health():
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                select(Integration).where(
-                    Integration.source == "github",
-                    Integration.sync_status == "active",
+                select(GitHubIntegration).where(
+                    GitHubIntegration.sync_status == "active",
                 )
             )
         ).scalars().all()
 
+    logger.info("GitHub health check: %d active integration(s) to verify", len(rows))
     for row in rows:
         profile_id = str(row.profile_id)
         token = await get_valid_token(profile_id, "github")

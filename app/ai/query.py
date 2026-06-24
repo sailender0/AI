@@ -23,6 +23,8 @@ from app.webhooks.normalizer import _INJECTION_PATTERNS
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_MAX_HISTORY_MSGS = 20  # cap conversation context to prevent unbounded token growth
+
 
 class QueryRequest(BaseModel):
     question: str
@@ -269,6 +271,9 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
         return JSONResponse({"error": "question_required"}, status_code=400)
     question = _sanitize_question(raw_question)
 
+    client = _openai_client()
+    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     async with AsyncSessionLocal() as db:
         conv = (await db.execute(
             select(ChatConversation)
@@ -298,9 +303,7 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
         conv.updated_at = datetime.now(timezone.utc)
 
         # Fetch activity data for latest question
-        client2  = _openai_client()
-        today    = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        parsed   = await _gpt_parse_intent(question, client2, today)
+        parsed = await _gpt_parse_intent(question, client, today)
         mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
         if parsed.get("source"):
             mongo_filter["source"] = parsed["source"]
@@ -318,12 +321,13 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
             f"ACTIVITY DATA:\n{activity_text}"
         )
 
+        # Cap history to prevent unbounded token growth
+        recent_history = list(history)[-_MAX_HISTORY_MSGS:]
         openai_messages = [{"role": "system", "content": system_content}]
-        for m in history:
+        for m in recent_history:
             openai_messages.append({"role": m.role, "content": m.content})
         openai_messages.append({"role": "user", "content": question})
 
-        client = _openai_client()
         try:
             response = await client.chat.completions.create(
                 model=settings.AZURE_OPENAI_DEPLOYMENT,
@@ -417,8 +421,9 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         "Do not invent anything not in the data.\n\n"
         f"ACTIVITY DATA:\n{activity_text}"
     )
+    recent_history = list(history)[-_MAX_HISTORY_MSGS:]
     openai_messages = [{"role": "system", "content": system_content}]
-    for m in history:
+    for m in recent_history:
         openai_messages.append({"role": m.role, "content": m.content})
     openai_messages.append({"role": "user", "content": question})
 

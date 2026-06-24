@@ -1,6 +1,6 @@
 # Developer Activity Tracker — Project Overview
 
-**Last updated:** June 22, 2026  
+**Last updated:** June 23, 2026  
 **Status:** Active development  
 **Author:** Sailender Reddy Lanka
 
@@ -88,11 +88,15 @@ GitLab commit / MR
 | Table | Purpose |
 |---|---|
 | `profiles` | User accounts (linked to Microsoft identity) |
-| `connectors` | Per-user connector status (token, active, expires_at) |
+| `integrations` | Per-user connector tokens, webhook IDs, sync status. Single-table inheritance — `source` column is the polymorphic discriminator. Subclasses: `TeamsIntegration`, `GitHubIntegration`, `GitLabIntegration`, `JiraIntegration`. |
+| `linked_identities` | Maps provider account IDs (e.g. Jira account_id, GitHub org) to a profile |
 | `summaries` | AI-generated daily / weekly summary text |
 | `query_logs` | Every Ask AI question + filters used + answer |
 | `chat_conversations` | Multi-turn conversation sessions |
 | `chat_messages` | Individual messages within a conversation |
+| `alembic_version` | Alembic migration head tracking (managed automatically) |
+
+**Schema management:** Alembic (`alembic/`) handles all schema migrations. `scripts/migrate.py` runs on container startup — detects fresh DB (runs `create_all` + stamps head) vs existing DB (runs `alembic upgrade head`). Never run `create_all` manually.
 
 ### Real-Time Updates (`ws_manager.py`)
 
@@ -276,27 +280,45 @@ Same layout. Tabs: Messages / Meetings. Purple colour. Only shows activity you g
 ## 7. File Structure (Key Files)
 
 ```
+alembic/                       — Alembic migration environment
+├── env.py                     — Async migration runner (asyncpg); imports all models for autogenerate
+├── script.py.mako             — Migration file template
+└── versions/                  — Generated migration files
+scripts/
+└── migrate.py                 — Container startup script: detects DB state, runs create_all or upgrade head
 app/
-├── main.py                    — FastAPI app, lifespan, router includes, rate-limit wiring
+├── main.py                    — FastAPI app, lifespan, scheduler wiring, /health, /setup/github-app
 ├── config.py                  — Settings (env vars, Azure endpoints)
 ├── middleware/
 │   └── rate_limit.py          — slowapi Limiter (200 req/min per IP, shared across all webhook routes)
 ├── routes/
-│   ├── dashboard.py           — All page routes + /api/me (integrations + integration_errors) + /api/summaries/generate
-│   └── ...
+│   ├── pages.py               — HTML page routes + WebSocket (/ws) — 10 routes, no DB dependency
+│   ├── profile.py             — /api/me, /api/profile/timezone
+│   ├── activity.py            — /api/events/recent, /api/stats, /api/week-stats, /api/day-data, /api/week-breakdown, /api/analytics/trend
+│   ├── stats.py               — /api/github/stats, /api/jira/stats, /api/teams/stats, /api/gitlab/stats
+│   ├── summaries.py           — GET/DELETE /api/summaries, POST /api/summaries/generate
+│   └── exports.py             — /api/export/daily-pdf, /api/export/weekly-pdf
+├── services/
+│   └── activity_query.py      — Shared async query helpers used across route modules:
+│                                 get_profile_tz(), week_bounds(), pct(), count(),
+│                                 daily_counts(), top_items(), workspace_breakdown(), get_integrations()
 ├── ai/
 │   ├── summarizer.py          — _summarise_profile(), daily/weekly logic, run_startup_catchup()
 │   └── query.py               — Ask AI endpoints, _gpt_parse_intent(), chat conversations, /ask/stream SSE
 ├── auth/
 │   ├── sso.py                 — Microsoft SSO, get_profile_from_session()
-│   └── oauth.py               — OAuth callbacks; detects empty token → redirect with ?error=
+│   ├── oauth.py               — OAuth callbacks; _INTEGRATION_CLASSES factory for typed instantiation
+│   └── github_app.py          — GitHub App setup
 ├── storage/
 │   ├── mongodb.py             — activity_events() collection accessor
-│   ├── postgres.py            — AsyncSessionLocal, engine
-│   └── models.py              — SQLAlchemy models (Profile, Integration, Summary, QueryLog, Chat*)
+│   ├── postgres.py            — engine, AsyncSessionLocal, get_db() FastAPI dependency (one session/request)
+│   └── models.py              — SQLAlchemy models: Profile, Integration (STI base) + TeamsIntegration /
+│                                 GitHubIntegration / GitLabIntegration / JiraIntegration subclasses,
+│                                 LinkedIdentity, Summary, QueryLog, ChatConversation, ChatMessage
 ├── webhooks/
 │   ├── normalizer.py          — Strips PII, maps raw webhook payloads to standard shape
 │   ├── registration.py        — auto_register_webhook(); sets sync_status=error on failure
+│   ├── renewal.py             — APScheduler background jobs: renew Teams subscriptions, Jira webhooks, GitHub health
 │   └── receivers/             — Per-connector webhook receivers (all rate-limited)
 ├── ws_manager.py              — WebSocket ConnectionManager, broadcast()
 └── templates/
@@ -337,7 +359,11 @@ app/
 
 ## 9. Recent Changes
 
-1. **GitLab — full event type support** — Now captures and displays all 6 event types: commits, merge requests, issues, comments (notes), pipelines, tag pushes. Six KPI cards (3×2 grid), 5 chart tabs, per-type colour coding throughout. Disconnect + Sync Webhooks buttons in connected header.
+1. **Alembic migrations** — Schema changes are now managed via Alembic (`alembic/env.py` with async SQLAlchemy). `scripts/migrate.py` runs on container startup: fresh DB → `create_all` + `alembic stamp head`; existing DB → `alembic upgrade head`. Docker Compose `command` updated to run the script before starting uvicorn. Never use `create_all` directly for schema changes — write an Alembic migration instead.
+2. **Single DB session per request** — Eliminated `AsyncSessionLocal()` calls inside FastAPI route handlers. All routes now receive `db: AsyncSession = Depends(get_db)` and pass it down the call stack. `get_db()` in `postgres.py` yields one session per request and closes it cleanly. `AsyncSessionLocal()` is still used in background/scheduler code (`renewal.py`, `registration.py`, `oauth.py`) where FastAPI DI is not available — this is correct.
+3. **Dashboard god file split** — `routes/dashboard.py` (~600 lines) deleted. Routes reorganised by domain into 6 files: `pages.py` (HTML + WebSocket), `profile.py` (user identity), `activity.py` (timeline/stats), `stats.py` (per-connector KPIs), `summaries.py` (AI summaries), `exports.py` (PDF). Shared query logic extracted to `services/activity_query.py`.
+4. **Integration model — single-table inheritance** — `Integration` now has `__mapper_args__ = {"polymorphic_on": "source"}`. Four subclasses added: `TeamsIntegration`, `GitHubIntegration`, `GitLabIntegration`, `JiraIntegration` — each with a `polymorphic_identity` matching the `source` value. No DB schema change. `renewal.py` queries now use typed selects (`select(TeamsIntegration)` auto-filters to `source='teams_subscription'`). `oauth.py` uses `_INTEGRATION_CLASSES[app](profile_id=...)` factory instead of `Integration(source=app)`. `registration.py` creates `TeamsIntegration(profile_id=...)` directly.
+5. **GitLab — full event type support** — Now captures and displays all 6 event types: commits, merge requests, issues, comments (notes), pipelines, tag pushes. Six KPI cards (3×2 grid), 5 chart tabs, per-type colour coding throughout. Disconnect + Sync Webhooks buttons in connected header.
 2. **GitLab — duplicate webhook prevention** — `GET /projects/{id}/hooks` called before `POST`; skips registration if URL already present. Safe to call Sync Webhooks repeatedly.
 3. **Startup catch-up for missed summaries** — `run_startup_catchup()` fires on every boot via `asyncio.create_task`. Checks PostgreSQL for yesterday's daily and last week's weekly summary per profile; generates any that are missing.
 4. **Ask AI streaming** — New `POST /api/chat/conversations/{id}/ask/stream` endpoint returns `text/event-stream`. Azure OpenAI called with `stream=True`. User message saved before streaming; AI message saved after. Frontend uses `ReadableStream` to render tokens as they arrive; typing dots shown until first token.
@@ -363,4 +389,5 @@ app/
 - [ ] Redis session fallback (cookie-based fallback if Redis is unavailable)
 - [ ] Integration tests for the connector pipelines (especially normalizer + period bounds)
 - [ ] Multi-user isolation smoke test before onboarding second user
-- [ ] Export activity to CSV / PDF for performance review use
+- [x] Export activity to CSV / PDF for performance review use — PDF export done (`/api/export/daily-pdf`, `/api/export/weekly-pdf`)
+- [ ] Export to CSV

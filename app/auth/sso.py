@@ -140,4 +140,7 @@ async def get_profile_from_session(request: Request) -> str | None:
     if not token:
         return None
     redis = get_redis()
-    return await redis.get(f"session:{token}")
+    val = await redis.get(f"session:{token}")
+    if val is None:
+        return None
+    return val.decode() if isinstance(val, bytes) else val

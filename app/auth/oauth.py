@@ -13,11 +13,21 @@ from sqlalchemy import select
 from app.auth.sso import get_profile_from_session
 from app.auth.token_store import decrypt_token, encrypt_token
 from app.config import settings
-from app.storage.models import Integration
+from app.storage.models import GitHubIntegration, GitLabIntegration, Integration, JiraIntegration
+# AsyncSessionLocal() is used intentionally here — oauth_callback and
+# get_valid_token are called from request handlers and background tasks that
+# manage their own session lifetime. Depends(get_db) is not available outside
+# FastAPI's dependency injection chain.
 from app.storage.postgres import AsyncSessionLocal
 from app.storage.redis_client import get_redis
 
 router = APIRouter()
+
+_INTEGRATION_CLASSES = {
+    "github": GitHubIntegration,
+    "gitlab": GitLabIntegration,
+    "jira":   JiraIntegration,
+}
 
 _OAUTH_CONFIGS = {
     "github": {
@@ -119,11 +129,11 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
         ).scalar_one_or_none()
 
         if not row:
-            row = Integration(profile_id=profile_id, source=app)
+            row = _INTEGRATION_CLASSES[app](profile_id=profile_id)
             db.add(row)
 
-        row.access_token_enc = encrypt_token(access_token)
-        row.refresh_token_enc = encrypt_token(refresh_token) if refresh_token else None
+        row.access_token_enc = await encrypt_token(access_token)
+        row.refresh_token_enc = await encrypt_token(refresh_token) if refresh_token else None
         row.token_expires_at = expires_at
         row.sync_status = "active"
         await db.commit()
@@ -192,10 +202,10 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
 
         if needs_refresh and row.refresh_token_enc:
             try:
-                new_tokens = await _refresh_token(source, decrypt_token(row.refresh_token_enc))
-                row.access_token_enc = encrypt_token(new_tokens["access_token"])
+                new_tokens = await _refresh_token(source, await decrypt_token(row.refresh_token_enc))
+                row.access_token_enc = await encrypt_token(new_tokens["access_token"])
                 if new_tokens.get("refresh_token"):
-                    row.refresh_token_enc = encrypt_token(new_tokens["refresh_token"])
+                    row.refresh_token_enc = await encrypt_token(new_tokens["refresh_token"])
                 row.token_expires_at = datetime.now(timezone.utc) + timedelta(
                     seconds=new_tokens.get("expires_in", 3600)
                 )
@@ -205,7 +215,7 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
                 await db.commit()
                 return None
 
-        return decrypt_token(row.access_token_enc) if row.access_token_enc else None
+        return await decrypt_token(row.access_token_enc) if row.access_token_enc else None
 
 
 async def _refresh_token(source: str, refresh_token: str) -> dict:

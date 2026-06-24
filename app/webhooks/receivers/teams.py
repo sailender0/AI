@@ -35,9 +35,25 @@ async def _fetch_message(resource: str, token: str) -> dict | None:
 
 
 async def _process_notification(notification: dict):
+    # Security model: Microsoft Graph delivers change notifications to our
+    # registered webhook URL. The `clientState` we set when creating the
+    # subscription (profile_id) is echoed back by Graph on every notification.
+    # We validate it by:
+    #   1. Checking it is a well-formed UUID (fast-fail forgeries).
+    #   2. Calling acquire_delegated_token — which only succeeds if a stored
+    #      token exists for that profile. Unknown/guessed UUIDs return None.
+    # Full HMAC validation requires setting a `clientSecret` on the Graph
+    # subscription at registration time and verifying X-Teams-Hook-Signature.
+    import uuid as _uuid
+
     profile_id = notification.get("clientState", "")
     resource = notification.get("resource", "")
     if not profile_id or not resource:
+        return
+    try:
+        _uuid.UUID(str(profile_id))
+    except ValueError:
+        logger.warning("Teams notification has non-UUID clientState — discarding")
         return
 
     token = await acquire_delegated_token(profile_id)

@@ -4,6 +4,7 @@ Events are fetched from MongoDB, truncated if over budget, sent to Azure OpenAI.
 """
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from openai import AsyncAzureOpenAI
 from sqlalchemy import select
@@ -26,17 +27,22 @@ _PRIORITY = {
 }
 
 
+_client: AsyncAzureOpenAI | None = None
+
+
 def _openai_client() -> AsyncAzureOpenAI:
-    return AsyncAzureOpenAI(
-        azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-        api_key=settings.AZURE_OPENAI_KEY,
-        api_version="2024-08-01-preview",
-    )
+    global _client
+    if _client is None:
+        _client = AsyncAzureOpenAI(
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+            api_key=settings.AZURE_OPENAI_KEY,
+            api_version="2024-08-01-preview",
+            max_retries=3,
+        )
+    return _client
 
 
 def _period_bounds(tz_name: str, period_type: str, full_day: bool = False) -> tuple[datetime, datetime]:
-    from zoneinfo import ZoneInfo
-
     tz = ZoneInfo(tz_name or "UTC")
     now = datetime.now(tz)
     if period_type == "daily":
@@ -102,8 +108,6 @@ async def _get_failed_sources(profile_id: str) -> list[str]:
 
 async def run_summary_job(period_type: str):
     """Entry point called by APScheduler (fires every hour at :59)."""
-    from zoneinfo import ZoneInfo
-
     async with AsyncSessionLocal() as db:
         profiles = (await db.execute(select(Profile))).scalars().all()
 
@@ -132,10 +136,8 @@ async def _summarise_profile(
     if period_start_utc and period_end_utc:
         period_start, period_end = period_start_utc, period_end_utc
     elif specific_date and period_type == "daily":
-        from zoneinfo import ZoneInfo
-        from datetime import datetime as _dt
         tz = ZoneInfo(profile.timezone or "UTC")
-        sd = _dt.strptime(specific_date, "%Y-%m-%d").replace(tzinfo=tz)
+        sd = datetime.strptime(specific_date, "%Y-%m-%d").replace(tzinfo=tz)
         period_start = sd.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
         period_end   = (sd + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     else:
@@ -234,8 +236,6 @@ async def run_startup_catchup():
     Weekly: generates last week's summary if the Friday 17:00 trigger window
             has already passed but no summary was saved for that week.
     """
-    from zoneinfo import ZoneInfo
-
     async with AsyncSessionLocal() as db:
         profiles = (await db.execute(select(Profile))).scalars().all()
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, DateTime, Text, ForeignKey, JSON
+    Column, Index, String, DateTime, Text, ForeignKey, JSON, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -44,17 +44,25 @@ class LinkedIdentity(Base):
 
     profile = relationship("Profile", back_populates="linked_identities")
 
+    __table_args__ = (
+        UniqueConstraint("profile_id", "provider", "workspace_label", name="uq_linked_identity_profile_provider_workspace"),
+    )
+
 
 class Integration(Base):
     __tablename__ = "integrations"
+    __mapper_args__ = {
+        "polymorphic_on": "source",
+        "polymorphic_identity": None,
+    }
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
-    source = Column(String, nullable=False)            # teams_subscription | github | gitlab | jira
+    source = Column(String, nullable=False)
     access_token_enc = Column(Text)
     refresh_token_enc = Column(Text)
     token_expires_at = Column(DateTime(timezone=True))
-    sync_status = Column(String, default="active")     # active | error
+    sync_status = Column(String, default="active")
     last_synced_at = Column(DateTime(timezone=True))
     workspace = Column(String)
 
@@ -71,6 +79,27 @@ class Integration(Base):
 
     profile = relationship("Profile", back_populates="integrations")
 
+    __table_args__ = (
+        Index("ix_integrations_source_sub_expires", "source", "subscription_expires_at"),
+        Index("ix_integrations_source_jira_expires", "source", "jira_webhook_expires_at"),
+    )
+
+
+class TeamsIntegration(Integration):
+    __mapper_args__ = {"polymorphic_identity": "teams_subscription"}
+
+
+class GitHubIntegration(Integration):
+    __mapper_args__ = {"polymorphic_identity": "github"}
+
+
+class GitLabIntegration(Integration):
+    __mapper_args__ = {"polymorphic_identity": "gitlab"}
+
+
+class JiraIntegration(Integration):
+    __mapper_args__ = {"polymorphic_identity": "jira"}
+
 
 class Summary(Base):
     __tablename__ = "summaries"
@@ -81,7 +110,6 @@ class Summary(Base):
     period_start = Column(DateTime(timezone=True), nullable=False)
     period_end = Column(DateTime(timezone=True), nullable=False)
     content = Column(Text, nullable=False)
-    workspace = Column(String)
     delivered_at = Column(DateTime(timezone=True))
 
     profile = relationship("Profile", back_populates="summaries")
@@ -108,7 +136,7 @@ class ChatConversation(Base):
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
     title = Column(String(200), nullable=False, default="New chat")
     created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     profile = relationship("Profile", back_populates="chat_conversations")
     messages = relationship(

@@ -1,7 +1,9 @@
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", extra="ignore")
     APP_BASE_URL: str = "http://localhost:8000"
     WEBHOOK_BASE_URL: str = ""   # ngrok/public URL for webhook registration; falls back to APP_BASE_URL
     SECRET_KEY: str = "change-me"
@@ -50,9 +52,6 @@ class Settings(BaseSettings):
     MONGODB_DB: str = "activity_tracker"
     REDIS_URL: str = "redis://localhost:6379"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
 
 
 settings = Settings()
