@@ -4,7 +4,6 @@
 
 {% block content %}
 {% if not is_desktop %}
-<!-- Web fallback — desktop app required -->
 <div class="flex flex-col items-center justify-center h-full min-h-64 text-center gap-4">
   <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mb-2"
        style="background:var(--surface-2);border:1px solid var(--border)">💻</div>
@@ -20,8 +19,7 @@
 </div>
 
 {% else %}
-<!-- Desktop view — full activity page -->
-<div x-data="activityApp()" x-init="init()" class="space-y-6">
+<div x-data="activityApp()" x-init="init()" class="space-y-5">
 
   <!-- Status bar -->
   <div class="flex items-center gap-3 text-xs" style="color:var(--text-3)">
@@ -39,109 +37,179 @@
     <span class="ml-auto" x-text="lastUpdated"></span>
   </div>
 
-  <!-- Hero stats -->
-  <div class="grid grid-cols-3 gap-4">
-    <!-- Focus time -->
-    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
-      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatMinutes(totalFocusMin)">—</p>
-      <p class="text-xs mt-1" style="color:var(--text-3)" x-text="focusBlocks.length + ' deep work block' + (focusBlocks.length !== 1 ? 's' : '')"></p>
-    </div>
-    <!-- AI usage -->
-    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">AI USAGE</p>
-      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(totalTokens)">—</p>
-      <p class="text-xs mt-1" style="color:var(--text-3)" x-text="activeTools.length ? activeTools.join(', ') : 'No AI tools detected'"></p>
-    </div>
-    <!-- Local commits -->
-    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">LOCAL COMMITS</p>
-      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="commits.length">—</p>
-      <p class="text-xs mt-1" style="color:var(--text-3)">not yet pushed</p>
-    </div>
+  <!-- Tab switcher -->
+  <div class="flex gap-1 p-1 rounded-lg w-fit" style="background:var(--surface-2)">
+    <button @click="tab='today'"
+            class="px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
+            :style="tab==='today' ? 'background:var(--surface);color:var(--text-1)' : 'color:var(--text-3)'">
+      Today
+    </button>
+    <button @click="tab='week'; loadWeek()"
+            class="px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
+            :style="tab==='week' ? 'background:var(--surface);color:var(--text-1)' : 'color:var(--text-3)'">
+      This Week
+    </button>
   </div>
 
-  <div class="grid grid-cols-2 gap-4">
+  <!-- ── TODAY ── -->
+  <div x-show="tab==='today'" class="space-y-5">
 
-    <!-- Focus blocks timeline -->
-    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-      <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">FOCUS BLOCKS</p>
-      <div x-show="focusBlocks.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
-        No focus sessions recorded yet today
+    <!-- Hero stats -->
+    <div class="grid grid-cols-3 gap-4">
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatMinutes(totalFocusMin)">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)"
+           x-text="focusBlocks.length + ' deep work block' + (focusBlocks.length !== 1 ? 's' : '')"></p>
       </div>
-      <div class="space-y-2">
-        <template x-for="block in focusBlocks" :key="block.start">
-          <div class="flex items-center gap-3">
-            <div class="text-xs w-10 text-right flex-shrink-0" style="color:var(--text-3)"
-                 x-text="formatTime(block.start)"></div>
-            <div class="flex-1 h-6 rounded-md relative overflow-hidden" style="background:var(--surface-2)">
-              <div class="h-full rounded-md" style="background:#6366f1;opacity:0.8"
-                   :style="'width:' + Math.min(100, block.duration_min / 120 * 100) + '%'"></div>
-            </div>
-            <div class="text-xs w-14 flex-shrink-0" style="color:var(--text-2)"
-                 x-text="block.duration_min + ' min'"></div>
-          </div>
-        </template>
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">AI USAGE</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(totalTokens)">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)"
+           x-text="activeTools.length ? activeTools.join(', ') : 'No AI tools detected'"></p>
       </div>
-    </div>
-
-    <!-- Local commits -->
-    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-      <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">LOCAL COMMITS</p>
-      <div x-show="commits.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
-        No local commits today
-      </div>
-      <div class="space-y-3">
-        <template x-for="c in commits" :key="c.sha">
-          <div class="flex gap-3 items-start">
-            <span class="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
-                  style="background:var(--surface-2);color:var(--text-3)" x-text="c.sha"></span>
-            <div class="min-w-0">
-              <p class="text-sm truncate" style="color:var(--text-1)" x-text="c.message"></p>
-              <p class="text-xs mt-0.5" style="color:var(--text-3)">
-                <span x-text="c.branch"></span>
-                <span x-show="c.insertions || c.deletions">
-                  · <span style="color:#22c55e" x-text="'+' + c.insertions"></span>
-                  <span style="color:#ef4444" x-text="' -' + c.deletions"></span>
-                </span>
-              </p>
-            </div>
-            <span class="text-xs ml-auto flex-shrink-0" style="color:var(--text-3)"
-                  x-text="formatTime(c.timestamp)"></span>
-          </div>
-        </template>
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">LOCAL COMMITS</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="commits.length">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)">not yet pushed</p>
       </div>
     </div>
 
-  </div>
+    <div class="grid grid-cols-2 gap-4">
 
-  <!-- AI tools today -->
-  <div x-show="aiToolRows.length > 0"
-       class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-    <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">AI TOOLS TODAY</p>
-    <div class="grid gap-3">
-      <template x-for="t in aiToolRows" :key="t.name">
-        <div class="flex items-center gap-3">
-          <span class="w-4 h-4 rounded-full flex-shrink-0" :style="'background:' + t.color"></span>
-          <span class="text-sm flex-1" style="color:var(--text-1)" x-text="t.name"></span>
-          <template x-if="t.models && t.models.length">
-            <div class="flex flex-col items-end gap-1">
-              <template x-for="m in t.models" :key="m.model">
-                <div class="flex gap-3 text-xs" style="color:var(--text-3)">
-                  <span x-text="m.model"></span>
-                  <span><span style="color:var(--text-2)">↑</span> <span x-text="formatTokens(m.input_tokens)"></span></span>
-                  <span><span style="color:var(--text-2)">↓</span> <span x-text="formatTokens(m.output_tokens)"></span></span>
-                  <span x-text="m.messages + ' msgs'"></span>
-                </div>
-              </template>
+      <!-- Focus blocks timeline -->
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">FOCUS BLOCKS</p>
+        <div x-show="focusBlocks.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
+          No focus sessions recorded yet today
+        </div>
+        <div class="space-y-2">
+          <template x-for="block in focusBlocks" :key="block.start">
+            <div class="flex items-center gap-3">
+              <div class="text-xs w-10 text-right flex-shrink-0" style="color:var(--text-3)"
+                   x-text="formatTime(block.start)"></div>
+              <div class="flex-1 h-6 rounded-md relative overflow-hidden" style="background:var(--surface-2)">
+                <div class="h-full rounded-md" style="background:#6366f1;opacity:0.8"
+                     :style="'width:' + Math.min(100, block.duration_min / 120 * 100) + '%'"></div>
+              </div>
+              <div class="text-xs w-14 flex-shrink-0" style="color:var(--text-2)"
+                   x-text="block.duration_min + ' min'"></div>
             </div>
-          </template>
-          <template x-if="!t.models || !t.models.length">
-            <span class="text-xs" style="color:var(--text-3)">active · no token data</span>
           </template>
         </div>
-      </template>
+      </div>
+
+      <!-- Local commits -->
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">LOCAL COMMITS</p>
+        <div x-show="commits.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
+          No local commits today
+        </div>
+        <div class="space-y-3">
+          <template x-for="c in commits" :key="c.sha">
+            <div class="flex gap-3 items-start">
+              <span class="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
+                    style="background:var(--surface-2);color:var(--text-3)" x-text="c.sha"></span>
+              <div class="min-w-0">
+                <p class="text-sm truncate" style="color:var(--text-1)" x-text="c.message"></p>
+                <p class="text-xs mt-0.5" style="color:var(--text-3)">
+                  <span x-text="c.branch"></span>
+                  <span x-show="c.insertions || c.deletions">
+                    · <span style="color:#22c55e" x-text="'+' + c.insertions"></span>
+                    <span style="color:#ef4444" x-text="' -' + c.deletions"></span>
+                  </span>
+                </p>
+              </div>
+              <span class="text-xs ml-auto flex-shrink-0" style="color:var(--text-3)"
+                    x-text="formatTime(c.timestamp)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
     </div>
+
+    <!-- AI tools today -->
+    <div x-show="aiToolRows.length > 0"
+         class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">AI TOOLS TODAY</p>
+      <div class="grid gap-4">
+        <template x-for="t in aiToolRows" :key="t.name">
+          <div class="space-y-2">
+            <div class="flex items-center gap-3">
+              <span class="w-3 h-3 rounded-full flex-shrink-0" :style="'background:' + t.color"></span>
+              <span class="text-sm font-medium" style="color:var(--text-1)" x-text="t.name"></span>
+              <span class="text-xs ml-auto" style="color:var(--text-3)"
+                    x-text="t.active_min ? formatMinutes(t.active_min) + ' active' : ''"></span>
+            </div>
+            <!-- Claude: per-model token rows -->
+            <template x-if="t.models && t.models.length">
+              <div class="ml-6 space-y-1">
+                <template x-for="m in t.models" :key="m.model">
+                  <div class="flex gap-4 text-xs" style="color:var(--text-3)">
+                    <span class="font-mono" x-text="m.model"></span>
+                    <span><span style="color:var(--text-2)">↑</span> <span x-text="formatTokens(m.input_tokens)"></span> in</span>
+                    <span><span style="color:var(--text-2)">↓</span> <span x-text="formatTokens(m.output_tokens)"></span> out</span>
+                    <span x-text="m.messages + ' msgs'"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <!-- Others: active time bar -->
+            <template x-if="(!t.models || !t.models.length) && t.active_min > 0">
+              <div class="ml-6 h-1.5 rounded-full overflow-hidden" style="background:var(--surface-2)">
+                <div class="h-full rounded-full" :style="'width:' + Math.min(100, t.active_min / 480 * 100) + '%;background:' + t.color + ';opacity:0.6'"></div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── WEEK ── -->
+  <div x-show="tab==='week'" class="space-y-5">
+
+    <!-- Week hero stats -->
+    <div class="grid grid-cols-3 gap-4">
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)"
+           x-text="formatMinutes(weekDays.reduce((s,d) => s+d.focus_min, 0))">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)">last 7 days</p>
+      </div>
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">CLAUDE TOKENS</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(weekTotalTokens)">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)">this week</p>
+      </div>
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <p class="text-xs font-medium mb-1" style="color:var(--text-3)">COMMITS</p>
+        <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="weekCommitCount">—</p>
+        <p class="text-xs mt-1" style="color:var(--text-3)">local, this week</p>
+      </div>
+    </div>
+
+    <!-- Daily focus bar chart -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-semibold mb-6" style="color:var(--text-2)">DAILY FOCUS</p>
+      <div x-show="weekDays.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
+        No data yet for this week
+      </div>
+      <div class="flex items-end gap-2" style="height:120px">
+        <template x-for="day in weekDays" :key="day.date">
+          <div class="flex-1 flex flex-col items-center gap-2">
+            <span class="text-xs" style="color:var(--text-3)"
+                  x-text="day.focus_min ? formatMinutes(day.focus_min) : ''"></span>
+            <div class="w-full rounded-t-md transition-all"
+                 :style="'height:' + Math.max(4, (day.focus_min / weekMaxFocus) * 96) + 'px;background:#6366f1;opacity:' + (isToday(day.date) ? '1' : '0.5')"></div>
+            <span class="text-xs" style="color:var(--text-3)" x-text="formatDay(day.date)"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -149,67 +217,92 @@
 <script>
 function activityApp() {
   return {
-    focusBlocks:   [],
-    totalFocusMin: 0,
-    activeTools:   [],
-    totalTokens:   0,
-    claudeUsage:   [],
-    commits:       [],
-    activeRepo:    null,
-    activeBranch:  null,
-    agentOnline:   false,
-    lastUpdated:   '',
+    tab:            'today',
+    focusBlocks:    [],
+    totalFocusMin:  0,
+    activeTools:    [],
+    toolActiveMin:  {},
+    totalTokens:    0,
+    claudeUsage:    [],
+    commits:        [],
+    activeRepo:     null,
+    activeBranch:   null,
+    agentOnline:    false,
+    lastUpdated:    '',
+    weekDays:       [],
+    weekTotalTokens: 0,
+    weekCommitCount: 0,
+    weekLoaded:     false,
 
     async init() {
       await this.load();
       setInterval(() => this.load(), 30000);
     },
 
-    // Merge detected tools + claude token data into one list
-    get aiToolRows() {
-      const colors = {
-        'claude-code':    '#e07b39',
-        'github-copilot': '#6e40c9',
-        'cursor-ai':      '#1a73e8',
-        'windsurf':       '#06b6d4',
-        'tabnine':        '#22c55e',
-        'codeium':        '#f59e0b',
-        'supermaven':     '#ec4899',
-      };
-      // Build map of claude models keyed by tool (only claude-code has token data)
-      const claudeMap = { 'claude-code': this.claudeUsage };
-      return this.activeTools.map(name => ({
-        name,
-        color:  colors[name] || '#6b7280',
-        models: claudeMap[name] || [],
-      }));
-    },
-
     async load() {
       try {
         const tz = -new Date().getTimezoneOffset();
-        const r = await fetch(`/api/agent/today?tz_offset=${tz}`);
+        const r  = await fetch(`/api/agent/today?tz_offset=${tz}`);
         if (!r.ok) return;
-        const d = await r.json();
+        const d  = await r.json();
 
-        this.focusBlocks   = d.focus_blocks || [];
+        this.focusBlocks   = d.focus_blocks    || [];
         this.totalFocusMin = d.total_focus_min || 0;
-        this.activeTools   = d.active_tools || [];
-        this.claudeUsage   = d.claude_usage || [];
-        this.commits       = d.commits || [];
+        this.activeTools   = d.active_tools    || [];
+        this.toolActiveMin = d.tool_active_min || {};
+        this.claudeUsage   = d.claude_usage    || [];
+        this.commits       = d.commits         || [];
         this.totalTokens   = this.claudeUsage.reduce((s, u) => s + u.input_tokens + u.output_tokens, 0);
 
         if (d.active_now) {
           this.activeRepo   = d.active_now.repo;
           this.activeBranch = d.active_now.branch;
-          const last = new Date(d.active_now.last_seen);
-          this.agentOnline  = (Date.now() - last) < 5 * 60 * 1000;
+          this.agentOnline  = (Date.now() - new Date(d.active_now.last_seen)) < 5 * 60 * 1000;
         }
-
         this.lastUpdated = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      } catch(e) {
-        this.agentOnline = false;
-      }
+      } catch(e) { this.agentOnline = false; }
+    },
+
+    async loadWeek() {
+      if (this.weekLoaded) return;
+      try {
+        const tz = -new Date().getTimezoneOffset();
+        const r  = await fetch(`/api/agent/week?tz_offset=${tz}`);
+        if (!r.ok) return;
+        const d  = await r.json();
+        this.weekDays        = d.days         || [];
+        this.weekTotalTokens = d.total_tokens || 0;
+        this.weekCommitCount = d.commit_count || 0;
+        this.weekLoaded      = true;
+      } catch(e) {}
+    },
+
+    get weekMaxFocus() {
+      return Math.max(1, ...this.weekDays.map(d => d.focus_min));
+    },
+
+    get aiToolRows() {
+      const colors = {
+        'claude-code':     '#e07b39',
+        'github-copilot':  '#6e40c9',
+        'cursor-ai':       '#1a73e8',
+        'windsurf':        '#06b6d4',
+        'tabnine':         '#22c55e',
+        'codeium':         '#f59e0b',
+        'supermaven':      '#ec4899',
+        'continue-dev':    '#8b5cf6',
+        'amazon-q':        '#f97316',
+        'gemini-cli':      '#3b82f6',
+        'gemini-code-assist': '#3b82f6',
+        'ollama':          '#64748b',
+      };
+      const claudeMap = {'claude-code': this.claudeUsage};
+      return this.activeTools.map(name => ({
+        name,
+        color:      colors[name] || '#6b7280',
+        active_min: this.toolActiveMin[name] || 0,
+        models:     claudeMap[name] || [],
+      }));
     },
 
     formatMinutes(min) {
@@ -220,12 +313,22 @@ function activityApp() {
 
     formatTokens(t) {
       if (!t) return '0';
+      if (t >= 1_000_000) return (t / 1_000_000).toFixed(1) + 'M';
       return t >= 1000 ? (t / 1000).toFixed(1) + 'k' : t.toString();
     },
 
     formatTime(iso) {
       if (!iso) return '';
       return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    },
+
+    formatDay(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString([], {weekday:'short'});
+    },
+
+    isToday(dateStr) {
+      return dateStr === new Date().toISOString().slice(0, 10);
     },
   };
 }

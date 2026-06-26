@@ -71,12 +71,17 @@ async def activity_today(
     focus_blocks = _compute_focus_blocks(hbs)
     total_focus_min = sum(b["duration_min"] for b in focus_blocks)
 
-    # AI tools — latest snapshot for today
-    ai_doc = await ai_tool_events().find_one(
+    # AI tools — count snapshots per tool → active minutes (1 snapshot = 60s)
+    ai_docs = await ai_tool_events().find(
         {"profile_id": profile_id, "timestamp": ts_filter},
-        sort=[("timestamp", -1)],
-    )
-    active_tools = ai_doc.get("tools", []) if ai_doc else []
+        projection={"tools": 1, "_id": 0},
+    ).to_list(1500)
+    tool_counts: dict[str, int] = {}
+    for doc in ai_docs:
+        for tool in doc.get("tools", []):
+            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+    tool_active_min = {tool: count for tool, count in tool_counts.items()}
+    active_tools    = sorted(tool_active_min.keys())
 
     # Claude usage today
     today_str = day_start.strftime("%Y-%m-%d")
@@ -116,6 +121,7 @@ async def activity_today(
         ],
         "total_focus_min": total_focus_min,
         "active_tools":    active_tools,
+        "tool_active_min": tool_active_min,
         "claude_usage":    claude_summary,
         "commits":         [
             {**c, "timestamp": c["timestamp"].isoformat() if c.get("timestamp") else None}
