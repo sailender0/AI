@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}My Activity — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Your local coding activity today{% endblock %}
+
+{% block content %}
+{% if not is_desktop %}
+<!-- Web fallback — desktop app required -->
+<div class="flex flex-col items-center justify-center h-full min-h-64 text-center gap-4">
+  <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl mb-2"
+       style="background:var(--surface-2);border:1px solid var(--border)">💻</div>
+  <h2 class="text-lg font-semibold" style="color:var(--text-1)">Desktop app required</h2>
+  <p class="text-sm max-w-sm" style="color:var(--text-2)">
+    My Activity tracks your local coding sessions, focus blocks, and AI tool usage.
+    This data is only available in the desktop app.
+  </p>
+  <a href="#" class="px-5 py-2 rounded-lg text-sm font-medium mt-2"
+     style="background:var(--chrome);color:var(--chrome-text)">
+    Download Desktop App
+  </a>
+</div>
+
+{% else %}
+<!-- Desktop view — full activity page -->
+<div x-data="activityApp()" x-init="init()" class="space-y-6">
+
+  <!-- Status bar -->
+  <div class="flex items-center gap-3 text-xs" style="color:var(--text-3)">
+    <span class="flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full"
+            :style="agentOnline ? 'background:#22c55e' : 'background:#ef4444'"></span>
+      <span x-text="agentOnline ? 'Agent connected' : 'Agent offline'"></span>
+    </span>
+    <span>·</span>
+    <span x-show="activeRepo">
+      <span style="color:var(--text-2)" x-text="activeRepo"></span>
+      <span x-show="activeBranch"> / <span class="font-mono" x-text="activeBranch"></span></span>
+    </span>
+    <span x-show="!activeRepo" style="color:var(--text-3)">No active repo</span>
+    <span class="ml-auto" x-text="lastUpdated"></span>
+  </div>
+
+  <!-- Hero stats -->
+  <div class="grid grid-cols-3 gap-4">
+    <!-- Focus time -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatMinutes(totalFocusMin)">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)" x-text="focusBlocks.length + ' deep work block' + (focusBlocks.length !== 1 ? 's' : '')"></p>
+    </div>
+    <!-- AI usage -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">AI USAGE</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(totalTokens)">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)" x-text="activeTools.length ? activeTools.join(', ') : 'No AI tools detected'"></p>
+    </div>
+    <!-- Local commits -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">LOCAL COMMITS</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="commits.length">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)">not yet pushed</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4">
+
+    <!-- Focus blocks timeline -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">FOCUS BLOCKS</p>
+      <div x-show="focusBlocks.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
+        No focus sessions recorded yet today
+      </div>
+      <div class="space-y-2">
+        <template x-for="block in focusBlocks" :key="block.start">
+          <div class="flex items-center gap-3">
+            <div class="text-xs w-10 text-right flex-shrink-0" style="color:var(--text-3)"
+                 x-text="formatTime(block.start)"></div>
+            <div class="flex-1 h-6 rounded-md relative overflow-hidden" style="background:var(--surface-2)">
+              <div class="h-full rounded-md" style="background:#6366f1;opacity:0.8"
+                   :style="'width:' + Math.min(100, block.duration_min / 120 * 100) + '%'"></div>
+            </div>
+            <div class="text-xs w-14 flex-shrink-0" style="color:var(--text-2)"
+                 x-text="block.duration_min + ' min'"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Local commits -->
+    <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">LOCAL COMMITS</p>
+      <div x-show="commits.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
+        No local commits today
+      </div>
+      <div class="space-y-3">
+        <template x-for="c in commits" :key="c.sha">
+          <div class="flex gap-3 items-start">
+            <span class="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5"
+                  style="background:var(--surface-2);color:var(--text-3)" x-text="c.sha"></span>
+            <div class="min-w-0">
+              <p class="text-sm truncate" style="color:var(--text-1)" x-text="c.message"></p>
+              <p class="text-xs mt-0.5" style="color:var(--text-3)">
+                <span x-text="c.branch"></span>
+                <span x-show="c.insertions || c.deletions">
+                  · <span style="color:#22c55e" x-text="'+' + c.insertions"></span>
+                  <span style="color:#ef4444" x-text="' -' + c.deletions"></span>
+                </span>
+              </p>
+            </div>
+            <span class="text-xs ml-auto flex-shrink-0" style="color:var(--text-3)"
+                  x-text="formatTime(c.timestamp)"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Claude usage breakdown -->
+  <div x-show="claudeUsage.length > 0"
+       class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+    <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">CLAUDE CODE USAGE TODAY</p>
+    <div class="grid gap-3">
+      <template x-for="u in claudeUsage" :key="u.model">
+        <div class="flex items-center gap-4 text-sm">
+          <span class="font-mono text-xs flex-shrink-0" style="color:var(--text-3)" x-text="u.model"></span>
+          <div class="flex gap-4 ml-auto text-xs" style="color:var(--text-2)">
+            <span><span style="color:var(--text-3)">in</span> <span x-text="u.input_tokens.toLocaleString()"></span></span>
+            <span><span style="color:var(--text-3)">out</span> <span x-text="u.output_tokens.toLocaleString()"></span></span>
+            <span><span style="color:var(--text-3)">msgs</span> <span x-text="u.messages"></span></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function activityApp() {
+  return {
+    focusBlocks:   [],
+    totalFocusMin: 0,
+    activeTools:   [],
+    totalTokens:   0,
+    claudeUsage:   [],
+    commits:       [],
+    activeRepo:    null,
+    activeBranch:  null,
+    agentOnline:   false,
+    lastUpdated:   '',
+
+    async init() {
+      await this.load();
+      setInterval(() => this.load(), 30000);
+    },
+
+    async load() {
+      try {
+        const tz = -new Date().getTimezoneOffset();
+        const r = await fetch(`/api/agent/today?tz_offset=${tz}`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        this.focusBlocks   = d.focus_blocks || [];
+        this.totalFocusMin = d.total_focus_min || 0;
+        this.activeTools   = d.active_tools || [];
+        this.claudeUsage   = d.claude_usage || [];
+        this.commits       = d.commits || [];
+        this.totalTokens   = this.claudeUsage.reduce((s, u) => s + u.input_tokens + u.output_tokens, 0);
+
+        if (d.active_now) {
+          this.activeRepo   = d.active_now.repo;
+          this.activeBranch = d.active_now.branch;
+          const last = new Date(d.active_now.last_seen);
+          this.agentOnline  = (Date.now() - last) < 5 * 60 * 1000;
+        }
+
+        this.lastUpdated = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      } catch(e) {
+        this.agentOnline = false;
+      }
+    },
+
+    formatMinutes(min) {
+      if (!min) return '0 min';
+      const h = Math.floor(min / 60), m = min % 60;
+      return h ? `${h}h ${m}m` : `${m} min`;
+    },
+
+    formatTokens(t) {
+      if (!t) return '0';
+      return t >= 1000 ? (t / 1000).toFixed(1) + 'k' : t.toString();
+    },
+
+    formatTime(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    },
+  };
+}
+</script>
+{% endif %}
+{% endblock %}

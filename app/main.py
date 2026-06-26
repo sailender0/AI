@@ -29,6 +29,7 @@ from app.webhooks.receivers.github import router as github_router
 from app.webhooks.receivers.gitlab import router as gitlab_router
 from app.webhooks.receivers.jira import router as jira_router
 from app.ai.query import router as query_router
+from app.routes.agent import router as agent_router
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -95,6 +96,7 @@ app.include_router(github_router)
 app.include_router(gitlab_router)
 app.include_router(jira_router)
 app.include_router(query_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

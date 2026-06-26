@@ -31,6 +31,7 @@ class Profile(Base):
     summaries = relationship("Summary", back_populates="profile", cascade="all, delete-orphan")
     query_logs = relationship("QueryLog", back_populates="profile", cascade="all, delete-orphan")
     chat_conversations = relationship("ChatConversation", back_populates="profile", cascade="all, delete-orphan")
+    devices = relationship("Device", back_populates="profile", cascade="all, delete-orphan")
 
 
 class LinkedIdentity(Base):
@@ -157,3 +158,28 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     conversation = relationship("ChatConversation", back_populates="messages")
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    platform = Column(String(20))              # windows | macos | linux
+    last_seen = Column(DateTime(timezone=True))
+    registered_at = Column(DateTime(timezone=True), default=utcnow)
+
+    profile = relationship("Profile", back_populates="devices")
+    tokens = relationship("DeviceToken", back_populates="device", cascade="all, delete-orphan")
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)  # SHA-256 hex
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    device = relationship("Device", back_populates="tokens")

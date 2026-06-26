@@ -72,8 +72,11 @@ async def login(request: Request):
     # Only allow relative paths to prevent open-redirect
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/"
+    is_desktop = request.query_params.get("desktop") == "1"
     redis = get_redis()
     await redis.set(f"oauth_state:{state}", next_url, ex=600)
+    if is_desktop:
+        await redis.set(f"oauth_desktop:{state}", "1", ex=600)
 
     app = _build_msal_app()
     auth_url = app.get_authorization_request_url(
@@ -90,7 +93,9 @@ async def auth_callback(request: Request, code: str, state: str):
     next_url = await redis.get(f"oauth_state:{state}")
     if not next_url:
         return {"error": "invalid_state"}
+    is_desktop = await redis.get(f"oauth_desktop:{state}") == "1"
     await redis.delete(f"oauth_state:{state}")
+    await redis.delete(f"oauth_desktop:{state}")
 
     cache = msal.SerializableTokenCache()
     app = _build_msal_app(cache)
@@ -138,6 +143,9 @@ async def auth_callback(request: Request, code: str, state: str):
     safe_next = next_url if (next_url and next_url.startswith("/") and not next_url.startswith("//")) else "/"
     response = RedirectResponse(url=safe_next)
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
+    if is_desktop:
+        # Mark this browser/webview session as the desktop app
+        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
     return response
 
 

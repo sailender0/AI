@@ -68,6 +68,23 @@ async def gitlab_page(request: Request):
     return templates.TemplateResponse(request=request, name="gitlab.html", context={"active_page": "gitlab"})
 
 
+@router.get("/my-activity", response_class=HTMLResponse)
+async def my_activity_page(request: Request):
+    if not await get_profile_from_session(request):
+        return RedirectResponse("/auth/login?next=/my-activity&desktop=1")
+    is_desktop = request.cookies.get("da_desktop") == "1"
+    response = templates.TemplateResponse(
+        request=request,
+        name="my_activity.html",
+        context={"active_page": "my_activity", "is_desktop": is_desktop},
+    )
+    # If opened with ?_dt=1 (desktop app first load), set the cookie
+    if request.query_params.get("_dt") == "1" and not is_desktop:
+        is_https = settings.APP_BASE_URL.startswith("https://")
+        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
+    return response
+
+
 @router.get("/analytics", response_class=HTMLResponse)
 async def analytics_page(request: Request):
     if not await get_profile_from_session(request):

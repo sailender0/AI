@@ -20,6 +20,26 @@ def activity_events():
     return get_db()["activity_events"]
 
 
+def device_heartbeats():
+    return get_db()["device_heartbeats"]
+
+
+def local_commits():
+    return get_db()["local_commits"]
+
+
+def ai_tool_events():
+    return get_db()["ai_tool_events"]
+
+
+def claude_usage():
+    return get_db()["claude_usage"]
+
+
+def vscode_extensions():
+    return get_db()["vscode_extensions"]
+
+
 async def init_indexes():
     col = activity_events()
     await col.create_index([("profile_id", 1), ("occurred_at", -1)])
@@ -30,3 +50,15 @@ async def init_indexes():
         unique=True,
         sparse=True,
     )
+
+    # Agent collections
+    await device_heartbeats().create_index([("profile_id", 1), ("timestamp", -1)])
+    await device_heartbeats().create_index([("profile_id", 1), ("device_id", 1), ("timestamp", -1)])
+
+    await local_commits().create_index([("profile_id", 1), ("timestamp", -1)])
+    await local_commits().create_index(
+        [("profile_id", 1), ("sha", 1)], unique=True, sparse=True
+    )
+
+    await ai_tool_events().create_index([("profile_id", 1), ("timestamp", -1)])
+    await claude_usage().create_index([("profile_id", 1), ("date", -1), ("model", 1)])
