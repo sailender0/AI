@@ -83,19 +83,31 @@ async def activity_today(
     tool_active_min = {tool: count for tool, count in tool_counts.items()}
     active_tools    = sorted(tool_active_min.keys())
 
-    # Claude usage today
-    today_str = day_start.strftime("%Y-%m-%d")
+    # Claude usage today — grouped by repo
+    today_str   = day_start.strftime("%Y-%m-%d")
     claude_docs = await claude_usage().find(
         {"profile_id": profile_id, "date": today_str}
-    ).to_list(20)
-    claude_summary = [
-        {
+    ).to_list(100)
+
+    repos: dict[str, dict] = {}
+    for d in claude_docs:
+        repo = d.get("repo") or "unknown"
+        if repo not in repos:
+            repos[repo] = {"repo": repo, "models": [], "files": set(),
+                           "input_tokens": 0, "output_tokens": 0}
+        repos[repo]["models"].append({
             "model":         d.get("model", ""),
             "input_tokens":  d.get("input_tokens", 0),
             "output_tokens": d.get("output_tokens", 0),
             "messages":      d.get("message_count", 0),
-        }
-        for d in claude_docs
+        })
+        repos[repo]["input_tokens"]  += d.get("input_tokens", 0)
+        repos[repo]["output_tokens"] += d.get("output_tokens", 0)
+        repos[repo]["files"].update(d.get("files", []))
+
+    claude_summary = [
+        {**r, "files": sorted(r["files"])}
+        for r in repos.values()
     ]
 
     # Local commits today

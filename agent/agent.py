@@ -261,15 +261,40 @@ def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
 
 # ── Claude Code JSONL usage ───────────────────────────────────────────────────
 
+def _repo_from_jsonl(path: Path) -> str:
+    """Decode repo name from Claude's encoded project directory name.
+    e.g. 'e--AI' -> 'AI', '-home-user-projects-myrepo' -> 'myrepo'
+    """
+    parts = [p for p in re.split(r"-+", path.parent.name) if p]
+    return parts[-1] if parts else path.parent.name
+
+
+def _files_from_content(content) -> list[str]:
+    """Extract file paths from tool_use blocks in an assistant message."""
+    if not isinstance(content, list):
+        return []
+    files = []
+    for block in content:
+        if block.get("type") == "tool_use":
+            inp = block.get("input", {})
+            fp  = inp.get("file_path") or inp.get("path")
+            if fp and isinstance(fp, str):
+                files.append(fp)
+    return files
+
+
 def get_claude_usage(file_offsets: dict[str, int]) -> list[dict]:
     claude_dir = Path.home() / ".claude" / "projects"
     if not claude_dir.exists():
         return []
 
-    agg: dict[tuple[str, str], dict] = {}
+    # key: (date, model, repo)
+    agg: dict[tuple[str, str, str], dict] = {}
+
     for jsonl_file in claude_dir.rglob("*.jsonl"):
         file_key    = str(jsonl_file)
         last_offset = file_offsets.get(file_key, 0)
+        repo        = _repo_from_jsonl(jsonl_file)
         try:
             if jsonl_file.stat().st_size <= last_offset:
                 continue
@@ -294,29 +319,33 @@ def get_claude_usage(file_offsets: dict[str, int]) -> list[dict]:
                         date_str = datetime.now().strftime("%Y-%m-%d")
 
                     model = (msg.get("model") or "claude-sonnet").lower()
-                    key   = (date_str, model)
+                    key   = (date_str, model, repo)
                     if key not in agg:
-                        agg[key] = {"input": 0, "cache_w": 0, "cache_r": 0, "output": 0, "messages": 0}
+                        agg[key] = {"input": 0, "cache_w": 0, "cache_r": 0,
+                                    "output": 0, "messages": 0, "files": set()}
                     a = agg[key]
                     a["input"]    += usage.get("input_tokens", 0)
                     a["cache_w"]  += usage.get("cache_creation_input_tokens", 0)
                     a["cache_r"]  += usage.get("cache_read_input_tokens", 0)
                     a["output"]   += usage.get("output_tokens", 0)
                     a["messages"] += 1
+                    for fp in _files_from_content(msg.get("content", [])):
+                        a["files"].add(fp)
                 file_offsets[file_key] = f.tell()
         except Exception:
             pass
 
     return [
         {
-            "date": date, "model": model,
+            "date": date, "model": model, "repo": repo,
             "input_tokens":          v["input"],
             "cache_creation_tokens": v["cache_w"],
             "cache_read_tokens":     v["cache_r"],
             "output_tokens":         v["output"],
             "message_count":         v["messages"],
+            "files":                 sorted(v["files"]),
         }
-        for (date, model), v in agg.items() if v["messages"] > 0
+        for (date, model, repo), v in agg.items() if v["messages"] > 0
     ]
 
 # ── VS Code extensions ────────────────────────────────────────────────────────

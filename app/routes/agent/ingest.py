@@ -97,16 +97,22 @@ async def receive_claude_usage(
     device, profile_id = ctx
     col = claude_usage()
     for entry in body.entries:
-        await col.update_one(
-            {"profile_id": profile_id, "date": entry.date, "model": entry.model},
-            {"$set": {
+        update: dict = {
+            "$inc": {
                 "input_tokens":          entry.input_tokens,
                 "cache_creation_tokens": entry.cache_creation_tokens,
                 "cache_read_tokens":     entry.cache_read_tokens,
                 "output_tokens":         entry.output_tokens,
                 "message_count":         entry.message_count,
-                "device_id":             str(device.id),
-            }},
+            },
+            "$set": {"device_id": str(device.id)},
+        }
+        if entry.files:
+            update["$addToSet"] = {"files": {"$each": entry.files}}
+        await col.update_one(
+            {"profile_id": profile_id, "date": entry.date,
+             "model": entry.model, "repo": entry.repo},
+            update,
             upsert=True,
         )
     return {"ok": True}

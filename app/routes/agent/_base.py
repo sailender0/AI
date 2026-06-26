@@ -60,11 +60,13 @@ class AiEventPayload(BaseModel):
 class ClaudeUsageEntry(BaseModel):
     date:                  str
     model:                 str
+    repo:                  str = ""
     input_tokens:          int = 0
     cache_creation_tokens: int = 0
     cache_read_tokens:     int = 0
     output_tokens:         int = 0
     message_count:         int = 0
+    files:                 list[str] = []
 
 
 class ClaudeUsagePayload(BaseModel):

@@ -133,32 +133,62 @@
     <div x-show="aiToolRows.length > 0"
          class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
       <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">AI TOOLS TODAY</p>
-      <div class="grid gap-4">
+      <div class="grid gap-5">
         <template x-for="t in aiToolRows" :key="t.name">
-          <div class="space-y-2">
+          <div class="space-y-3">
+            <!-- Tool header -->
             <div class="flex items-center gap-3">
               <span class="w-3 h-3 rounded-full flex-shrink-0" :style="'background:' + t.color"></span>
               <span class="text-sm font-medium" style="color:var(--text-1)" x-text="t.name"></span>
               <span class="text-xs ml-auto" style="color:var(--text-3)"
                     x-text="t.active_min ? formatMinutes(t.active_min) + ' active' : ''"></span>
             </div>
-            <!-- Claude: per-model token rows -->
-            <template x-if="t.models && t.models.length">
-              <div class="ml-6 space-y-1">
-                <template x-for="m in t.models" :key="m.model">
-                  <div class="flex gap-4 text-xs" style="color:var(--text-3)">
-                    <span class="font-mono" x-text="m.model"></span>
-                    <span><span style="color:var(--text-2)">↑</span> <span x-text="formatTokens(m.input_tokens)"></span> in</span>
-                    <span><span style="color:var(--text-2)">↓</span> <span x-text="formatTokens(m.output_tokens)"></span> out</span>
-                    <span x-text="m.messages + ' msgs'"></span>
+
+            <!-- Claude: per-repo breakdown -->
+            <template x-if="t.repos && t.repos.length">
+              <div class="ml-4 space-y-3">
+                <template x-for="r in t.repos" :key="r.repo">
+                  <div class="space-y-1.5">
+                    <!-- Repo row -->
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-mono px-1.5 py-0.5 rounded"
+                            style="background:var(--surface-2);color:var(--text-2)" x-text="r.repo"></span>
+                      <span class="text-xs ml-auto" style="color:var(--text-3)">
+                        <span style="color:var(--text-2)">↑</span> <span x-text="formatTokens(r.input_tokens)"></span>
+                        &nbsp;<span style="color:var(--text-2)">↓</span> <span x-text="formatTokens(r.output_tokens)"></span>
+                      </span>
+                    </div>
+                    <!-- Models -->
+                    <div class="ml-2 space-y-0.5">
+                      <template x-for="m in r.models" :key="m.model">
+                        <div class="flex gap-3 text-xs" style="color:var(--text-3)">
+                          <span class="font-mono truncate max-w-32" x-text="m.model"></span>
+                          <span x-text="formatTokens(m.input_tokens) + ' in · ' + formatTokens(m.output_tokens) + ' out · ' + m.messages + ' msgs'"></span>
+                        </div>
+                      </template>
+                    </div>
+                    <!-- Files touched -->
+                    <template x-if="r.files && r.files.length">
+                      <div class="ml-2 flex flex-wrap gap-1 mt-1">
+                        <template x-for="f in r.files.slice(0, 8)" :key="f">
+                          <span class="text-xs px-1.5 py-0.5 rounded font-mono"
+                                style="background:var(--surface-2);color:var(--text-3)"
+                                x-text="f.split('/').pop() || f.split('\\').pop() || f"></span>
+                        </template>
+                        <span x-show="r.files.length > 8" class="text-xs" style="color:var(--text-3)"
+                              x-text="'+' + (r.files.length - 8) + ' more'"></span>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </div>
             </template>
-            <!-- Others: active time bar -->
-            <template x-if="(!t.models || !t.models.length) && t.active_min > 0">
-              <div class="ml-6 h-1.5 rounded-full overflow-hidden" style="background:var(--surface-2)">
-                <div class="h-full rounded-full" :style="'width:' + Math.min(100, t.active_min / 480 * 100) + '%;background:' + t.color + ';opacity:0.6'"></div>
+
+            <!-- Non-Claude: active time bar -->
+            <template x-if="(!t.repos || !t.repos.length) && t.active_min > 0">
+              <div class="ml-4 h-1.5 rounded-full overflow-hidden" style="background:var(--surface-2)">
+                <div class="h-full rounded-full"
+                     :style="'width:' + Math.min(100, t.active_min / 480 * 100) + '%;background:' + t.color + ';opacity:0.6'"></div>
               </div>
             </template>
           </div>
@@ -283,25 +313,24 @@ function activityApp() {
 
     get aiToolRows() {
       const colors = {
-        'claude-code':     '#e07b39',
-        'github-copilot':  '#6e40c9',
-        'cursor-ai':       '#1a73e8',
-        'windsurf':        '#06b6d4',
-        'tabnine':         '#22c55e',
-        'codeium':         '#f59e0b',
-        'supermaven':      '#ec4899',
-        'continue-dev':    '#8b5cf6',
-        'amazon-q':        '#f97316',
-        'gemini-cli':      '#3b82f6',
+        'claude-code':        '#e07b39',
+        'github-copilot':     '#6e40c9',
+        'cursor-ai':          '#1a73e8',
+        'windsurf':           '#06b6d4',
+        'tabnine':            '#22c55e',
+        'codeium':            '#f59e0b',
+        'supermaven':         '#ec4899',
+        'continue-dev':       '#8b5cf6',
+        'amazon-q':           '#f97316',
+        'gemini-cli':         '#3b82f6',
         'gemini-code-assist': '#3b82f6',
-        'ollama':          '#64748b',
+        'ollama':             '#64748b',
       };
-      const claudeMap = {'claude-code': this.claudeUsage};
       return this.activeTools.map(name => ({
         name,
         color:      colors[name] || '#6b7280',
         active_min: this.toolActiveMin[name] || 0,
-        models:     claudeMap[name] || [],
+        repos:      name === 'claude-code' ? this.claudeUsage : [],
       }));
     },
 
