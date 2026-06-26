@@ -115,19 +115,30 @@
 
   </div>
 
-  <!-- Claude usage breakdown -->
-  <div x-show="claudeUsage.length > 0"
+  <!-- AI tools today -->
+  <div x-show="aiToolRows.length > 0"
        class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
-    <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">CLAUDE CODE USAGE TODAY</p>
+    <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">AI TOOLS TODAY</p>
     <div class="grid gap-3">
-      <template x-for="u in claudeUsage" :key="u.model">
-        <div class="flex items-center gap-4 text-sm">
-          <span class="font-mono text-xs flex-shrink-0" style="color:var(--text-3)" x-text="u.model"></span>
-          <div class="flex gap-4 ml-auto text-xs" style="color:var(--text-2)">
-            <span><span style="color:var(--text-3)">in</span> <span x-text="u.input_tokens.toLocaleString()"></span></span>
-            <span><span style="color:var(--text-3)">out</span> <span x-text="u.output_tokens.toLocaleString()"></span></span>
-            <span><span style="color:var(--text-3)">msgs</span> <span x-text="u.messages"></span></span>
-          </div>
+      <template x-for="t in aiToolRows" :key="t.name">
+        <div class="flex items-center gap-3">
+          <span class="w-4 h-4 rounded-full flex-shrink-0" :style="'background:' + t.color"></span>
+          <span class="text-sm flex-1" style="color:var(--text-1)" x-text="t.name"></span>
+          <template x-if="t.models && t.models.length">
+            <div class="flex flex-col items-end gap-1">
+              <template x-for="m in t.models" :key="m.model">
+                <div class="flex gap-3 text-xs" style="color:var(--text-3)">
+                  <span x-text="m.model"></span>
+                  <span><span style="color:var(--text-2)">↑</span> <span x-text="formatTokens(m.input_tokens)"></span></span>
+                  <span><span style="color:var(--text-2)">↓</span> <span x-text="formatTokens(m.output_tokens)"></span></span>
+                  <span x-text="m.messages + ' msgs'"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="!t.models || !t.models.length">
+            <span class="text-xs" style="color:var(--text-3)">active · no token data</span>
+          </template>
         </div>
       </template>
     </div>
@@ -152,6 +163,26 @@ function activityApp() {
     async init() {
       await this.load();
       setInterval(() => this.load(), 30000);
+    },
+
+    // Merge detected tools + claude token data into one list
+    get aiToolRows() {
+      const colors = {
+        'claude-code':    '#e07b39',
+        'github-copilot': '#6e40c9',
+        'cursor-ai':      '#1a73e8',
+        'windsurf':       '#06b6d4',
+        'tabnine':        '#22c55e',
+        'codeium':        '#f59e0b',
+        'supermaven':     '#ec4899',
+      };
+      // Build map of claude models keyed by tool (only claude-code has token data)
+      const claudeMap = { 'claude-code': this.claudeUsage };
+      return this.activeTools.map(name => ({
+        name,
+        color:  colors[name] || '#6b7280',
+        models: claudeMap[name] || [],
+      }));
     },
 
     async load() {

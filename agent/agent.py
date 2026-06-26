@@ -59,11 +59,43 @@ AI_CHECK_INTERVAL   = 60
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 300
 
+# Known process name keywords → tool name
 AI_PROC_MAP: dict[str, str] = {
-    "cursor":   "cursor-ai",
-    "windsurf": "windsurf",
-    "claude":   "claude-code",
+    "cursor":        "cursor-ai",
+    "windsurf":      "windsurf",
+    "claude":        "claude-code",
+    "copilot":       "github-copilot",
+    "codeium":       "codeium",
+    "tabnine":       "tabnine",
+    "supermaven":    "supermaven",
+    "continue":      "continue-dev",
+    "aider":         "aider",
+    "amazonq":       "amazon-q",
+    "codewhisperer": "amazon-q",
+    "gemini":        "gemini-cli",
+    "ollama":        "ollama",
 }
+
+# VS Code extension publisher.name → tool name
+VSCODE_EXT_MAP: dict[str, str] = {
+    "github.copilot":                            "github-copilot",
+    "github.copilot-chat":                       "github-copilot",
+    "anysphere.cursor-always-local":             "cursor-ai",
+    "codeium.codeium":                           "codeium",
+    "codeium.windsurf":                          "windsurf",
+    "tabnine.tabnine-vscode":                    "tabnine",
+    "continue.continue":                         "continue-dev",
+    "amazonwebservices.aws-toolkit-vscode":      "amazon-q",
+    "amazonwebservices.amazon-q-vscode":         "amazon-q",
+    "supermaven.supermaven":                     "supermaven",
+    "google.geminicodeassist":                   "gemini-code-assist",
+    "saoudrizwan.claude-dev":                    "cline",
+    "rooveterinaryinc.roo-cline":                "roo-cline",
+    "anthropic.claude":                          "claude-code",
+}
+
+# Keywords that flag an unknown process as likely AI-related
+_AI_KEYWORDS = {"gpt", "llm", "coder", "codex", "assistant", "autocomplete", "intellicode"}
 
 # ── Config (OS keyring) ───────────────────────────────────────────────────────
 
@@ -197,23 +229,34 @@ def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
 
 # ── AI tool detection ─────────────────────────────────────────────────────────
 
-def detect_ai_tools() -> list[str]:
+def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
     detected: set[str] = set()
+
+    # 1. Process scan — known tools + unknown heuristic
     try:
         for proc in psutil.process_iter(["name", "cmdline"]):
             try:
-                name = (proc.info["name"] or "").lower()
+                name = (proc.info["name"] or "").lower().replace(".exe", "")
+                # Known map
                 for keyword, tool in AI_PROC_MAP.items():
                     if keyword in name:
                         detected.add(tool)
-                if "node" in name:
-                    cmdline = " ".join(proc.info.get("cmdline") or [])
-                    if "copilot" in cmdline.lower():
-                        detected.add("github-copilot")
+                        break
+                else:
+                    # Unknown process — flag if name contains an AI keyword
+                    if any(kw in name for kw in _AI_KEYWORDS):
+                        detected.add(name)  # surface raw name
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except Exception:
         pass
+
+    # 2. VS Code extensions — catches installed tools even if not running as a process
+    for ext_id in (installed_extensions or []):
+        tool = VSCODE_EXT_MAP.get(ext_id.lower())
+        if tool:
+            detected.add(tool)
+
     return sorted(detected)
 
 # ── Claude Code JSONL usage ───────────────────────────────────────────────────
@@ -417,16 +460,7 @@ def run(token: str, backend: str, on_status=None):
                     except Exception:
                         pass
 
-            # AI tools
-            if now - last_ai_check >= AI_CHECK_INTERVAL:
-                tools = detect_ai_tools()
-                if tools != last_ai_tools:
-                    client.ai_event(tools)
-                    log.info("AI tools: %s", tools or "none")
-                    last_ai_tools = tools
-                last_ai_check = now
-
-            # VS Code extensions
+            # VS Code extensions (check before AI tools so extensions feed into detection)
             if now - last_extension_check >= EXTENSION_INTERVAL:
                 exts = get_vscode_extensions()
                 if exts != last_extensions:
@@ -434,6 +468,15 @@ def run(token: str, backend: str, on_status=None):
                     log.info("Extensions: %d synced", len(exts))
                     last_extensions = exts
                 last_extension_check = now
+
+            # AI tools — process scan + installed extensions
+            if now - last_ai_check >= AI_CHECK_INTERVAL:
+                tools = detect_ai_tools(last_extensions)
+                if tools != last_ai_tools:
+                    client.ai_event(tools)
+                    log.info("AI tools: %s", tools or "none")
+                    last_ai_tools = tools
+                last_ai_check = now
 
             # Claude usage
             if now - last_claude_check >= CLAUDE_INTERVAL:

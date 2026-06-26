@@ -40,6 +40,10 @@ def vscode_extensions():
     return get_db()["vscode_extensions"]
 
 
+def tool_preferences():
+    return get_db()["tool_preferences"]
+
+
 async def init_indexes():
     col = activity_events()
     await col.create_index([("profile_id", 1), ("occurred_at", -1)])
