@@ -107,7 +107,9 @@ def _map_event_type(raw: str | None) -> str | None:
     if r in ("pr", "pull_request", "pull request"):
         return "pr_"
     if r == "issue":
-        return "issue_updated"
+        return "issue"
+    if r == "comment":
+        return "comment"
     return r
 
 
@@ -145,7 +147,7 @@ async def query(request: Request, body: QueryRequest):
         mongo_filter["source"] = parsed["source"]
     et = _map_event_type(parsed.get("event_type"))
     if et:
-        mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
+        mongo_filter["event_type"] = {"$regex": et}
 
     events = await activity_events().find(mongo_filter).to_list(length=100)
 
@@ -311,7 +313,7 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
             mongo_filter["source"] = parsed["source"]
         et = _map_event_type(parsed.get("event_type"))
         if et:
-            mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
+            mongo_filter["event_type"] = {"$regex": et}
         events = await activity_events().find(mongo_filter).to_list(length=100)
 
         activity_text = _format_events(events) if events else "No activity data found for that period."
@@ -412,7 +414,7 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         mongo_filter["source"] = parsed["source"]
     et = _map_event_type(parsed.get("event_type"))
     if et:
-        mongo_filter["event_type"] = {"$regex": f"^{et}"} if et.endswith("_") else et
+        mongo_filter["event_type"] = {"$regex": et}
     events = await activity_events().find(mongo_filter).to_list(length=100)
 
     activity_text   = _format_events(events) if events else "No activity data found for that period."
