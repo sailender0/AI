@@ -319,16 +319,16 @@ function activityApp() {
 
     formatTime(iso) {
       if (!iso) return '';
-      return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      const s = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+      return new Date(s).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     },
 
     formatDay(dateStr) {
-      const d = new Date(dateStr + 'T00:00:00');
-      return d.toLocaleDateString([], {weekday:'short'});
+      return new Date(dateStr + 'T12:00:00Z').toLocaleDateString([], {weekday:'short'});
     },
 
     isToday(dateStr) {
-      return dateStr === new Date().toISOString().slice(0, 10);
+      return dateStr === new Date().toLocaleDateString('en-CA');
     },
   };
 }
