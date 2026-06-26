@@ -72,11 +72,19 @@ async def login(request: Request):
     # Only allow relative paths to prevent open-redirect
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/"
-    is_desktop = request.query_params.get("desktop") == "1"
+    is_desktop    = request.query_params.get("desktop") == "1"
+    agent_callback = request.query_params.get("agent_callback", "")
+    device_name   = request.query_params.get("device_name", "Desktop")
+    # Validate: agent_callback must be a localhost URL (no open redirect)
+    if agent_callback and not (agent_callback.startswith("http://localhost:") or agent_callback.startswith("http://127.0.0.1:")):
+        agent_callback = ""
     redis = get_redis()
     await redis.set(f"oauth_state:{state}", next_url, ex=600)
     if is_desktop:
         await redis.set(f"oauth_desktop:{state}", "1", ex=600)
+    if agent_callback:
+        import json as _json
+        await redis.set(f"oauth_agent:{state}", _json.dumps({"callback": agent_callback, "device": device_name}), ex=600)
 
     app = _build_msal_app()
     auth_url = app.get_authorization_request_url(
@@ -94,8 +102,17 @@ async def auth_callback(request: Request, code: str, state: str):
     if not next_url:
         return {"error": "invalid_state"}
     is_desktop = await redis.get(f"oauth_desktop:{state}") == "1"
+    agent_meta_raw = await redis.get(f"oauth_agent:{state}")
     await redis.delete(f"oauth_state:{state}")
     await redis.delete(f"oauth_desktop:{state}")
+    await redis.delete(f"oauth_agent:{state}")
+    agent_meta = {}
+    if agent_meta_raw:
+        import json as _json
+        try:
+            agent_meta = _json.loads(agent_meta_raw)
+        except Exception:
+            pass
 
     cache = msal.SerializableTokenCache()
     app = _build_msal_app(cache)
@@ -139,12 +156,40 @@ async def auth_callback(request: Request, code: str, state: str):
     session_token = secrets.token_urlsafe(32)
     await redis.set(f"session:{session_token}", profile_id, ex=86400)
 
-    is_https = settings.APP_BASE_URL.startswith("https://")
+    is_https  = settings.APP_BASE_URL.startswith("https://")
     safe_next = next_url if (next_url and next_url.startswith("/") and not next_url.startswith("//")) else "/"
+
+    # If desktop agent callback present, generate a device token and redirect
+    # to the local callback server instead of the app page directly.
+    if agent_meta.get("callback"):
+        import hashlib as _hl
+        from app.storage.models import Device, DeviceToken
+        raw_token  = secrets.token_urlsafe(48)
+        token_hash = _hl.sha256(raw_token.encode()).hexdigest()
+        async with AsyncSessionLocal() as db:
+            device = Device(
+                profile_id=profile_id,
+                name=agent_meta.get("device", "Desktop")[:100],
+                platform="windows",
+                registered_at=datetime.now(timezone.utc),
+            )
+            db.add(device)
+            await db.flush()
+            db.add(DeviceToken(device_id=device.id, token_hash=token_hash))
+            await db.commit()
+        # Redirect to agent local server with the token
+        # The agent server will then redirect browser to safe_next
+        from urllib.parse import urlencode
+        params    = urlencode({"token": raw_token, "next": f"{settings.APP_BASE_URL}{safe_next}"})
+        cb_url    = f"{agent_meta['callback']}?{params}"
+        response  = RedirectResponse(url=cb_url)
+        response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
+        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
+        return response
+
     response = RedirectResponse(url=safe_next)
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
     if is_desktop:
-        # Mark this browser/webview session as the desktop app
         response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
     return response
 
