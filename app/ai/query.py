@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from pathlib import Path
+
 from app.ai.summarizer import _format_events, _openai_client
 from app.auth.sso import get_profile_from_session
 from app.config import settings
@@ -22,6 +24,15 @@ from app.webhooks.normalizer import _INJECTION_PATTERNS
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_INSTRUCTIONS_FILE = Path(__file__).parent / "instructions.txt"
+
+
+def _load_instructions() -> str:
+    try:
+        return _INSTRUCTIONS_FILE.read_text().strip()
+    except FileNotFoundError:
+        return "You are a personal work assistant. Answer only from the data provided."
 
 _MAX_HISTORY_MSGS = 20  # cap conversation context to prevent unbounded token growth
 
@@ -158,23 +169,17 @@ async def query(request: Request, body: QueryRequest):
     try:
         response = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": _load_instructions()},
+                {"role": "user", "content": prompt},
+            ],
             max_tokens=300,
             temperature=0.2,
         )
     except Exception as exc:
         logger.error("OpenAI call failed: %s", exc)
-        return JSONResponse(
-            {"error": f"AI call failed: {exc}"},
-            status_code=502,
-        )
+        return JSONResponse({"error": f"AI call failed: {exc}"}, status_code=502)
     answer = response.choices[0].message.content.strip()
-
-    if response.usage:
-        u = response.usage
-        logger.info("Query tokens — in=%d out=%d total=%d  cost=$%.5f",
-            u.prompt_tokens, u.completion_tokens, u.total_tokens,
-            u.prompt_tokens / 1_000_000 * 2.50 + u.completion_tokens / 1_000_000 * 10.00)
 
     async with AsyncSessionLocal() as db:
         log = QueryLog(
@@ -317,18 +322,9 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
         events = await activity_events().find(mongo_filter).to_list(length=100)
 
         activity_text = _format_events(events) if events else "No activity data found for that period."
-        system_content = (
-            "You are a personal work assistant for a software developer. "
-            "Answer questions about their activity using only the data provided. "
-            "Be concise. If the answer is a count, state it first. "
-            "Do not invent anything not in the data.\n\n"
-            f"ACTIVITY DATA:\n{activity_text}"
-        )
-
-        # Cap history to prevent unbounded token growth
-        recent_history = list(history)[-_MAX_HISTORY_MSGS:]
+        system_content = f"{_load_instructions()}\n\nACTIVITY DATA:\n{activity_text}"
         openai_messages = [{"role": "system", "content": system_content}]
-        for m in recent_history:
+        for m in list(history)[-_MAX_HISTORY_MSGS:]:
             openai_messages.append({"role": m.role, "content": m.content})
         openai_messages.append({"role": "user", "content": question})
 
@@ -343,13 +339,8 @@ async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
             logger.error("OpenAI call failed: %s", exc)
             await db.rollback()
             return JSONResponse({"error": f"AI call failed: {exc}"}, status_code=502)
-
         answer = response.choices[0].message.content.strip()
-        if response.usage:
-            u = response.usage
-            logger.info("Chat tokens — conv=%s in=%d out=%d total=%d  cost=$%.5f",
-                conv_id, u.prompt_tokens, u.completion_tokens, u.total_tokens,
-                u.prompt_tokens / 1_000_000 * 2.50 + u.completion_tokens / 1_000_000 * 10.00)
+
         ai_msg_id = _uuid.uuid4()
         ai_created_at = datetime.now(timezone.utc)
         ai_msg = ChatMessage(
@@ -417,17 +408,10 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         mongo_filter["event_type"] = {"$regex": et}
     events = await activity_events().find(mongo_filter).to_list(length=100)
 
-    activity_text   = _format_events(events) if events else "No activity data found for that period."
-    system_content  = (
-        "You are a personal work assistant for a software developer. "
-        "Answer questions about their activity using only the data provided. "
-        "Be concise. If the answer is a count, state it first. "
-        "Do not invent anything not in the data.\n\n"
-        f"ACTIVITY DATA:\n{activity_text}"
-    )
-    recent_history = list(history)[-_MAX_HISTORY_MSGS:]
+    activity_text  = _format_events(events) if events else "No activity data found for that period."
+    system_content = f"{_load_instructions()}\n\nACTIVITY DATA:\n{activity_text}"
     openai_messages = [{"role": "system", "content": system_content}]
-    for m in recent_history:
+    for m in list(history)[-_MAX_HISTORY_MSGS:]:
         openai_messages.append({"role": m.role, "content": m.content})
     openai_messages.append({"role": "user", "content": question})
 
@@ -451,9 +435,9 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
             yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
             return
 
-        answer      = "".join(tokens)
-        ai_msg_id   = _uuid.uuid4()
-        ai_created  = datetime.now(timezone.utc)
+        answer     = "".join(tokens)
+        ai_msg_id  = _uuid.uuid4()
+        ai_created = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as db:
             db.add(ChatMessage(
                 id=ai_msg_id, conversation_id=conv_id,
@@ -461,7 +445,6 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
             ))
             await db.commit()
 
-        logger.info("Stream chat — conv=%s tokens=%d", conv_id, len(tokens))
         yield f"data: {_json.dumps({'done': True, 'ai_message': {'id': str(ai_msg_id), 'role': 'assistant', 'content': answer, 'created_at': ai_created.isoformat()}, 'conversation_title': conv_title})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

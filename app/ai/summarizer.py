@@ -160,7 +160,6 @@ async def _summarise_profile(
     caveat = f"Note: data from {', '.join(failed)} was unavailable." if failed else ""
 
     prompt = _build_prompt(period_type, events, caveat)
-
     client = _openai_client()
     response = await client.chat.completions.create(
         model=settings.AZURE_OPENAI_DEPLOYMENT,
@@ -169,20 +168,7 @@ async def _summarise_profile(
         temperature=0.3,
     )
     summary_text = response.choices[0].message.content.strip()
-
-    usage = response.usage
-    if usage:
-        prompt_tokens     = usage.prompt_tokens
-        completion_tokens = usage.completion_tokens
-        total_tokens      = usage.total_tokens
-        input_cost  = prompt_tokens     / 1_000_000 * 2.50
-        output_cost = completion_tokens / 1_000_000 * 10.00
-        logger.info(
-            "Summary tokens — profile=%s period=%s  in=%d out=%d total=%d  cost=$%.5f",
-            profile_id, period_type,
-            prompt_tokens, completion_tokens, total_tokens,
-            input_cost + output_cost,
-        )
+    logger.info("Summary generated — profile=%s period=%s", profile_id, period_type)
 
     async with AsyncSessionLocal() as db:
         # Anchor window to UTC day boundary so entries stored before/after timezone fix

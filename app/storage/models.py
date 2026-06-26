@@ -135,6 +135,7 @@ class ChatConversation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
     title = Column(String(200), nullable=False, default="New chat")
+    foundry_thread_id = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
