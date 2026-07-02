@@ -33,8 +33,6 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: activity_tracker
-    ports:
-      - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -46,12 +44,11 @@ services:
 
   mongodb:
     image: mongo:7
-    ports:
-      - "27017:27017"
+    command: mongod --auth
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "-u", "da_user", "-p", "28e90668f11421a654762d9fc3a68149f129d022284eee35", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping')"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -59,12 +56,11 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: redis-server --requirepass ab5f234de10cc479b7fb1e58ff7696002736c14cdb8514e9 --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "ab5f234de10cc479b7fb1e58ff7696002736c14cdb8514e9", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10

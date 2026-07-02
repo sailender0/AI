@@ -1,155 +1,146 @@
 """
-System tray icon for the Developer Activity desktop app.
-Manages: agent thread, webview window, SSO re-auth.
+App orchestrator — window is primary, tray is minimize-to-tray.
+
+Threading model:
+  Main thread  : webview.start() — blocks until Quit
+  Daemon thread : pystray icon.run()
+  Daemon thread : agent run() loop
+  Daemon thread : SSO callback server (only during first login)
+  Daemon thread : single-instance IPC server
 """
 import logging
 import platform
-import socket
 import threading
-from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# ── Icon ──────────────────────────────────────────────────────────────────────
-# Minimal 32x32 PNG icon encoded inline so no external file is needed.
-# Green circle = connected, red = disconnected.
+_stop = threading.Event()  # signals agent thread to stop cleanly
 
-_ICON_CONNECTED    = None  # loaded lazily from icon_connected.png if present
-_ICON_DISCONNECTED = None
 
-def _load_icon(connected: bool):
-    """Return a PIL Image for the tray icon."""
+def _make_icon(connected: bool):
     from PIL import Image, ImageDraw
     img  = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    color = "#22c55e" if connected else "#ef4444"
-    draw  = ImageDraw.Draw(img)
-    # Outer circle (dark)
     draw.ellipse([2, 2, 62, 62], fill="#1a1a2e")
-    # Status dot
-    draw.ellipse([18, 18, 46, 46], fill=color)
+    draw.ellipse([18, 18, 46, 46], fill="#22c55e" if connected else "#6e7681")
     return img
 
 
-# ── Tray ──────────────────────────────────────────────────────────────────────
+def main(backend: str, startup_mode: bool = False, ipc_server=None):
+    try:
+        import webview
+        import pystray
+    except ImportError as exc:
+        log.error("Missing dependency: %s  —  pip install pywebview pystray pillow", exc)
+        return
 
-class AgentTray:
-    def __init__(self, backend: str):
-        self.backend    = backend
-        self._icon      = None
-        self._connected = False
-        self._agent_thread: threading.Thread | None = None
-        self._webview_thread: threading.Thread | None = None
+    from agent.auth import is_authenticated, run_sso_in_window
+    from agent.agent import load_token, run as run_agent
 
-    # ── Status callback (called from agent loop) ──────────────────────────────
+    _icon        = None
+    _agent_thread = None
 
-    def set_connected(self, connected: bool):
-        if connected == self._connected:
+    # ── Agent ─────────────────────────────────────────────────────────────────
+
+    def start_agent(token: str):
+        nonlocal _agent_thread
+        if _agent_thread and _agent_thread.is_alive():
             return
-        self._connected = connected
-        if self._icon:
-            self._icon.icon = _load_icon(connected)
-            title = "Developer Activity — Connected" if connected else "Developer Activity — Offline"
-            self._icon.title = title
 
-    # ── Menu actions ──────────────────────────────────────────────────────────
+        def _status(connected: bool):
+            if _icon:
+                _icon.icon = _make_icon(connected)
 
-    def _open_dashboard(self, icon=None, item=None):
-        from agent.webview import open_window
-        if self._webview_thread and self._webview_thread.is_alive():
-            return
-        self._webview_thread = threading.Thread(
-            target=open_window, args=(self.backend,), daemon=True
-        )
-        self._webview_thread.start()
-
-    def _reconnect(self, icon=None, item=None):
-        """Trigger SSO re-auth flow."""
-        import platform as _pl
-        from agent.auth import run_sso_flow, clear_credentials
-        clear_credentials()
-        device_name = _pl.node()
-        threading.Thread(
-            target=run_sso_flow,
-            args=(self.backend, device_name, self._on_reauth),
+        _agent_thread = threading.Thread(
+            target=run_agent,
+            args=(token, backend),
+            kwargs={"on_status": _status, "stop_event": _stop},
             daemon=True,
-        ).start()
+        )
+        _agent_thread.start()
 
-    def _on_reauth(self, success: bool):
-        if success:
-            self._start_agent()
-            log.info("Re-authenticated successfully")
+    # ── Window ────────────────────────────────────────────────────────────────
+
+    # Start hidden; show after auth check in on_start()
+    initial_url = f"{backend}/my-activity?_dt=1" if is_authenticated() else f"{backend}/"
+    window = webview.create_window(
+        title="Developer Activity",
+        url=initial_url,
+        width=1280,
+        height=800,
+        min_size=(800, 600),
+        text_select=True,
+        hidden=True,          # shown explicitly once ready
+    )
+
+    def on_closing():
+        """Hide to tray instead of closing."""
+        window.hide()
+        return False  # cancel the close
+
+    window.events.closing += on_closing
+
+    # ── Tray ──────────────────────────────────────────────────────────────────
+
+    def _show(icon=None, item=None):
+        window.show()
+
+    def _quit(icon=None, item=None):
+        _stop.set()
+        if _icon:
+            _icon.stop()
+        window.destroy()  # makes webview.start() return
+
+    _icon = pystray.Icon(
+        "da-agent",
+        _make_icon(False),
+        "Developer Activity",
+        menu=pystray.Menu(
+            pystray.MenuItem("Open", _show, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", _quit),
+        ),
+    )
+    threading.Thread(target=_icon.run, daemon=True).start()
+
+    # IPC: second instance sends "show" → bring window to front
+    if ipc_server:
+        ipc_server(lambda: window.show())
+
+    # ── Webview start callback ────────────────────────────────────────────────
+
+    def on_start():
+        """Runs in a worker thread after webview initialises."""
+        if is_authenticated():
+            token = load_token()
+            if token:
+                start_agent(token)
+                if not startup_mode:
+                    window.show()
+            else:
+                # Token missing from keyring despite is_authenticated passing — re-auth
+                _do_sso()
         else:
-            log.error("Re-authentication failed")
+            if startup_mode:
+                # No credentials and launched at startup — wait silently for user to open
+                log.info("Startup mode: no credentials — waiting for user to open app")
+            else:
+                _do_sso()
 
-    def _quit(self, icon=None, item=None):
-        if self._icon:
-            self._icon.stop()
+    def _do_sso():
+        window.show()
+        device_name = platform.node()
 
-    # ── Agent thread ──────────────────────────────────────────────────────────
+        def on_auth(token):
+            if token:
+                start_agent(token)
+            else:
+                log.error("Authentication failed or timed out")
 
-    def _start_agent(self):
-        from agent.agent import load_token, load_backend, run
-        token   = load_token()
-        backend = load_backend()
-        if not token:
-            return
-        if self._agent_thread and self._agent_thread.is_alive():
-            return
-        self._agent_thread = threading.Thread(
-            target=run,
-            args=(token, backend, self.set_connected),
-            daemon=True,
-        )
-        self._agent_thread.start()
+        run_sso_in_window(window, backend, device_name, on_auth)
 
-    # ── Entry point ───────────────────────────────────────────────────────────
+    # ── Block main thread in webview event loop ───────────────────────────────
+    webview.start(on_start, debug=False)
 
-    def run(self):
-        """Start the tray icon (blocks until quit)."""
-        try:
-            import pystray
-            from PIL import Image
-        except ImportError:
-            log.error("pystray / Pillow not installed — run: pip install pystray pillow")
-            return
-
-        menu = pystray.Menu(
-            pystray.MenuItem("Open Dashboard",  self._open_dashboard, default=True),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Reconnect",       self._reconnect),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit",            self._quit),
-        )
-
-        self._icon = pystray.Icon(
-            name="da-agent",
-            icon=_load_icon(False),
-            title="Developer Activity",
-            menu=menu,
-        )
-
-        # Start agent in background
-        self._start_agent()
-
-        # Open dashboard on first run
-        threading.Thread(target=self._open_dashboard, daemon=True).start()
-
-        log.info("Tray icon running")
-        self._icon.run()  # blocks
-
-
-def main(backend: str):
-    from agent.auth import is_authenticated, run_sso_flow
-    import platform as _pl
-
-    if not is_authenticated():
-        log.info("Not authenticated — starting SSO flow")
-        device_name = _pl.node()
-        ok = run_sso_flow(backend, device_name)
-        if not ok:
-            log.error("Authentication failed — exiting")
-            return
-
-    tray = AgentTray(backend)
-    tray.run()
+    # webview.start() returns only when window.destroy() is called (Quit)
+    _stop.set()

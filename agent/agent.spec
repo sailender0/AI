@@ -2,15 +2,14 @@
 """
 PyInstaller spec for Developer Activity Agent.
 
+Prerequisites:
+    pip install pywebview pystray pillow psutil requests keyring pyinstaller
+
 Build:
     pyinstaller agent/agent.spec
 
-Output: dist/DevActivityAgent.exe  (~25-35 MB)
-
-Excludes pywebview to keep size down on first build;
-add it back once the basic exe is validated.
+Output: dist/DevActivityAgent.exe
 """
-import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH).parent  # repo root
@@ -21,13 +20,19 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
+        # Keyring Windows backend
         "keyring.backends.Windows",
         "keyring.backends.fail",
+        # Tray icon
         "pystray._win32",
         "PIL._tkinter_finder",
+        # pywebview — Windows uses the WinForms + WebView2 backend
+        "webview",
+        "webview.platforms",
+        "webview.platforms.winforms",
+        # Standard library
         "psutil",
         "requests",
-        "webbrowser",
         "http.server",
         "threading",
         "socket",
@@ -45,8 +50,6 @@ a = Analysis(
         "IPython",
         "jupyter",
         "notebook",
-        "cryptography",
-        "OpenSSL",
     ],
     noarchive=False,
 )
@@ -66,11 +69,11 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,          # no terminal window
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,              # add icon.ico here when available
+    icon=None,  # set to "agent/icon.ico" when available
 )

@@ -27,24 +27,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Auto-install minimal deps ─────────────────────────────────────────────────
-
-def _ensure_deps():
-    for pkg in ("psutil", "requests", "keyring"):
-        try:
-            __import__(pkg)
-        except ImportError:
-            log.info("Installing %s…", pkg)
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pkg],
-                stdout=subprocess.DEVNULL,
-            )
-
-_ensure_deps()
-
-import psutil    # noqa: E402
-import requests  # noqa: E402
-import keyring   # noqa: E402
+import psutil
+import requests
+import keyring
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -57,10 +42,13 @@ DEFAULT_BACKEND = os.environ.get("DA_BACKEND", "http://localhost:8000")
 HEARTBEAT_INTERVAL  = 30   # seconds
 AI_CHECK_INTERVAL   = 60
 EXTENSION_INTERVAL  = 600
-CLAUDE_INTERVAL     = 300
+CLAUDE_INTERVAL     = 60
 
 # Known process name keywords → tool name
-AI_PROC_MAP: dict[str, str] = {
+# Fallback maps used when the backend is unreachable.
+# The agent fetches live definitions from /api/agent/tool-definitions on startup
+# and refreshes every 6 hours — add new tools there without rebuilding the exe.
+_DEFAULT_PROC_MAP: dict[str, str] = {
     "cursor":        "cursor-ai",
     "windsurf":      "windsurf",
     "claude":        "claude-code",
@@ -74,10 +62,10 @@ AI_PROC_MAP: dict[str, str] = {
     "codewhisperer": "amazon-q",
     "gemini":        "gemini-cli",
     "ollama":        "ollama",
+    "granola":       "granola",
 }
 
-# VS Code extension publisher.name → tool name
-VSCODE_EXT_MAP: dict[str, str] = {
+_DEFAULT_VSCODE_EXT_MAP: dict[str, str] = {
     "github.copilot":                            "github-copilot",
     "github.copilot-chat":                       "github-copilot",
     "anysphere.cursor-always-local":             "cursor-ai",
@@ -94,8 +82,33 @@ VSCODE_EXT_MAP: dict[str, str] = {
     "anthropic.claude":                          "claude-code",
 }
 
-# Keywords that flag an unknown process as likely AI-related
-_AI_KEYWORDS = {"gpt", "llm", "coder", "codex", "assistant", "autocomplete", "intellicode"}
+_DEFAULT_AI_KEYWORDS = {"gpt", "llm", "coder", "codex", "assistant", "autocomplete", "intellicode"}
+
+# Live copies — replaced by remote fetch, fall back to defaults above
+AI_PROC_MAP:    dict[str, str] = dict(_DEFAULT_PROC_MAP)
+VSCODE_EXT_MAP: dict[str, str] = dict(_DEFAULT_VSCODE_EXT_MAP)
+_AI_KEYWORDS:   set[str]       = set(_DEFAULT_AI_KEYWORDS)
+
+
+def _refresh_tool_definitions(backend: str) -> bool:
+    """Fetch tool detection maps from the server. Returns True on success."""
+    try:
+        r = requests.get(f"{backend}/api/agent/tool-definitions", timeout=8)
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        AI_PROC_MAP.clear()
+        AI_PROC_MAP.update(data.get("proc_map", _DEFAULT_PROC_MAP))
+        VSCODE_EXT_MAP.clear()
+        VSCODE_EXT_MAP.update(data.get("vscode_ext_map", _DEFAULT_VSCODE_EXT_MAP))
+        _AI_KEYWORDS.clear()
+        _AI_KEYWORDS.update(data.get("keywords", _DEFAULT_AI_KEYWORDS))
+        log.info("Tool definitions refreshed: %d proc keywords, %d vscode extensions",
+                 len(AI_PROC_MAP), len(VSCODE_EXT_MAP))
+        return True
+    except Exception as e:
+        log.debug("Tool definition fetch failed: %s", e)
+        return False
 
 # ── Config (OS keyring) ───────────────────────────────────────────────────────
 
@@ -261,12 +274,9 @@ def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
 
 # ── Claude Code JSONL usage ───────────────────────────────────────────────────
 
-def _repo_from_jsonl(path: Path) -> str:
-    """Decode repo name from Claude's encoded project directory name.
-    e.g. 'e--AI' -> 'AI', '-home-user-projects-myrepo' -> 'myrepo'
-    """
-    parts = [p for p in re.split(r"-+", path.parent.name) if p]
-    return parts[-1] if parts else path.parent.name
+def _repo_from_project_dir(dirname: str) -> str:
+    parts = [p for p in re.split(r"-+", dirname) if p]
+    return parts[-1] if parts else dirname
 
 
 def _files_from_content(content) -> list[str]:
@@ -283,57 +293,65 @@ def _files_from_content(content) -> list[str]:
     return files
 
 
-def get_claude_usage(file_offsets: dict[str, int]) -> list[dict]:
+_CUTOFF_DAYS = 30  # only read files modified within this window
+
+
+def get_claude_usage() -> list[dict]:
+    """Full scan — stateless, idempotent. Skips files untouched > 30 days."""
     claude_dir = Path.home() / ".claude" / "projects"
     if not claude_dir.exists():
         return []
 
-    # key: (date, model, repo)
+    cutoff_mtime = time.time() - _CUTOFF_DAYS * 86400
+    cutoff_date  = datetime.now().strftime("%Y-%m-%d")  # filled below
+    from datetime import timedelta
+    cutoff_date  = (datetime.now() - timedelta(days=_CUTOFF_DAYS)).strftime("%Y-%m-%d")
+
     agg: dict[tuple[str, str, str], dict] = {}
 
-    for jsonl_file in claude_dir.rglob("*.jsonl"):
-        file_key    = str(jsonl_file)
-        last_offset = file_offsets.get(file_key, 0)
-        repo        = _repo_from_jsonl(jsonl_file)
-        try:
-            if jsonl_file.stat().st_size <= last_offset:
-                continue
-            with jsonl_file.open("r", encoding="utf-8", errors="replace") as f:
-                f.seek(last_offset)
-                for line in f:
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if entry.get("type") != "assistant":
-                        continue
-                    msg   = entry.get("message") or {}
-                    usage = msg.get("usage")
-                    if not usage:
-                        continue
-                    ts = entry.get("timestamp", "")
-                    try:
-                        dt       = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        date_str = dt.astimezone().strftime("%Y-%m-%d")
-                    except Exception:
-                        date_str = datetime.now().strftime("%Y-%m-%d")
-
-                    model = (msg.get("model") or "claude-sonnet").lower()
-                    key   = (date_str, model, repo)
-                    if key not in agg:
-                        agg[key] = {"input": 0, "cache_w": 0, "cache_r": 0,
-                                    "output": 0, "messages": 0, "files": set()}
-                    a = agg[key]
-                    a["input"]    += usage.get("input_tokens", 0)
-                    a["cache_w"]  += usage.get("cache_creation_input_tokens", 0)
-                    a["cache_r"]  += usage.get("cache_read_input_tokens", 0)
-                    a["output"]   += usage.get("output_tokens", 0)
-                    a["messages"] += 1
-                    for fp in _files_from_content(msg.get("content", [])):
-                        a["files"].add(fp)
-                file_offsets[file_key] = f.tell()
-        except Exception:
-            pass
+    for project_dir in claude_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+        repo = _repo_from_project_dir(project_dir.name)
+        for jsonl_file in project_dir.rglob("*.jsonl"):
+            try:
+                if jsonl_file.stat().st_mtime < cutoff_mtime:
+                    continue  # file untouched for 30+ days — skip
+                with jsonl_file.open("r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if entry.get("type") != "assistant":
+                            continue
+                        msg   = entry.get("message") or {}
+                        usage = msg.get("usage")
+                        if not usage:
+                            continue
+                        ts = entry.get("timestamp", "")
+                        try:
+                            dt       = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                            date_str = dt.astimezone().strftime("%Y-%m-%d")
+                        except Exception:
+                            date_str = datetime.now().strftime("%Y-%m-%d")
+                        if date_str < cutoff_date:
+                            continue
+                        model = (msg.get("model") or "claude-sonnet").lower()
+                        key   = (date_str, model, repo)
+                        if key not in agg:
+                            agg[key] = {"input": 0, "cache_w": 0, "cache_r": 0,
+                                        "output": 0, "messages": 0, "files": set()}
+                        a = agg[key]
+                        a["input"]    += usage.get("input_tokens", 0)
+                        a["cache_w"]  += usage.get("cache_creation_input_tokens", 0)
+                        a["cache_r"]  += usage.get("cache_read_input_tokens", 0)
+                        a["output"]   += usage.get("output_tokens", 0)
+                        a["messages"] += 1
+                        for fp in _files_from_content(msg.get("content", [])):
+                            a["files"].add(fp)
+            except Exception:
+                pass
 
     return [
         {
@@ -430,10 +448,11 @@ class AgentClient:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-def run(token: str, backend: str, on_status=None):
+def run(token: str, backend: str, on_status=None, stop_event=None):
     """
     Main collection loop. on_status(connected: bool) is called on tray icon
-    to update the connection indicator.
+    to update the connection indicator. stop_event (threading.Event) signals
+    a clean shutdown.
     """
     client = AgentClient(token, backend)
     log.info("Agent starting — backend=%s", backend)
@@ -441,15 +460,17 @@ def run(token: str, backend: str, on_status=None):
     if not client.ping():
         log.warning("Could not reach backend on startup — will retry each heartbeat")
 
+    _refresh_tool_definitions(backend)  # load remote maps immediately on startup
+
     last_ai_check        = 0.0
     last_extension_check = 0.0
     last_claude_check    = 0.0
+    last_tool_def_check  = time.monotonic()
     last_ai_tools:   list[str] = []
     last_extensions: list[str] = []
     known_shas:      dict[str, str | None] = {}
-    claude_offsets:  dict[str, int] = {}
 
-    while True:
+    while not (stop_event and stop_event.is_set()):
         try:
             now = time.monotonic()
             app, proc_cwd = get_active_info()
@@ -507,9 +528,14 @@ def run(token: str, backend: str, on_status=None):
                     last_ai_tools = tools
                 last_ai_check = now
 
-            # Claude usage
+            # Tool definitions — refresh from server every 6 hours
+            if now - last_tool_def_check >= 21600:
+                _refresh_tool_definitions(backend)
+                last_tool_def_check = now
+
+            # Claude usage — full scan, stateless
             if now - last_claude_check >= CLAUDE_INTERVAL:
-                entries = get_claude_usage(claude_offsets)
+                entries = get_claude_usage()
                 if entries:
                     client.claude_usage(entries)
                     total = sum(e["input_tokens"] + e["output_tokens"] for e in entries)
@@ -519,7 +545,11 @@ def run(token: str, backend: str, on_status=None):
         except Exception as e:
             log.error("Loop error: %s", e)
 
-        time.sleep(HEARTBEAT_INTERVAL)
+        # Sleep in small increments so stop_event is checked promptly
+        for _ in range(HEARTBEAT_INTERVAL):
+            if stop_event and stop_event.is_set():
+                break
+            time.sleep(1)
 
 
 if __name__ == "__main__":
