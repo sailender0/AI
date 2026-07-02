@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
@@ -30,6 +31,7 @@ from app.webhooks.receivers.gitlab import router as gitlab_router
 from app.webhooks.receivers.jira import router as jira_router
 from app.ai.query import router as query_router
 from app.routes.agent import router as agent_router
+from app.routes.standup import router as standup_router
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -53,8 +55,12 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
-    scheduler.add_job(run_summary_job, "cron", hour=23, minute=59, args=["daily"], id="daily_summary")
-    scheduler.add_job(run_summary_job, "cron", day_of_week="fri", hour=17, minute=0, args=["weekly"], id="weekly_summary")
+    # Hourly: run_summary_job generates only for profiles whose LOCAL hour is 23, so
+    # every timezone gets its daily summary at its own 23:00. (docs/adr-0001-timezone.md)
+    scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
+    # Hourly: generates only for profiles whose LOCAL time is Friday 17:00, so every
+    # timezone gets its weekly summary at its own Friday evening. (docs/adr-0001-timezone.md)
+    scheduler.add_job(run_summary_job, "cron", minute=0, args=["weekly"], id="weekly_summary")
 
     scheduler.start()
     logger.info("Scheduler started")
@@ -82,6 +88,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(RequestIDMiddleware)
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(pages_router)
 app.include_router(profile_router)
 app.include_router(activity_router)
@@ -97,6 +104,7 @@ app.include_router(gitlab_router)
 app.include_router(jira_router)
 app.include_router(query_router)
 app.include_router(agent_router)
+app.include_router(standup_router)
 
 
 @app.get("/health")

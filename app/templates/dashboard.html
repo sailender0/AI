@@ -10,6 +10,80 @@
 
 <div id="main-content" class="hidden flex-1 flex flex-col gap-5 min-h-0">
 
+  <!-- Standup card — always visible, expanded before 11am, chip after -->
+  <div x-data="standupCard()" x-init="init()">
+
+    <!-- Collapsed chip (shown after 11am or after dismiss) -->
+    <div x-show="!expanded" class="flex items-center gap-2">
+      <button @click="expand()"
+        class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition hover:opacity-80"
+        style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)">
+        📋 <span x-text="text ? 'View today\'s standup' : 'Generate standup'"></span>
+      </button>
+    </div>
+
+    <!-- Expanded card -->
+    <div x-show="expanded"
+      x-transition:enter="transition ease-out duration-150"
+      x-transition:enter-start="opacity-0 -translate-y-1"
+      x-transition:enter-end="opacity-100 translate-y-0"
+      class="card p-4"
+      style="border:1px solid var(--border);background:var(--surface)">
+
+      <!-- Header row -->
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span style="color:var(--text-1);font-size:.85rem;font-weight:600">Daily Standup</span>
+          <span x-text="periodLabel" class="text-xs px-2 py-0.5 rounded-full"
+            style="background:var(--surface-2);color:var(--text-3)"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="regenerate()" :disabled="loading"
+            class="text-xs px-2 py-1 rounded-md transition hover:opacity-80"
+            style="background:var(--surface-2);color:var(--text-2)">
+            <span x-show="!loading">↺ Regenerate</span>
+            <span x-show="loading">…</span>
+          </button>
+          <button @click="collapse()" title="Collapse"
+            class="text-xs px-2 py-1 rounded-md transition hover:opacity-80"
+            style="color:var(--text-3)">▴</button>
+        </div>
+      </div>
+
+      <!-- Staleness warning -->
+      <div x-show="stale && text" class="flex items-center gap-1.5 mb-2 text-xs" style="color:#fb923c">
+        ⚠ Generated at <span x-text="generatedAtLabel"></span> — data may be incomplete
+        <button @click="regenerate()" class="underline ml-1" style="color:#fb923c">Refresh</button>
+      </div>
+
+      <!-- Loading -->
+      <div x-show="loading && !text" class="flex items-center gap-2 py-2">
+        <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:var(--text-3)"></div>
+        <span class="text-xs" style="color:var(--text-3)">Generating your standup…</span>
+      </div>
+
+      <!-- Error -->
+      <div x-show="error" class="text-xs py-1" style="color:#f87171" x-text="error"></div>
+
+      <!-- Editable text -->
+      <textarea x-show="text && !loading"
+        x-model="text"
+        @input="saveDraft()"
+        rows="4"
+        class="w-full text-sm resize-none rounded-md p-2 focus:outline-none"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border);line-height:1.6;font-family:inherit"></textarea>
+
+      <!-- Footer -->
+      <div x-show="text && !loading" class="flex items-center justify-between mt-2">
+        <span class="text-xs" style="color:var(--text-3)" x-text="generatedAtLabel ? 'Generated ' + generatedAtLabel : ''"></span>
+        <button @click="copy()"
+          class="text-xs px-3 py-1 rounded-md transition"
+          style="background:var(--chrome);color:var(--chrome-text)"
+          x-text="copied ? '✓ Copied' : '📋 Copy'"></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setStatsPeriod('today')"
@@ -607,6 +681,117 @@
     list.innerHTML = timelinePeriod === 'history'
       ? renderHistoryFeed(events)
       : renderTimelineFeed(events);
+  }
+
+  function standupCard() {
+    return {
+      expanded: false,
+      loading: false,
+      text: '',
+      error: '',
+      periodLabel: '',
+      generatedAt: null,   // ISO string from server
+      copied: false,
+
+      get today() { return new Date().toISOString().slice(0, 10); },
+
+      get stale() {
+        if (!this.generatedAt) return false;
+        const age = (Date.now() - new Date(this.generatedAt)) / 60000; // minutes
+        return age > 120 && new Date().getHours() < 13;
+      },
+
+      get generatedAtLabel() {
+        if (!this.generatedAt) return '';
+        const d = new Date(this.generatedAt);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      },
+
+      _draftKey() { return `standup_draft_${this.today}`; },
+      _collapsedKey() { return `standup_collapsed_${this.today}`; },
+
+      saveDraft() {
+        localStorage.setItem(this._draftKey(), this.text);
+      },
+
+      init() {
+        const hour = new Date().getHours();
+        const collapsed = localStorage.getItem(this._collapsedKey()) === '1';
+        // Expand automatically before 11am unless user already collapsed today
+        this.expanded = hour < 11 && !collapsed;
+
+        if (this.expanded) this.load();
+
+        // Re-check freshness when tab regains focus (covers sleep/locked screen case)
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden && this.text && this.stale) {
+            // Tab came back, warn but don't auto-reload — user may have edits
+            // staleness warning already shows via the getter
+          }
+          if (!document.hidden && !this.text && this.expanded) {
+            this.load();
+          }
+        });
+      },
+
+      async load() {
+        // Restore saved draft first (covers tab refresh / sleep case)
+        const draft = localStorage.getItem(this._draftKey());
+        if (draft) { this.text = draft; }
+
+        this.loading = true;
+        this.error = '';
+        try {
+          const r = await fetch('/api/standup/today', { credentials: 'include' });
+          const d = await r.json();
+          if (d.error) { this.error = d.error; return; }
+          // Only overwrite draft if we don't already have one
+          if (!draft) this.text = d.standup;
+          this.periodLabel = d.period || '';
+          this.generatedAt = d.generated_at || null;
+        } catch (e) {
+          this.error = 'Failed to load standup.';
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      async regenerate() {
+        this.loading = true;
+        this.error = '';
+        this.text = '';
+        localStorage.removeItem(this._draftKey());
+        try {
+          const r = await fetch('/api/standup/regenerate', { method: 'POST', credentials: 'include' });
+          const d = await r.json();
+          if (d.error) { this.error = d.error; return; }
+          this.text = d.standup;
+          this.periodLabel = d.period || '';
+          this.generatedAt = d.generated_at || null;
+        } catch (e) {
+          this.error = 'Failed to regenerate.';
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      async copy() {
+        await navigator.clipboard.writeText(this.text);
+        this.copied = true;
+        setTimeout(() => this.copied = false, 2000);
+      },
+
+      expand() {
+        this.expanded = true;
+        localStorage.removeItem(this._collapsedKey());
+        if (!this.text) this.load();
+      },
+
+      collapse() {
+        this.expanded = false;
+        localStorage.setItem(this._collapsedKey(), '1');
+      },
+    };
   }
 </script>
 {% endblock %}

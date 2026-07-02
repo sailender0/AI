@@ -8,6 +8,37 @@ from app.storage.models import Integration, LinkedIdentity, Profile
 from app.storage.mongodb import activity_events
 
 
+HEARTBEAT_INTERVAL = 30    # seconds between agent heartbeats
+FOCUS_GAP_SECONDS  = 300   # gap > 5 min = new focus block
+
+
+def compute_focus_blocks(heartbeats: list[dict]) -> list[dict]:
+    """Group timestamp-sorted, non-idle heartbeats into focus blocks.
+
+    Single source of truth for focus time — used by both the My Activity
+    analytics page and the AI activity context so they never disagree.
+    Each heartbeat dict needs a "timestamp" (aware datetime). A block's
+    duration is end-start, so a lone heartbeat is 0 minutes.
+    """
+    if not heartbeats:
+        return []
+    blocks, block_start, block_end = [], None, None
+    for hb in heartbeats:
+        ts = hb["timestamp"]
+        if block_start is None:
+            block_start = block_end = ts
+        elif (ts - block_end).total_seconds() <= FOCUS_GAP_SECONDS + HEARTBEAT_INTERVAL:
+            block_end = ts
+        else:
+            blocks.append({"start": block_start, "end": block_end,
+                           "duration_min": int((block_end - block_start).total_seconds() / 60)})
+            block_start = block_end = ts
+    if block_start:
+        blocks.append({"start": block_start, "end": block_end,
+                       "duration_min": int((block_end - block_start).total_seconds() / 60)})
+    return blocks
+
+
 def week_bounds(weeks_ago: int = 0, tz_name: str = "UTC"):
     tz = ZoneInfo(tz_name or "UTC")
     now = datetime.now(tz)

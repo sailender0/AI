@@ -1,7 +1,10 @@
 """Receive data from the desktop agent."""
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from pymongo.errors import DuplicateKeyError
 
 from app.middleware.rate_limit import limiter
@@ -15,6 +18,16 @@ from ._base import (
 )
 
 router = APIRouter()
+
+_TOOL_DEFS_PATH = Path(__file__).parent.parent.parent / "ai" / "tool_definitions.json"
+
+
+@router.get("/tool-definitions")
+async def tool_definitions():
+    """Public endpoint — returns AI tool detection maps. No auth required.
+    Edit app/ai/tool_definitions.json to add new tools; agents pick it up within an hour."""
+    return JSONResponse(_TOOL_DEFS_PATH.read_text(encoding="utf-8"),
+                        media_type="application/json")
 
 
 @router.post("/heartbeat")
@@ -97,22 +110,18 @@ async def receive_claude_usage(
     device, profile_id = ctx
     col = claude_usage()
     for entry in body.entries:
-        update: dict = {
-            "$inc": {
+        await col.update_one(
+            {"profile_id": profile_id, "date": entry.date,
+             "model": entry.model, "repo": entry.repo},
+            {"$set": {
+                "device_id":             str(device.id),
                 "input_tokens":          entry.input_tokens,
                 "cache_creation_tokens": entry.cache_creation_tokens,
                 "cache_read_tokens":     entry.cache_read_tokens,
                 "output_tokens":         entry.output_tokens,
                 "message_count":         entry.message_count,
-            },
-            "$set": {"device_id": str(device.id)},
-        }
-        if entry.files:
-            update["$addToSet"] = {"files": {"$each": entry.files}}
-        await col.update_one(
-            {"profile_id": profile_id, "date": entry.date,
-             "model": entry.model, "repo": entry.repo},
-            update,
+                "files":                 sorted(entry.files),
+            }},
             upsert=True,
         )
     return {"ok": True}

@@ -247,7 +247,7 @@
       const res = await fetch(`/api/chat/conversations/${currentConvId}/ask/stream`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
 
       if (!res.ok) {

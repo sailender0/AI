@@ -72,17 +72,45 @@ async def gitlab_page(request: Request):
 async def my_activity_page(request: Request):
     if not await get_profile_from_session(request):
         return RedirectResponse("/auth/login?next=/my-activity&desktop=1")
-    is_desktop = request.cookies.get("da_desktop") == "1"
+    # Treat ?_dt=1 as desktop on the same request (cookie lands on next request otherwise)
+    is_desktop = request.cookies.get("da_desktop") == "1" or request.query_params.get("_dt") == "1"
     response = templates.TemplateResponse(
         request=request,
         name="my_activity.html",
         context={"active_page": "my_activity", "is_desktop": is_desktop},
     )
-    # If opened with ?_dt=1 (desktop app first load), set the cookie
-    if request.query_params.get("_dt") == "1" and not is_desktop:
+    if request.query_params.get("_dt") == "1" and request.cookies.get("da_desktop") != "1":
         is_https = settings.APP_BASE_URL.startswith("https://")
         response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
     return response
+
+
+@router.get("/my-activity/ai-tools", response_class=HTMLResponse)
+async def ai_tools_page(
+    request: Request,
+    date: str = "",
+    week: str = "",
+):
+    if not await get_profile_from_session(request):
+        return RedirectResponse("/auth/login?next=/my-activity/ai-tools")
+    is_desktop = request.cookies.get("da_desktop") == "1" or request.query_params.get("_dt") == "1"
+    if not is_desktop:
+        return RedirectResponse("/my-activity")
+    # Determine initial mode and values from query params
+    init_mode = "week" if week else "day"
+    init_date = date or ""
+    init_week = week or ""
+    return templates.TemplateResponse(
+        request=request,
+        name="agent_ai_tools.html",
+        context={
+            "active_page": "my_activity",
+            "is_desktop":  is_desktop,
+            "init_mode":   init_mode,
+            "init_date":   init_date,
+            "init_week":   init_week,
+        },
+    )
 
 
 @router.get("/analytics", response_class=HTMLResponse)

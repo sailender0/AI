@@ -147,10 +147,9 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
                 "https://api.atlassian.com/me",
                 headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
             )
-        _log.getLogger(__name__).info("Jira /me: %s %s", me_resp.status_code, me_resp.text)
         if me_resp.status_code == 200:
             account_id = me_resp.json().get("account_id", "")
-            _log.getLogger(__name__).info("Jira account_id: %r", account_id)
+            _log.getLogger(__name__).info("Jira linked account_id: %s", account_id[:8] + "…")
             if account_id:
                 from app.storage.models import LinkedIdentity
                 async with AsyncSessionLocal() as db:

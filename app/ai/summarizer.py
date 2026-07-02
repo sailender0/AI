@@ -6,10 +6,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from openai import AsyncAzureOpenAI
 from sqlalchemy import select
 
+from app.ai import agent
 from app.config import settings
+from app.services.timezone import day_bounds, resolve
 from app.storage.models import Integration, Profile, Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import AsyncSessionLocal
@@ -25,21 +26,6 @@ _PRIORITY = {
     "message_sent": 3,
     "meeting": 4,
 }
-
-
-_client: AsyncAzureOpenAI | None = None
-
-
-def _openai_client() -> AsyncAzureOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncAzureOpenAI(
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            api_key=settings.AZURE_OPENAI_KEY,
-            api_version="2024-08-01-preview",
-            max_retries=3,
-        )
-    return _client
 
 
 def _period_bounds(tz_name: str, period_type: str, full_day: bool = False) -> tuple[datetime, datetime]:
@@ -106,19 +92,29 @@ async def _get_failed_sources(profile_id: str) -> list[str]:
     return [r.source for r in rows]
 
 
+def _is_scheduled_time(period_type: str, local_now: datetime) -> bool:
+    """True when the hourly job should generate for a profile at this local time.
+    Daily fires at local 23:00; weekly at local Friday 17:00 — so every timezone
+    gets its summary at the right local moment. (docs/adr-0001-timezone.md)"""
+    if period_type == "daily":
+        return local_now.hour == 23
+    if period_type == "weekly":
+        return local_now.weekday() == 4 and local_now.hour == 17  # Friday 17:xx
+    return True
+
+
 async def run_summary_job(period_type: str):
-    """Entry point called by APScheduler (fires every hour at :59)."""
+    """Entry point called by APScheduler — both jobs run hourly and generate only
+    for profiles whose LOCAL time matches (_is_scheduled_time)."""
     async with AsyncSessionLocal() as db:
         profiles = (await db.execute(select(Profile))).scalars().all()
 
     for profile in profiles:
         profile_id = str(profile.id)
         try:
-            if period_type == "daily":
-                # Only generate when it is 23:xx in the user's local timezone
-                local_now = datetime.now(ZoneInfo(profile.timezone or "UTC"))
-                if local_now.hour != 23:
-                    continue
+            local_now = datetime.now(ZoneInfo(profile.timezone or "UTC"))
+            if not _is_scheduled_time(period_type, local_now):
+                continue
             await _summarise_profile(profile, profile_id, period_type, full_day=(period_type == "daily"))
         except Exception as exc:
             logger.error("Summary job failed for %s: %s", profile_id, exc)
@@ -136,10 +132,7 @@ async def _summarise_profile(
     if period_start_utc and period_end_utc:
         period_start, period_end = period_start_utc, period_end_utc
     elif specific_date and period_type == "daily":
-        tz = ZoneInfo(profile.timezone or "UTC")
-        sd = datetime.strptime(specific_date, "%Y-%m-%d").replace(tzinfo=tz)
-        period_start = sd.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        period_end   = (sd + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        period_start, period_end = day_bounds(specific_date, resolve(profile.timezone))
     else:
         period_start, period_end = _period_bounds(profile.timezone, period_type, full_day)
 
@@ -160,14 +153,7 @@ async def _summarise_profile(
     caveat = f"Note: data from {', '.join(failed)} was unavailable." if failed else ""
 
     prompt = _build_prompt(period_type, events, caveat)
-    client = _openai_client()
-    response = await client.chat.completions.create(
-        model=settings.AZURE_OPENAI_DEPLOYMENT,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=400,
-        temperature=0.3,
-    )
-    summary_text = response.choices[0].message.content.strip()
+    summary_text = await agent.answer("", prompt, max_tokens=400, temperature=0.3)
     logger.info("Summary generated — profile=%s period=%s", profile_id, period_type)
 
     async with AsyncSessionLocal() as db:

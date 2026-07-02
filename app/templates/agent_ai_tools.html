@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}AI Tool Usage — Developer Activity{% endblock %}
+{% block page_subtitle %}{% if init_mode == 'week' %}Weekly{% else %}Daily{% endif %} token usage by project and model{% endblock %}
+
+{% block content %}
+<div x-data="aiToolsPage()" x-init="init()" class="space-y-5">
+
+  <!-- Back link -->
+  <a href="/my-activity"
+     class="inline-flex items-center gap-1.5 text-xs hover:opacity-70 transition-opacity"
+     style="color:var(--text-3)">&#8592; Back to My Activity</a>
+
+  <!-- Pickers — mode fixed by entry point (Today → day, Week → week) -->
+  <div class="flex flex-wrap items-center gap-3">
+
+    <!-- Day pickers -->
+    <div x-show="mode==='day'" class="flex items-center gap-1.5">
+      <button @click="prevDay()"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70"
+              style="background:var(--surface-2);color:var(--text-2)">&#9664;</button>
+      <input type="date" x-model="selectedDate" :max="todayStr" @change="load()"
+             class="text-xs rounded-lg px-2 py-1.5 font-mono"
+             style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)" />
+      <button @click="nextDay()" :disabled="selectedDate >= todayStr"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-25"
+              style="background:var(--surface-2);color:var(--text-2)">&#9654;</button>
+      <button x-show="selectedDate !== todayStr" @click="goToday()"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80"
+              style="background:var(--chrome);color:var(--chrome-text)">&#8592; Today</button>
+    </div>
+
+    <!-- Week pickers -->
+    <div x-show="mode==='week'" class="flex items-center gap-1.5">
+      <button @click="prevWeek()"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70"
+              style="background:var(--surface-2);color:var(--text-2)">&#9664;</button>
+      <input type="week" x-model="selectedWeek" :max="currentWeekStr"
+             @change="loadWeek()"
+             class="text-xs rounded-lg px-2 py-1.5 font-mono"
+             style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)" />
+      <button @click="nextWeek()" :disabled="selectedWeek >= currentWeekStr"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-25"
+              style="background:var(--surface-2);color:var(--text-2)">&#9654;</button>
+      <button x-show="selectedWeek !== currentWeekStr" @click="goThisWeek()"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80"
+              style="background:var(--chrome);color:var(--chrome-text)">&#8592; This Week</button>
+    </div>
+
+    <!-- Model filter -->
+    <div class="ml-auto" x-show="allModels.length > 0">
+      <select x-model="modelFilter"
+              class="text-xs rounded-lg px-3 py-1.5"
+              style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)">
+        <option value="">All models</option>
+        <template x-for="m in allModels" :key="m">
+          <option :value="m" x-text="m"></option>
+        </template>
+      </select>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <div x-show="!loading && (mode==='day' ? filteredRepos.length === 0 : weekDaysFiltered.every(d => d.repos.length === 0))"
+       class="rounded-xl py-16 text-center" style="background:var(--surface);border:1px solid var(--border)">
+    <p class="text-sm" style="color:var(--text-3)">No AI tool data for this period</p>
+    <p class="text-xs mt-1" style="color:var(--text-3)">Token usage appears once Claude Code syncs (~60s)</p>
+  </div>
+
+  <!-- Loading -->
+  <div x-show="loading" class="text-xs py-4 text-center" style="color:var(--text-3)">Loading…</div>
+
+  <!-- Summary cards -->
+  <div x-show="mode==='day' ? filteredRepos.length > 0 : weekDaysFiltered.some(d => d.repos.length > 0)"
+       class="grid grid-cols-4 gap-4">
+    <div class="rounded-xl p-4" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">PROJECTS</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="filteredRepos.length">—</p>
+    </div>
+    <div class="rounded-xl p-4" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">INPUT TOKENS</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(totalIn)">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)">prompt</p>
+    </div>
+    <div class="rounded-xl p-4" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">OUTPUT TOKENS</p>
+      <p class="text-2xl font-bold" style="color:var(--text-1)" x-text="formatTokens(totalOut)">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)">response</p>
+    </div>
+    <div class="rounded-xl p-4" style="background:var(--surface);border:1px solid var(--border)">
+      <p class="text-xs font-medium mb-1" style="color:var(--text-3)">TOTAL</p>
+      <p class="text-2xl font-bold" style="color:#e07b39" x-text="formatTokens(totalIn + totalOut)">—</p>
+      <p class="text-xs mt-1" style="color:var(--text-3)" x-text="allModels.length + ' model' + (allModels.length !== 1 ? 's' : '')"></p>
+    </div>
+  </div>
+
+  <!-- DAY MODE: per-project cards -->
+  <div x-show="mode==='day' && filteredRepos.length > 0" class="space-y-4">
+    <template x-for="repo in filteredRepos" :key="repo.repo">
+      <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+        <div class="flex items-start gap-3 mb-4">
+          <span class="font-mono text-sm font-bold px-2 py-1 rounded"
+                style="background:var(--surface-2);color:var(--text-1)" x-text="repo.repo"></span>
+          <div class="ml-auto text-right">
+            <p class="text-sm font-semibold" style="color:#e07b39"
+               x-text="formatTokens(repo.input_tokens + repo.output_tokens) + ' tokens'"></p>
+            <p class="text-xs" style="color:var(--text-3)">
+              Input <span x-text="formatTokens(repo.input_tokens)"></span>
+              &nbsp;&middot;&nbsp;
+              Output <span x-text="formatTokens(repo.output_tokens)"></span>
+            </p>
+          </div>
+        </div>
+        <div class="h-1.5 rounded-full mb-4 overflow-hidden" style="background:var(--surface-2)">
+          <div class="h-full rounded-full" style="background:#e07b39"
+               :style="'width:' + Math.max(2, (repo.input_tokens + repo.output_tokens) / Math.max(1, totalIn + totalOut) * 100) + '%'"></div>
+        </div>
+        <div class="space-y-3 mb-4">
+          <p class="text-xs font-semibold" style="color:var(--text-3)">BY MODEL</p>
+          <template x-for="m in repo.models" :key="m.model">
+            <div class="flex items-center gap-3">
+              <span class="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                    style="background:var(--surface-2);color:var(--text-2)" x-text="m.model || 'unknown'"></span>
+              <div class="flex-1 flex gap-0.5 h-3 rounded overflow-hidden" style="background:var(--surface-2)">
+                <div class="h-full" style="background:#6366f1;opacity:0.7"
+                     :style="'width:' + (m.input_tokens / Math.max(1, m.input_tokens + m.output_tokens) * 100) + '%'"></div>
+                <div class="h-full" style="background:#e07b39;opacity:0.7"
+                     :style="'width:' + (m.output_tokens / Math.max(1, m.input_tokens + m.output_tokens) * 100) + '%'"></div>
+              </div>
+              <div class="text-xs flex-shrink-0 space-y-0.5 text-right" style="color:var(--text-3)">
+                <div><span style="color:#6366f1">Input</span> <span x-text="formatTokens(m.input_tokens)"></span></div>
+                <div><span style="color:#e07b39">Output</span> <span x-text="formatTokens(m.output_tokens)"></span></div>
+                <div x-text="m.messages + ' msg'"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <template x-if="repo.files && repo.files.length">
+          <div>
+            <p class="text-xs font-semibold mb-2" style="color:var(--text-3)">FILES TOUCHED</p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="f in repo.files" :key="f">
+                <span class="text-xs px-1.5 py-0.5 rounded font-mono"
+                      style="background:var(--surface-2);color:var(--text-3)"
+                      x-text="f.split('/').pop() || f.split('\\').pop() || f" :title="f"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <!-- WEEK MODE: day-by-day accordion -->
+  <div x-show="mode==='week' && !loading" class="space-y-3">
+    <template x-for="dayData in weekDaysFiltered" :key="dayData.date">
+      <div class="rounded-xl overflow-hidden" style="background:var(--surface);border:1px solid var(--border)">
+
+        <!-- Day header -->
+        <div class="flex items-center gap-3 px-5 py-3 cursor-pointer select-none"
+             style="background:var(--surface-2)"
+             @click="dayExpanded[dayData.date] = !dayExpanded[dayData.date]">
+          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                :style="dayData.repos.length ? 'background:#e07b39' : 'background:var(--border)'"></span>
+          <span class="text-sm font-semibold"
+                :style="isToday(dayData.date) ? 'color:var(--text-1)' : 'color:var(--text-2)'"
+                x-text="(isToday(dayData.date) ? 'Today — ' : '') + formatFullDate(dayData.date)"></span>
+          <template x-if="dayData.totalTokens > 0">
+            <span class="text-xs px-2 py-0.5 rounded-full font-mono"
+                  style="background:rgba(224,123,57,0.12);color:#e07b39;border:1px solid rgba(224,123,57,0.25)"
+                  x-text="formatTokens(dayData.totalTokens) + ' tokens'"></span>
+          </template>
+          <span class="ml-auto text-xs" style="color:var(--text-3)"
+                x-text="dayExpanded[dayData.date] ? '▲' : '▼'"></span>
+        </div>
+
+        <!-- Day content -->
+        <div x-show="dayExpanded[dayData.date]" class="p-5">
+          <template x-if="dayData.repos.length === 0 && dayData.otherTools.length === 0">
+            <p class="text-sm py-2" style="color:var(--text-3)">No activity</p>
+          </template>
+          <!-- Non-Claude tools detected this day -->
+          <template x-if="dayData.otherTools.length > 0">
+            <div class="flex flex-wrap gap-2 mb-4">
+              <template x-for="tool in dayData.otherTools" :key="tool">
+                <span class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+                      style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">
+                  <span class="w-2 h-2 rounded-full flex-shrink-0"
+                        :style="'background:' + ({'github-copilot':'#6e40c9','cursor-ai':'#1a73e8','windsurf':'#06b6d4','tabnine':'#22c55e','codeium':'#f59e0b','gemini-cli':'#3b82f6','gemini-code-assist':'#3b82f6','amazon-q':'#f97316','ollama':'#64748b'}[tool] || '#6b7280')"></span>
+                  <span x-text="tool"></span>
+                  <span style="color:var(--text-3)">· active</span>
+                </span>
+              </template>
+            </div>
+          </template>
+          <template x-if="dayData.repos.length > 0">
+            <div class="space-y-5">
+              <template x-for="repo in dayData.repos" :key="repo.repo">
+                <div>
+                  <!-- Repo header -->
+                  <div class="flex items-center gap-3 mb-3">
+                    <span class="font-mono text-sm font-bold px-2 py-1 rounded"
+                          style="background:var(--surface-2);color:var(--text-1)" x-text="repo.repo"></span>
+                    <div class="ml-auto text-right">
+                      <p class="text-sm font-semibold" style="color:#e07b39"
+                         x-text="formatTokens(repo.input_tokens + repo.output_tokens) + ' tokens'"></p>
+                      <p class="text-xs" style="color:var(--text-3)">
+                        Input <span x-text="formatTokens(repo.input_tokens)"></span>
+                        &nbsp;·&nbsp;
+                        Output <span x-text="formatTokens(repo.output_tokens)"></span>
+                      </p>
+                    </div>
+                  </div>
+                  <!-- Proportion bar vs day total -->
+                  <div class="h-1.5 rounded-full mb-3 overflow-hidden" style="background:var(--surface-2)">
+                    <div class="h-full rounded-full"
+                         style="background:linear-gradient(to right,#fdba74,#c2410c)"
+                         :style="'width:' + Math.max(2, (repo.input_tokens+repo.output_tokens) / Math.max(1,dayData.totalTokens) * 100) + '%'"></div>
+                  </div>
+                  <!-- Models -->
+                  <div class="space-y-2 mb-3">
+                    <p class="text-xs font-semibold" style="color:var(--text-3)">BY MODEL</p>
+                    <template x-for="m in repo.models" :key="m.model">
+                      <div class="flex items-center gap-3">
+                        <span class="font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                              style="background:var(--surface-2);color:var(--text-2)" x-text="m.model || 'unknown'"></span>
+                        <div class="flex-1 flex gap-0.5 h-2.5 rounded overflow-hidden" style="background:var(--surface-2)">
+                          <div class="h-full" style="background:#6366f1;opacity:0.75"
+                               :style="'width:' + (m.input_tokens / Math.max(1, m.input_tokens+m.output_tokens) * 100) + '%'"></div>
+                          <div class="h-full" style="background:#e07b39;opacity:0.75"
+                               :style="'width:' + (m.output_tokens / Math.max(1, m.input_tokens+m.output_tokens) * 100) + '%'"></div>
+                        </div>
+                        <div class="text-xs flex-shrink-0 space-y-0.5 text-right" style="min-width:120px;color:var(--text-3)">
+                          <div><span style="color:#6366f1">Input</span> <span x-text="formatTokens(m.input_tokens)"></span></div>
+                          <div><span style="color:#e07b39">Output</span> <span x-text="formatTokens(m.output_tokens)"></span></div>
+                          <div x-text="m.messages + ' msgs'"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                  <!-- Files -->
+                  <template x-if="repo.files && repo.files.length">
+                    <div>
+                      <p class="text-xs font-semibold mb-1.5" style="color:var(--text-3)">FILES TOUCHED</p>
+                      <div class="flex flex-wrap gap-1">
+                        <template x-for="f in repo.files" :key="f">
+                          <span class="text-xs px-1.5 py-0.5 rounded font-mono"
+                                style="background:var(--surface-2);color:var(--text-3)"
+                                x-text="f.split('/').pop() || f.split('\\').pop() || f" :title="f"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+      </div>
+    </template>
+  </div>
+
+  <!-- Model summary table (when filtering by a specific model) -->
+  <div x-show="!modelFilter && allModels.length > 1"
+       class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
+    <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">MODEL SUMMARY</p>
+    <div class="space-y-2">
+      <template x-for="m in modelSummary" :key="m.model">
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-xs px-1.5 py-0.5 rounded w-48 flex-shrink-0 truncate"
+                style="background:var(--surface-2);color:var(--text-2)" x-text="m.model"></span>
+          <div class="flex-1 h-2 rounded overflow-hidden" style="background:var(--surface-2)">
+            <div class="h-full rounded" style="background:#e07b39;opacity:0.7"
+                 :style="'width:' + (m.total / Math.max(1, totalIn + totalOut) * 100) + '%'"></div>
+          </div>
+          <span class="text-xs w-20 text-right flex-shrink-0" style="color:var(--text-2)"
+                x-text="formatTokens(m.total)"></span>
+          <span class="text-xs w-16 text-right flex-shrink-0" style="color:var(--text-3)"
+                x-text="m.messages + ' msgs'"></span>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function aiToolsPage() {
+  return {
+    mode:            '{{ init_mode }}',
+    selectedDate:    '{{ init_date }}' || new Date().toLocaleDateString('en-CA'),
+    selectedWeek:    '{{ init_week }}' || '',
+    modelFilter:     '',
+    claudeUsage:     [],
+    weekClaudeUsage: [],
+    weekClaudeByDay: {},
+    weekToolsByDay:  {},
+    dayExpanded:     {},
+    loading:         false,
+
+    async init() {
+      if (!this.selectedWeek) this.selectedWeek = this.currentWeekStr;
+      if (this.mode === 'week') {
+        await this.loadWeek();
+      } else {
+        await this.load();
+      }
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+        const dateParam = this.selectedDate !== this.todayStr ? `&date=${this.selectedDate}` : '';
+        const r = await fetch(`/api/agent/today?tz=${tz}${dateParam}`);
+        if (r.ok) { const d = await r.json(); this.claudeUsage = d.claude_usage || []; }
+      } finally { this.loading = false; }
+    },
+
+    async loadWeek() {
+      this.loading = true;
+      try {
+        const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+        const weekStart = this.weekToMonday(this.selectedWeek);
+        const r = await fetch(`/api/agent/week?tz=${tz}&week_start=${weekStart}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.weekClaudeUsage = d.claude_usage  || [];
+          this.weekClaudeByDay = d.claude_by_day  || {};
+          this.weekToolsByDay  = d.tools_by_day   || {};
+        }
+      } finally { this.loading = false; }
+    },
+
+    get currentData() { return this.mode === 'day' ? this.claudeUsage : this.weekClaudeUsage; },
+
+    get allModels() {
+      const s = new Set();
+      this.currentData.forEach(r => (r.models || []).forEach(m => s.add(m.model)));
+      return [...s].sort();
+    },
+
+    get filteredRepos() {
+      if (!this.modelFilter) return this.currentData;
+      return this.currentData.map(r => ({
+        ...r,
+        models:        (r.models || []).filter(m => m.model === this.modelFilter),
+        input_tokens:  (r.models || []).filter(m => m.model === this.modelFilter).reduce((s, m) => s + m.input_tokens, 0),
+        output_tokens: (r.models || []).filter(m => m.model === this.modelFilter).reduce((s, m) => s + m.output_tokens, 0),
+      })).filter(r => r.models.length > 0);
+    },
+
+    get totalIn()  { return this.filteredRepos.reduce((s, r) => s + r.input_tokens, 0); },
+    get totalOut() { return this.filteredRepos.reduce((s, r) => s + r.output_tokens, 0); },
+
+    get modelSummary() {
+      const map = {};
+      this.currentData.forEach(r =>
+        (r.models || []).forEach(m => {
+          if (!map[m.model]) map[m.model] = {model: m.model, total: 0, messages: 0};
+          map[m.model].total    += m.input_tokens + m.output_tokens;
+          map[m.model].messages += m.messages;
+        })
+      );
+      return Object.values(map).sort((a, b) => b.total - a.total);
+    },
+
+    // 7-day array for week mode day-by-day display
+    get weekDaysFiltered() {
+      if (!this.selectedWeek) return [];
+      const monday = this.weekToMonday(this.selectedWeek);
+      return Array.from({length: 7}, (_, i) => {
+        const d = new Date(monday + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + i);
+        const date = d.toLocaleDateString('en-CA');
+        let repos = (this.weekClaudeByDay[date] || []).slice();
+        if (this.modelFilter) {
+          repos = repos.map(r => ({
+            ...r,
+            models:        (r.models||[]).filter(m => m.model === this.modelFilter),
+            input_tokens:  (r.models||[]).filter(m => m.model === this.modelFilter).reduce((s,m)=>s+m.input_tokens,0),
+            output_tokens: (r.models||[]).filter(m => m.model === this.modelFilter).reduce((s,m)=>s+m.output_tokens,0),
+          })).filter(r => r.models.length > 0);
+        }
+        const allTools  = this.weekToolsByDay[date] || [];
+        const otherTools = allTools.filter(t => t !== 'claude-code');
+        return {date, repos, totalTokens: repos.reduce((s,r)=>s+r.input_tokens+r.output_tokens,0), otherTools};
+      });
+    },
+
+    formatFullDate(iso) {
+      return new Date(iso + 'T12:00:00Z').toLocaleDateString(undefined,
+        {weekday:'long', month:'short', day:'numeric'});
+    },
+
+    isToday(iso) { return iso === this.todayStr; },
+
+    // ── Navigation (same as my_activity.html) ──
+    prevDay() {
+      const d = new Date(this.selectedDate + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 1);
+      this.selectedDate = d.toLocaleDateString('en-CA');
+      this.load();
+    },
+    nextDay() {
+      const d = new Date(this.selectedDate + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + 1);
+      const n = d.toLocaleDateString('en-CA');
+      if (n <= this.todayStr) { this.selectedDate = n; this.load(); }
+    },
+    goToday() { this.selectedDate = this.todayStr; this.load(); },
+    prevWeek() {
+      this.selectedWeek = this._addWeeks(this.selectedWeek, -1); this.loadWeek();
+    },
+    nextWeek() {
+      if (this.selectedWeek >= this.currentWeekStr) return;
+      this.selectedWeek = this._addWeeks(this.selectedWeek, 1); this.loadWeek();
+    },
+    goThisWeek() { this.selectedWeek = this.currentWeekStr; this.loadWeek(); },
+
+    _addWeeks(w, delta) {
+      const mon = this.weekToMonday(w);
+      const d = new Date(mon + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + delta * 7);
+      const day = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - day);
+      const ys = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const wk = Math.ceil((((d - ys) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
+    },
+    weekToMonday(ws) {
+      const [y, wn] = ws.split('-W').map(Number);
+      const jan4 = new Date(Date.UTC(y, 0, 4));
+      const j4d  = jan4.getUTCDay() || 7;
+      const mon  = new Date(jan4);
+      mon.setUTCDate(jan4.getUTCDate() - (j4d - 1) + (wn - 1) * 7);
+      return mon.toLocaleDateString('en-CA');
+    },
+    get todayStr() { return new Date().toLocaleDateString('en-CA'); },
+    get currentWeekStr() {
+      const d = new Date();
+      const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const day = u.getUTCDay() || 7;
+      u.setUTCDate(u.getUTCDate() + 4 - day);
+      const ys = new Date(Date.UTC(u.getUTCFullYear(), 0, 1));
+      const wk = Math.ceil((((u - ys) / 86400000) + 1) / 7);
+      return `${u.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
+    },
+    formatTokens(t) {
+      if (!t) return '0';
+      if (t >= 1_000_000) return (t / 1_000_000).toFixed(1) + 'M';
+      return t >= 1000 ? (t / 1000).toFixed(1) + 'k' : String(t);
+    },
+  };
+}
+</script>
+{% endblock %}

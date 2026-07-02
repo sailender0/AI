@@ -4,6 +4,7 @@ On-demand Q&A endpoint + persistent multi-turn chat conversations.
 import logging
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import json as _json
 
@@ -12,34 +13,26 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from pathlib import Path
-
-from app.ai.summarizer import _format_events, _openai_client
+from app.ai import agent
+from app.ai.summarizer import _format_events
 from app.auth.sso import get_profile_from_session
-from app.config import settings
-from app.storage.models import QueryLog, ChatConversation, ChatMessage
-from app.storage.mongodb import activity_events
+from app.services.activity_query import compute_focus_blocks
+from app.services.timezone import day_bounds, is_valid_tz, local_date, now_local, resolve
+from app.storage.models import ChatConversation, ChatMessage, Profile
+from app.storage.mongodb import activity_events, device_heartbeats, claude_usage, local_commits, ai_tool_events, standups
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import _INJECTION_PATTERNS
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_INSTRUCTIONS_FILE = Path(__file__).parent / "instructions.txt"
-
-
 def _load_instructions() -> str:
-    try:
-        return _INSTRUCTIONS_FILE.read_text().strip()
-    except FileNotFoundError:
-        return "You are a personal work assistant. Answer only from the data provided."
+    return agent.load_prompt(
+        "instructions.txt",
+        "You are a personal work assistant. Answer only from the data provided.",
+    )
 
 _MAX_HISTORY_MSGS = 20  # cap conversation context to prevent unbounded token growth
-
-
-class QueryRequest(BaseModel):
-    question: str
-    scope: str = "today"
 
 
 def _sanitize_question(text: str) -> str:
@@ -47,23 +40,31 @@ def _sanitize_question(text: str) -> str:
     return cleaned.strip()[:1000]
 
 
-def _scope_to_range(scope: str) -> dict:
-    now = datetime.now(timezone.utc)
+def _scope_to_range(scope: str, tz_name: str = "UTC") -> dict:
+    tz  = resolve(tz_name)
+    now = now_local(tz)
     if scope == "week":
-        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        return {"$gte": start}
+        monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+        return {"$gte": day_bounds(monday, tz)[0]}
+    # ponytail: month/all are rolling windows (now - N days), not day-aligned,
+    # so day_bounds doesn't apply. Both are vestigial — scope is ~always "today".
     if scope == "month":
-        return {"$gte": now - timedelta(days=30)}
+        return {"$gte": (now - timedelta(days=30)).astimezone(timezone.utc)}
     if scope == "all":
-        return {"$gte": now - timedelta(days=365)}
-    # default: today
-    return {"$gte": now.replace(hour=0, minute=0, second=0, microsecond=0)}
+        return {"$gte": (now - timedelta(days=365)).astimezone(timezone.utc)}
+    # today: local midnight → UTC
+    return {"$gte": day_bounds(now.strftime("%Y-%m-%d"), tz)[0]}
 
 
-async def _gpt_parse_intent(question: str, client, today: str) -> dict:
+async def _gpt_parse_intent(question: str, today: str, tz_name: str = "UTC") -> dict:
     """Ask GPT to extract date_from, date_to, source, event_type from the question."""
+    local_now    = datetime.now(ZoneInfo(tz_name or "UTC"))
+    weekday_name = local_now.strftime("%A")                      # "Tuesday"
+    yesterday    = (local_now - timedelta(days=1)).strftime("%Y-%m-%d (%A)")
     system_prompt = (
-        f"Today's date is {today} (UTC). "
+        f"Today is {weekday_name}, {today} (user's local time). Yesterday was {yesterday}.\n"
+        "When the user refers to a day name (e.g. 'Monday', 'last Friday'), resolve it to the "
+        "most recent past occurrence of that weekday as a YYYY-MM-DD date.\n"
         "The user will provide a question. Extract the following fields and return ONLY valid JSON — no explanation:\n"
         '  "date_from": YYYY-MM-DD or null\n'
         '  "date_to":   YYYY-MM-DD or null  (null = up to now)\n'
@@ -71,44 +72,40 @@ async def _gpt_parse_intent(question: str, client, today: str) -> dict:
         '  "event_type": one of commit, pr, issue, meeting, comment or null'
     )
     try:
-        resp = await client.chat.completions.create(
-            model=settings.AZURE_OPENAI_DEPLOYMENT,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question},
-            ],
-            max_tokens=80,
-            temperature=0,
-            response_format={"type": "json_object"},
-        )
-        return _json.loads(resp.choices[0].message.content)
+        return await agent.extract_json(system_prompt, question, max_tokens=80)
     except Exception as exc:
         logger.warning("GPT intent parse failed: %s", exc)
         return {}
 
 
-def _intent_to_filter(parsed: dict, scope: str) -> dict:
+def _intent_to_filter(parsed: dict, scope: str, tz_name: str = "UTC") -> dict:
     """Convert GPT-parsed intent + UI scope into a MongoDB time range filter."""
     date_from = parsed.get("date_from")
     date_to   = parsed.get("date_to")
 
     if date_from:
         try:
-            df = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            time_filter: dict = {"$gte": df}
-            if date_to:
-                dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
-                time_filter["$lte"] = dt
-            else:
-                # single-day query when date_from == date_to or only from given
-                if not date_to:
-                    time_filter["$lte"] = df + timedelta(days=1)
-            return time_filter
+            tz = resolve(tz_name)
+            # local-midnight bounds so "yesterday" means the user's actual day, not UTC day
+            start, _ = day_bounds(date_from, tz)
+            _, end   = day_bounds(date_to or date_from, tz)
+            return {"$gte": start, "$lte": end}
         except ValueError:
             pass
 
-    # GPT found no date — fall back to UI scope
-    return _scope_to_range(scope)
+    return _scope_to_range(scope, tz_name)
+
+
+def _period_label(parsed: dict, scope: str) -> str:
+    """Human label for the date range the fetched data is already filtered to,
+    so the model doesn't mistake filtered data for an unfiltered/cumulative dump."""
+    date_from = parsed.get("date_from")
+    date_to   = parsed.get("date_to")
+    if date_from:
+        weekday = datetime.strptime(date_from, "%Y-%m-%d").strftime("%A")
+        single  = f"{weekday}, {date_from}"
+        return single if (not date_to or date_to == date_from) else f"{single} to {date_to}"
+    return {"today": "today", "week": "this week"}.get(scope, scope or "today")
 
 
 def _map_event_type(raw: str | None) -> str | None:
@@ -124,81 +121,100 @@ def _map_event_type(raw: str | None) -> str | None:
     return r
 
 
-def _build_query_prompt(question: str, events: list[dict]) -> str:
-    return (
-        "You are a personal work assistant answering a question about "
-        "a developer's own activity. Answer only from the data below.\n"
-        "Be concise. If the answer is a count, state the number first.\n"
-        "Do not guess or invent anything not in the data.\n\n"
-        f"User question: {question}\n\n"
-        "ACTIVITY DATA START\n"
-        f"{_format_events(events)}\n"
-        "ACTIVITY DATA END"
+def _claude_date_range(time_filter: dict, tzinfo) -> tuple[str, str] | None:
+    """Local (date_from, date_to) strings for the claude_usage lookup, which is
+    keyed by local date. The filter's upper bound is an EXCLUSIVE next-midnight, so
+    step back a second to land on the last real local day — not the day after
+    (otherwise a single-day question pulls in the following day's usage). Returns
+    None when the filter has no lower bound."""
+    start_dt = time_filter.get("$gte")
+    if not start_dt:
+        return None
+    end_dt = time_filter.get("$lte") or time_filter.get("$lt")
+    end_dt = (end_dt - timedelta(seconds=1)) if end_dt else datetime.now(timezone.utc)
+    return local_date(start_dt, tzinfo), local_date(end_dt, tzinfo)
+
+
+async def _fetch_my_activity_context(profile_id: str, time_filter: dict, tz_name: str = "UTC") -> str:
+    lines: list[str] = []
+
+    # Focus time — gap-based blocks, the SAME calc the My Activity page uses
+    # (compute_focus_blocks) so the AI answer and the page never disagree.
+    hbs = await device_heartbeats().find(
+        {"profile_id": profile_id, "timestamp": time_filter, "idle": False},
+        projection={"timestamp": 1, "_id": 0},
+    ).sort("timestamp", 1).to_list(35_000)
+    focus_min = sum(b["duration_min"] for b in compute_focus_blocks(hbs))
+    logger.info(
+        "AI context | profile=%s tz=%s filter=%s→%s heartbeats=%d focus_min=%d",
+        profile_id[:8], tz_name,
+        time_filter.get("$gte"), time_filter.get("$lte") or time_filter.get("$lt"),
+        len(hbs), focus_min,
     )
+    if focus_min:
+        h, m = divmod(focus_min, 60)
+        lines.append(f"Focus/coding time: {h}h {m}m (approx)")
 
-
-@router.post("/query")
-async def query(request: Request, body: QueryRequest):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    raw_question = body.question.strip()
-    if not raw_question:
-        return JSONResponse({"error": "question_required"}, status_code=400)
-
-    question = _sanitize_question(raw_question)
-
-    client = _openai_client()
-    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    parsed = await _gpt_parse_intent(question, client, today)
-
-    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
-    if parsed.get("source"):
-        mongo_filter["source"] = parsed["source"]
-    et = _map_event_type(parsed.get("event_type"))
-    if et:
-        mongo_filter["event_type"] = {"$regex": et}
-
-    events = await activity_events().find(mongo_filter).to_list(length=100)
-
-    if not events:
-        return JSONResponse({"answer": "No activity found for that filter."})
-
-    prompt = _build_query_prompt(question, events)
-    try:
-        response = await client.chat.completions.create(
-            model=settings.AZURE_OPENAI_DEPLOYMENT,
-            messages=[
-                {"role": "system", "content": _load_instructions()},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=300,
-            temperature=0.2,
+    # Claude token usage — keyed by LOCAL date string, derived through the same
+    # IANA tz as everything else (docs/adr-0001-timezone.md).
+    rng = _claude_date_range(time_filter, resolve(tz_name))
+    if rng:
+        date_from, date_to = rng
+        claude_docs = await claude_usage().find(
+            {"profile_id": profile_id, "date": {"$gte": date_from, "$lte": date_to}}
+        ).to_list(200)
+        logger.info(
+            "AI context | claude_usage date=%s→%s found=%d",
+            date_from, date_to, len(claude_docs),
         )
-    except Exception as exc:
-        logger.error("OpenAI call failed: %s", exc)
-        return JSONResponse({"error": f"AI call failed: {exc}"}, status_code=502)
-    answer = response.choices[0].message.content.strip()
+        if claude_docs:
+            total_in  = sum(d.get("input_tokens",  0) for d in claude_docs)
+            total_out = sum(d.get("output_tokens", 0) for d in claude_docs)
+            lines.append(f"\nClaude Code usage: {total_in+total_out:,} tokens "
+                         f"(input {total_in:,} / output {total_out:,})")
+            repos: dict[str, int] = {}
+            for d in claude_docs:
+                repo = d.get("repo") or "unknown"
+                repos[repo] = repos.get(repo, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
+            for repo, toks in sorted(repos.items(), key=lambda x: -x[1]):
+                lines.append(f"  {repo}: {toks:,} tokens")
 
-    async with AsyncSessionLocal() as db:
-        log = QueryLog(
-            profile_id=profile_id,
-            question=raw_question,
-            filters_json={
-                "source": parsed.get("source"),
-                "event_type": parsed.get("event_type"),
-                "date_from": parsed.get("date_from"),
-                "date_to": parsed.get("date_to"),
-                "scope": body.scope,
-            },
-            ai_response=answer,
-            context_event_ids=[str(e.get("_id")) for e in events],
-        )
-        db.add(log)
-        await db.commit()
+    # Local commits
+    commits = await local_commits().find(
+        {"profile_id": profile_id, "timestamp": time_filter},
+        projection={"repo": 1, "branch": 1, "message": 1, "timestamp": 1, "_id": 0},
+    ).sort("timestamp", -1).to_list(50)
+    if commits:
+        lines.append(f"\nLocal commits: {len(commits)}")
+        for c in commits:
+            ts  = c.get("timestamp")
+            tss = ts.strftime("%Y-%m-%d %H:%M") if ts else ""
+            lines.append(f"  [{tss}] {c.get('repo','?')}/{c.get('branch','?')}: "
+                         f"{c.get('message','')[:80]}")
 
-    return JSONResponse({"answer": answer})
+    # AI tools detected
+    ai_docs = await ai_tool_events().find(
+        {"profile_id": profile_id, "timestamp": time_filter},
+        projection={"tools": 1, "_id": 0},
+    ).to_list(2000)
+    if ai_docs:
+        all_tools: set[str] = set()
+        for doc in ai_docs:
+            all_tools.update(doc.get("tools", []))
+        if all_tools:
+            lines.append(f"\nAI tools detected: {', '.join(sorted(all_tools))}")
+
+    # Standup history — last 30 days so user can ask "what was my standup last Tuesday?"
+    standup_docs = await standups().find(
+        {"profile_id": profile_id},
+        projection={"date": 1, "text": 1, "_id": 0},
+    ).sort("date", -1).to_list(30)
+    if standup_docs:
+        lines.append("\nPAST STANDUPS (most recent first):")
+        for s in standup_docs:
+            lines.append(f"  [{s['date']}] {s['text']}")
+
+    return "\n".join(lines)
 
 
 # ── Chat conversation endpoints ────────────────────────────────────────────────
@@ -267,94 +283,7 @@ async def get_conversation_messages(request: Request, conv_id: str):
 class AskRequest(BaseModel):
     question: str
     scope: str = "today"
-
-
-@router.post("/api/chat/conversations/{conv_id}/ask")
-async def ask_in_conversation(request: Request, conv_id: str, body: AskRequest):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    raw_question = body.question.strip()
-    if not raw_question:
-        return JSONResponse({"error": "question_required"}, status_code=400)
-    question = _sanitize_question(raw_question)
-
-    client = _openai_client()
-    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    async with AsyncSessionLocal() as db:
-        conv = (await db.execute(
-            select(ChatConversation)
-            .where(ChatConversation.id == conv_id, ChatConversation.profile_id == profile_id)
-        )).scalar_one_or_none()
-        if not conv:
-            return JSONResponse({"error": "not_found"}, status_code=404)
-
-        history = (await db.execute(
-            select(ChatMessage)
-            .where(ChatMessage.conversation_id == conv_id)
-            .order_by(ChatMessage.created_at.asc())
-        )).scalars().all()
-
-        # Set title from first question
-        if not history:
-            conv.title = raw_question[:80]
-
-        # Save user message (generate id in Python so we have it before flush)
-        user_msg_id = _uuid.uuid4()
-        user_created_at = datetime.now(timezone.utc)
-        user_msg = ChatMessage(
-            id=user_msg_id, conversation_id=conv.id,
-            role="user", content=raw_question, created_at=user_created_at,
-        )
-        db.add(user_msg)
-        conv.updated_at = datetime.now(timezone.utc)
-
-        # Fetch activity data for latest question
-        parsed = await _gpt_parse_intent(question, client, today)
-        mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
-        if parsed.get("source"):
-            mongo_filter["source"] = parsed["source"]
-        et = _map_event_type(parsed.get("event_type"))
-        if et:
-            mongo_filter["event_type"] = {"$regex": et}
-        events = await activity_events().find(mongo_filter).to_list(length=100)
-
-        activity_text = _format_events(events) if events else "No activity data found for that period."
-        system_content = f"{_load_instructions()}\n\nACTIVITY DATA:\n{activity_text}"
-        openai_messages = [{"role": "system", "content": system_content}]
-        for m in list(history)[-_MAX_HISTORY_MSGS:]:
-            openai_messages.append({"role": m.role, "content": m.content})
-        openai_messages.append({"role": "user", "content": question})
-
-        try:
-            response = await client.chat.completions.create(
-                model=settings.AZURE_OPENAI_DEPLOYMENT,
-                messages=openai_messages,
-                max_tokens=400,
-                temperature=0.3,
-            )
-        except Exception as exc:
-            logger.error("OpenAI call failed: %s", exc)
-            await db.rollback()
-            return JSONResponse({"error": f"AI call failed: {exc}"}, status_code=502)
-        answer = response.choices[0].message.content.strip()
-
-        ai_msg_id = _uuid.uuid4()
-        ai_created_at = datetime.now(timezone.utc)
-        ai_msg = ChatMessage(
-            id=ai_msg_id, conversation_id=conv.id,
-            role="assistant", content=answer, created_at=ai_created_at,
-        )
-        db.add(ai_msg)
-        await db.commit()
-
-    return JSONResponse({
-        "user_message":   {"id": str(user_msg_id), "role": "user", "content": raw_question, "created_at": user_created_at.isoformat()},
-        "ai_message":     {"id": str(ai_msg_id), "role": "assistant", "content": answer, "created_at": ai_created_at.isoformat()},
-        "conversation_title": conv.title,
-    })
+    tz: str | None = None  # browser IANA timezone (ADR-0001); source of truth for local dates
 
 
 @router.post("/api/chat/conversations/{conv_id}/ask/stream")
@@ -368,8 +297,18 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         return JSONResponse({"error": "question_required"}, status_code=400)
     question = _sanitize_question(raw_question)
 
-    # Fetch conversation + history, save user message eagerly
+    # Fetch conversation + history, timezone, save user message eagerly
     async with AsyncSessionLocal() as db:
+        # Browser IANA tz is the freshest signal — resolve local dates from it and
+        # persist it so background jobs (summaries, standups) use the same day
+        # boundaries the user sees. (docs/adr-0001-timezone.md)
+        profile = await db.get(Profile, profile_id)
+        profile_tz = (profile.timezone or "UTC") if profile else "UTC"
+        if profile and is_valid_tz(body.tz) and body.tz != profile.timezone:
+            profile.timezone = body.tz
+            profile_tz = body.tz
+        tz_name = resolve(profile_tz, body.tz).key
+
         conv = (await db.execute(
             select(ChatConversation)
             .where(ChatConversation.id == conv_id, ChatConversation.profile_id == profile_id)
@@ -396,40 +335,43 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         conv.updated_at = user_created_at
         await db.commit()
 
-    # Fetch activity context
-    client = _openai_client()
-    today  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    parsed = await _gpt_parse_intent(question, client, today)
-    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": _intent_to_filter(parsed, body.scope)}
+    # Fetch activity context using user's local timezone
+    today  = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    parsed = await _gpt_parse_intent(question, today, tz_name)
+    time_filter = _intent_to_filter(parsed, body.scope, tz_name)
+    mongo_filter: dict = {"profile_id": profile_id, "occurred_at": time_filter}
     if parsed.get("source"):
         mongo_filter["source"] = parsed["source"]
     et = _map_event_type(parsed.get("event_type"))
     if et:
         mongo_filter["event_type"] = {"$regex": et}
     events = await activity_events().find(mongo_filter).to_list(length=100)
+    my_activity = await _fetch_my_activity_context(profile_id, time_filter, tz_name)
 
-    activity_text  = _format_events(events) if events else "No activity data found for that period."
-    system_content = f"{_load_instructions()}\n\nACTIVITY DATA:\n{activity_text}"
-    openai_messages = [{"role": "system", "content": system_content}]
-    for m in list(history)[-_MAX_HISTORY_MSGS:]:
-        openai_messages.append({"role": m.role, "content": m.content})
-    openai_messages.append({"role": "user", "content": question})
+    activity_text = _format_events(events) if events else "No activity data found for that period."
+    period_label  = _period_label(parsed, body.scope)
+    system_content = (
+        f"{_load_instructions()}\n\n"
+        f"All data below is already filtered to: {period_label}. Treat it as complete "
+        "for that period — do not say it's cumulative or lacks a date breakdown.\n\n"
+        f"ACTIVITY DATA:\n{activity_text}"
+    )
+    if my_activity:
+        system_content += f"\n\nDESKTOP/LOCAL ACTIVITY:\n{my_activity}"
+    chat_history = [
+        {"role": m.role, "content": m.content}
+        for m in list(history)[-_MAX_HISTORY_MSGS:]
+    ]
 
     async def event_stream():
         tokens: list[str] = []
         try:
-            stream = await client.chat.completions.create(
-                model=settings.AZURE_OPENAI_DEPLOYMENT,
-                messages=openai_messages,
-                max_tokens=400,
-                temperature=0.3,
-                stream=True,
-            )
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content if chunk.choices else None
-                if delta:
-                    tokens.append(delta)
-                    yield f"data: {_json.dumps({'token': delta})}\n\n"
+            async for delta in agent.answer_stream(
+                system_content, question, chat_history,
+                max_tokens=400, temperature=0.3,
+            ):
+                tokens.append(delta)
+                yield f"data: {_json.dumps({'token': delta})}\n\n"
         except Exception as exc:
             logger.error("Streaming OpenAI call failed: %s", exc)
             yield f"data: {_json.dumps({'error': str(exc)})}\n\n"

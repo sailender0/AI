@@ -44,6 +44,14 @@ def tool_preferences():
     return get_db()["tool_preferences"]
 
 
+def week_summaries():
+    return get_db()["week_summaries"]
+
+
+def standups():
+    return get_db()["standups"]
+
+
 async def init_indexes():
     col = activity_events()
     await col.create_index([("profile_id", 1), ("occurred_at", -1)])
@@ -65,4 +73,7 @@ async def init_indexes():
     )
 
     await ai_tool_events().create_index([("profile_id", 1), ("timestamp", -1)])
-    await claude_usage().create_index([("profile_id", 1), ("date", -1), ("model", 1)])
+    await claude_usage().create_index([("profile_id", 1), ("date", 1), ("model", 1), ("repo", 1)], unique=True)
+    await week_summaries().create_index(
+        [("profile_id", 1), ("week_start", 1)], unique=True
+    )

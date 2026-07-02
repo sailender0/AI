@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", extra="ignore")
     APP_BASE_URL: str = "http://localhost:8000"
     WEBHOOK_BASE_URL: str = ""   # ngrok/public URL for webhook registration; falls back to APP_BASE_URL
-    SECRET_KEY: str = "change-me"
+    SECRET_KEY: str = ""
 
     # Entra ID / Azure AD
     AZURE_TENANT_ID: str = ""
@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_KEY: str = ""
     AZURE_OPENAI_DEPLOYMENT: str = "gpt-4o"
+    # Per-1M-token prices for cost logging. UPDATE these together with the
+    # deployment above when you change models. Defaults are gpt-4.1-mini.
+    AZURE_OPENAI_PRICE_IN: float = 0.40
+    AZURE_OPENAI_PRICE_OUT: float = 1.60
 
     # GitHub
     GITHUB_APP_ID: str = ""
@@ -51,6 +55,11 @@ class Settings(BaseSettings):
     FOUNDRY_PROJECT: str = ""
     FOUNDRY_AGENT_ID: str = ""
 
+    # Azure AI Foundry
+    FOUNDRY_ENDPOINT: str = ""
+    FOUNDRY_PROJECT: str = ""
+    FOUNDRY_AGENT_ID: str = ""
+
     # Storage
     POSTGRES_URL: str = "postgresql+asyncpg://user:password@localhost:5432/activity_tracker"
     MONGODB_URL: str = "mongodb://localhost:27017"
@@ -60,3 +69,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+assert settings.SECRET_KEY, "SECRET_KEY must be set in .env"
