@@ -1,0 +1,33 @@
+# Docker build-context excludes. NOTE: Docker does NOT read .gitignore — this
+# file is separate. Keeps the image lean and the context upload fast.
+
+.git
+.gitignore
+.dockerignore
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Python cruft
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Not needed in the backend image (Dockerfile only COPYs app/ scripts/ alembic/)
+tests/
+docs/
+agent/
+installer.iss
+.github/
+.vscode/
+.idea/
+
+# Built desktop-agent binary — 27MB, never belongs in the image
+app/static/downloads/*.exe
+
+# Compose / Dockerfile themselves
+docker-compose*.yml
+Dockerfile
