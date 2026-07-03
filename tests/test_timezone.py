@@ -7,6 +7,7 @@ from app.services import timezone as tz
 
 KOLKATA = ZoneInfo("Asia/Kolkata")      # UTC+5:30, no DST
 NEW_YORK = ZoneInfo("America/New_York")  # DST
+LA = ZoneInfo("America/Los_Angeles")     # UTC-7 (PDT), behind UTC
 
 
 def test_is_valid_tz():
@@ -54,6 +55,29 @@ def test_local_date_crosses_utc_midnight():
 def test_local_date_naive_input_assumed_utc():
     naive = datetime(2026, 7, 1, 20, 0)  # Motor-style naive UTC
     assert tz.local_date(naive, KOLKATA) == "2026-07-02"
+
+
+def test_utc_midnight_crossing_stays_on_local_day():
+    """Regression: a moment just after 00:00 UTC is still the PREVIOUS day for a
+    behind-UTC zone. The day must roll at local midnight, not UTC midnight — the
+    stale-code bug reported the UTC day at 00:01 UTC (5:01pm Pacific)."""
+    just_after_utc_midnight = datetime(2026, 7, 3, 0, 1, tzinfo=timezone.utc)  # 5:01pm PDT Jul 2
+    assert tz.local_date(just_after_utc_midnight, LA) == "2026-07-02"          # NOT 07-03
+    start, end = tz.day_bounds("2026-07-02", LA)
+    assert start <= just_after_utc_midnight < end                             # instant is inside the local day
+    before_local_day = datetime(2026, 7, 2, 6, 59, tzinfo=timezone.utc)       # 11:59pm PDT Jul 1
+    assert before_local_day < start                                           # belongs to the prior local day
+
+
+def test_today_str_does_not_roll_at_utc_midnight(monkeypatch):
+    """today_str must return the LOCAL day at 00:01 UTC, not the UTC day."""
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tzinfo=None):
+            base = datetime(2026, 7, 3, 0, 1, tzinfo=timezone.utc)  # just past UTC midnight
+            return base.astimezone(tzinfo) if tzinfo else base
+    monkeypatch.setattr(tz, "datetime", _Frozen)
+    assert tz.today_str(LA) == "2026-07-02"   # would be 07-03 if it used UTC
 
 
 if __name__ == "__main__":
