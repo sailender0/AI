@@ -23,6 +23,14 @@ def test_weekly_only_at_local_friday_17():
     assert not _is_scheduled_time("weekly", SAT)
 
 
+def test_standup_only_at_local_09():
+    assert _is_scheduled_time("standup", datetime(2026, 7, 2, 9, 0))
+    assert _is_scheduled_time("standup", datetime(2026, 7, 2, 9, 45))
+    assert _is_scheduled_time("standup", datetime(2026, 7, 4, 9, 0))   # any weekday
+    assert not _is_scheduled_time("standup", datetime(2026, 7, 2, 8, 0))
+    assert not _is_scheduled_time("standup", datetime(2026, 7, 2, 10, 0))
+
+
 def test_unknown_period_always_runs():
     # ad-hoc / manual calls aren't time-gated
     assert _is_scheduled_time("adhoc", datetime(2026, 7, 3, 3, 0))

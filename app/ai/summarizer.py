@@ -94,12 +94,15 @@ async def _get_failed_sources(profile_id: str) -> list[str]:
 
 def _is_scheduled_time(period_type: str, local_now: datetime) -> bool:
     """True when the hourly job should generate for a profile at this local time.
-    Daily fires at local 23:00; weekly at local Friday 17:00 — so every timezone
-    gets its summary at the right local moment. (docs/adr-0001-timezone.md)"""
+    Daily fires at local 23:00; weekly at local Friday 17:00; standup at local
+    09:00 — so every timezone gets it at the right local moment.
+    (docs/adr-0001-timezone.md, docs/adr-0002-delivery.md)"""
     if period_type == "daily":
         return local_now.hour == 23
     if period_type == "weekly":
         return local_now.weekday() == 4 and local_now.hour == 17  # Friday 17:xx
+    if period_type == "standup":
+        return local_now.hour == 9  # local 09:00
     return True
 
 

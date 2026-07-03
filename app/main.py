@@ -31,7 +31,7 @@ from app.webhooks.receivers.gitlab import router as gitlab_router
 from app.webhooks.receivers.jira import router as jira_router
 from app.ai.query import router as query_router
 from app.routes.agent import router as agent_router
-from app.routes.standup import router as standup_router
+from app.routes.standup import router as standup_router, run_standup_job
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -61,6 +61,9 @@ async def lifespan(app: FastAPI):
     # Hourly: generates only for profiles whose LOCAL time is Friday 17:00, so every
     # timezone gets its weekly summary at its own Friday evening. (docs/adr-0001-timezone.md)
     scheduler.add_job(run_summary_job, "cron", minute=0, args=["weekly"], id="weekly_summary")
+    # Hourly: generates + flags the standup for profiles at their local 09:00, for
+    # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
+    scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
 
     scheduler.start()
     logger.info("Scheduler started")

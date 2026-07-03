@@ -5,17 +5,20 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import agent
+from app.ai.summarizer import _is_scheduled_time
 from app.auth.sso import get_profile_from_session
 from app.services.activity_query import compute_focus_blocks, get_profile_tz
 from app.services.timezone import day_bounds, resolve
+from app.storage.models import Profile
 from app.storage.mongodb import (
     activity_events, ai_tool_events, claude_usage,
     device_heartbeats, local_commits, standups,
 )
-from app.storage.postgres import get_db
+from app.storage.postgres import AsyncSessionLocal, get_db
 
 router  = APIRouter()
 log     = logging.getLogger(__name__)
@@ -212,3 +215,27 @@ async def get_standup_history(request: Request):
         }
         for d in docs
     ]})
+
+
+async def run_standup_job():
+    """APScheduler entry point (hourly). For each profile whose LOCAL time is the
+    standup hour, generate yesterday's standup and flag it for proactive delivery.
+    The agent picks up delivery_pending docs (docs/adr-0002-delivery.md)."""
+    async with AsyncSessionLocal() as db:
+        profiles = (await db.execute(select(Profile))).scalars().all()
+
+    for profile in profiles:
+        profile_id = str(profile.id)
+        try:
+            local_now = datetime.now(ZoneInfo(profile.timezone or "UTC"))
+            if not _is_scheduled_time("standup", local_now):
+                continue
+            async with AsyncSessionLocal() as db:
+                result = await _generate(profile_id, db)
+            await standups().update_one(
+                {"profile_id": profile_id, "date": result["date"]},
+                {"$set": {"delivery_pending": True}},
+            )
+            log.info("Standup job: generated + flagged for %s (%s)", profile_id, result["date"])
+        except Exception as exc:
+            log.error("Standup job failed for %s: %s", profile_id, exc)
