@@ -5,11 +5,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from app.middleware.rate_limit import limiter
 from app.storage.models import Device
-from app.storage.mongodb import ai_tool_events, claude_usage, device_heartbeats, local_commits, vscode_extensions
+from app.storage.mongodb import ai_tool_events, claude_usage, device_heartbeats, local_commits, standups, vscode_extensions
 from app.storage.postgres import AsyncSessionLocal
 
 from ._base import (
@@ -142,5 +143,36 @@ async def receive_vscode_extensions(
             "updated_at": datetime.now(timezone.utc),
         }},
         upsert=True,
+    )
+    return {"ok": True}
+
+
+# ── Proactive standup delivery (agent pulls) — docs/adr-0002-delivery.md ───────
+
+class StandupAck(BaseModel):
+    date: str
+
+
+@router.get("/standup/pending")
+async def standup_pending(ctx: tuple = Depends(_get_device)):
+    """Return the most recent standup flagged for delivery, or null. The agent
+    polls this and shows a toast; it then calls /standup/ack to clear the flag."""
+    _device, profile_id = ctx
+    doc = await standups().find_one(
+        {"profile_id": profile_id, "delivery_pending": True},
+        sort=[("date", -1)],
+    )
+    if not doc:
+        return {"standup": None}
+    return {"standup": {"date": doc["date"], "text": doc["text"]}}
+
+
+@router.post("/standup/ack")
+async def standup_ack(body: StandupAck, ctx: tuple = Depends(_get_device)):
+    """Clear delivery_pending so a standup is shown once."""
+    _device, profile_id = ctx
+    await standups().update_one(
+        {"profile_id": profile_id, "date": body.date},
+        {"$set": {"delivery_pending": False}},
     )
     return {"ok": True}
