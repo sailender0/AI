@@ -51,10 +51,17 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
             if _icon:
                 _icon.icon = _make_icon(connected)
 
+        def _notify(title: str, body: str):
+            if _icon:
+                try:
+                    _icon.notify(body, title)      # tray balloon / toast
+                except Exception as e:
+                    log.debug("tray notify failed: %s", e)
+
         _agent_thread = threading.Thread(
             target=run_agent,
             args=(token, backend),
-            kwargs={"on_status": _status, "stop_event": _stop},
+            kwargs={"on_status": _status, "stop_event": _stop, "on_notify": _notify},
             daemon=True,
         )
         _agent_thread.start()

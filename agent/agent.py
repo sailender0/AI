@@ -43,6 +43,7 @@ HEARTBEAT_INTERVAL  = 30   # seconds
 AI_CHECK_INTERVAL   = 60
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 60
+STANDUP_INTERVAL    = 300  # poll for a deliverable standup every 5 min
 
 # Known process name keywords → tool name
 # Fallback maps used when the backend is unreachable.
@@ -446,13 +447,33 @@ class AgentClient:
     def vscode_extensions(self, extensions: list[str]) -> bool:
         return self._post("/api/agent/vscode-extensions", {"extensions": extensions})
 
+    def get_pending_standup(self) -> dict | None:
+        try:
+            r = requests.get(
+                f"{self._base}/api/agent/standup/pending",
+                headers=self._headers, timeout=8,
+            )
+            if r.status_code == 200:
+                return r.json().get("standup")
+        except Exception as e:
+            log.debug("standup pending fetch failed: %s", e)
+        return None
+
+    def ack_standup(self, date: str) -> bool:
+        return self._post("/api/agent/standup/ack", {"date": date})
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-def run(token: str, backend: str, on_status=None, stop_event=None):
+def _should_notify(standup: dict | None, last_date: str | None) -> bool:
+    """True when there is a pending standup we haven't shown yet."""
+    return bool(standup) and standup.get("date") != last_date
+
+
+def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=None):
     """
-    Main collection loop. on_status(connected: bool) is called on tray icon
-    to update the connection indicator. stop_event (threading.Event) signals
-    a clean shutdown.
+    Main collection loop. on_status(connected: bool) updates the tray indicator.
+    on_notify(title, body) shows a desktop toast (standup delivery, ADR-0002).
+    stop_event (threading.Event) signals a clean shutdown.
     """
     client = AgentClient(token, backend)
     log.info("Agent starting — backend=%s", backend)
@@ -466,9 +487,11 @@ def run(token: str, backend: str, on_status=None, stop_event=None):
     last_extension_check = 0.0
     last_claude_check    = 0.0
     last_tool_def_check  = time.monotonic()
-    last_ai_tools:   list[str] = []
-    last_extensions: list[str] = []
-    known_shas:      dict[str, str | None] = {}
+    last_standup_check   = 0.0
+    last_ai_tools:     list[str] = []
+    last_extensions:   list[str] = []
+    known_shas:        dict[str, str | None] = {}
+    last_standup_date: str | None = None
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -541,6 +564,16 @@ def run(token: str, backend: str, on_status=None, stop_event=None):
                     total = sum(e["input_tokens"] + e["output_tokens"] for e in entries)
                     log.info("Claude: %d entry(s) %s tokens", len(entries), f"{total:,}")
                 last_claude_check = now
+
+            # Standup delivery — poll for a pending standup, toast it once (ADR-0002)
+            if on_notify and now - last_standup_check >= STANDUP_INTERVAL:
+                standup = client.get_pending_standup()
+                if _should_notify(standup, last_standup_date):
+                    on_notify("Your standup is ready", standup["text"])
+                    client.ack_standup(standup["date"])
+                    last_standup_date = standup["date"]
+                    log.info("Standup delivered for %s", standup["date"])
+                last_standup_check = now
 
         except Exception as e:
             log.error("Loop error: %s", e)
