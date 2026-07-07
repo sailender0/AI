@@ -23,7 +23,7 @@ from app.storage.redis_client import get_redis
 
 router = APIRouter()
 
-_GRAPH_SCOPES = []  # Chat.Read removed for local dev — Teams subscription skipped
+_GRAPH_SCOPES = ["Mail.Send"]  # delegated send-as-self for email reports (ADR email delivery)
 
 AUTHORITY = f"https://login.microsoftonline.com/{settings.AZURE_TENANT_ID}"
 

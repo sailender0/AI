@@ -52,6 +52,10 @@ def standups():
     return get_db()["standups"]
 
 
+def email_sends():
+    return get_db()["email_sends"]
+
+
 async def init_indexes():
     col = activity_events()
     await col.create_index([("profile_id", 1), ("occurred_at", -1)])
@@ -76,4 +80,8 @@ async def init_indexes():
     await claude_usage().create_index([("profile_id", 1), ("date", 1), ("model", 1), ("repo", 1)], unique=True)
     await week_summaries().create_index(
         [("profile_id", 1), ("week_start", 1)], unique=True
+    )
+    # Scheduled-email dedupe: at most one digest per (profile, kind, local date)
+    await email_sends().create_index(
+        [("profile_id", 1), ("kind", 1), ("date", 1)], unique=True
     )

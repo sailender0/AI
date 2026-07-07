@@ -83,6 +83,13 @@ async def activity_today(
 
     tzinfo   = resolve(request_tz=tz)
     the_date = date if (date and re.match(r"^\d{4}-\d{2}-\d{2}$", date)) else today_str(tzinfo)
+    return await build_activity_today(profile_id, tzinfo, the_date, device_id)
+
+
+async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id: str = "") -> dict:
+    """My Activity 'today' payload. Extracted from the route so the email report
+    can reuse it (app/routes/email.py) without an HTTP round-trip — the route's
+    JSON response is unchanged."""
     day_start, day_end = day_bounds(the_date, tzinfo)
     ts_filter = {"$gte": day_start, "$lt": day_end}
 

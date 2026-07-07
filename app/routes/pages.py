@@ -127,6 +127,13 @@ async def my_day_page(request: Request):
     return templates.TemplateResponse(request=request, name="my_day.html", context={"active_page": "my_day"})
 
 
+@router.get("/email", response_class=HTMLResponse)
+async def email_page(request: Request):
+    if not await get_profile_from_session(request):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request=request, name="email.html", context={"active_page": "email"})
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.cookies.get("session")

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, Index, String, DateTime, Text, ForeignKey, JSON, UniqueConstraint
+    Boolean, Column, Index, Integer, String, DateTime, Text, ForeignKey, JSON, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -32,6 +32,7 @@ class Profile(Base):
     query_logs = relationship("QueryLog", back_populates="profile", cascade="all, delete-orphan")
     chat_conversations = relationship("ChatConversation", back_populates="profile", cascade="all, delete-orphan")
     devices = relationship("Device", back_populates="profile", cascade="all, delete-orphan")
+    email_preferences = relationship("EmailPreference", back_populates="profile", cascade="all, delete-orphan")
 
 
 class LinkedIdentity(Base):
@@ -183,3 +184,23 @@ class DeviceToken(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     device = relationship("Device", back_populates="tokens")
+
+
+class EmailPreference(Base):
+    """A scheduled email digest: which report, how often, at what local hour."""
+    __tablename__ = "email_preferences"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
+    kind = Column(String, nullable=False)          # my_day | my_activity | analytics | standup
+    frequency = Column(String, nullable=False, default="daily")   # daily | weekdays | weekly
+    hour = Column(Integer, nullable=False, default=9)              # local hour 0-23
+    weekday = Column(Integer, nullable=False, default=0)           # 0=Mon, used when weekly
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    profile = relationship("Profile", back_populates="email_preferences")
+
+    __table_args__ = (
+        UniqueConstraint("profile_id", "kind", name="uq_email_pref_profile_kind"),
+    )

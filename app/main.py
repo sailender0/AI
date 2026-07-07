@@ -32,6 +32,7 @@ from app.webhooks.receivers.jira import router as jira_router
 from app.ai.query import router as query_router
 from app.routes.agent import router as agent_router
 from app.routes.standup import router as standup_router, run_standup_job
+from app.routes.email import router as email_router, run_email_digest_job
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -64,6 +65,9 @@ async def lifespan(app: FastAPI):
     # Hourly: generates + flags the standup for profiles at their local 09:00, for
     # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
     scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
+    # Hourly: sends each user's scheduled email digest(s) at their local hour
+    # (per-profile hour/frequency in email_preferences; deduped in email_sends).
+    scheduler.add_job(run_email_digest_job, "cron", minute=15, id="email_digest")
 
     scheduler.start()
     logger.info("Scheduler started")
@@ -108,6 +112,7 @@ app.include_router(jira_router)
 app.include_router(query_router)
 app.include_router(agent_router)
 app.include_router(standup_router)
+app.include_router(email_router)
 
 
 @app.get("/health")
