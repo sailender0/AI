@@ -144,7 +144,7 @@ async def get_week_stats(request: Request, start: str = None, end: str = None, d
     jira_comments = await count(profile_id, "jira",               "comment",        start_dt, end_dt)
     teams_msgs    = await count(profile_id, "teams_subscription",  None,             start_dt, end_dt)
     gl_commits    = await count(profile_id, "gitlab",             r"^commit",       start_dt, end_dt)
-    gl_mrs        = await count(profile_id, "gitlab",             r"^mr_",          start_dt, end_dt)
+    gl_mrs        = await count(profile_id, "gitlab",             r"^merge_request", start_dt, end_dt)
     gl_issues     = await count(profile_id, "gitlab",             r"^issue",        start_dt, end_dt)
 
     return JSONResponse({

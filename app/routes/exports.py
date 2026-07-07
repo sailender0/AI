@@ -68,7 +68,7 @@ async def _fetch_week_stats(profile_id: str, week_start: str, db: AsyncSession) 
     jira_cmt   = await count(profile_id, "jira",               "comment",       ws, we)
     teams_msg  = await count(profile_id, "teams_subscription",  None,           ws, we)
     gl_commits = await count(profile_id, "gitlab",             r"^commit",      ws, we)
-    gl_mrs     = await count(profile_id, "gitlab",             r"^mr_",         ws, we)
+    gl_mrs     = await count(profile_id, "gitlab",             r"^merge_request", ws, we)
     gl_issues  = await count(profile_id, "gitlab",             r"^issue",       ws, we)
     return {
         "github": {"commits": gh_commits, "pull_requests": gh_prs,  "issues": gh_issues},
