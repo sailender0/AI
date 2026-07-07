@@ -195,7 +195,7 @@ class EmailPreference(Base):
     kind = Column(String, nullable=False)          # my_day | my_activity | analytics | standup
     frequency = Column(String, nullable=False, default="daily")   # daily | weekdays | weekly
     hour = Column(Integer, nullable=False, default=9)              # local hour 0-23
-    weekday = Column(Integer, nullable=False, default=0)           # 0=Mon, used when weekly
+    weekday = Column(Integer, nullable=False, default=4)           # 4=Fri (weekly cadence), used when weekly
     enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

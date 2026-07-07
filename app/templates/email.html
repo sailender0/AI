@@ -18,16 +18,17 @@
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
         <option value="my_day">My Day</option>
+        <option value="device_activity">Device Activity</option>
         <option value="analytics">Analytics</option>
         <option value="standup">Standup</option>
       </select>
-      <!-- My Day toggle: daily digest vs today's device activity -->
-      <div id="myday-toggle" class="flex items-center gap-4 mt-2" style="display:none">
+      <!-- Device Activity toggle: single day vs weekly per-day breakdown -->
+      <div id="device-toggle" class="flex items-center gap-4 mt-2" style="display:none">
         <label class="text-xs flex items-center gap-1" style="color:var(--text-2)">
-          <input type="radio" name="myday-view" value="my_day" checked onchange="loadPreview()"> Daily digest
+          <input type="radio" name="device-view" value="device_activity" checked onchange="onKindChange()"> Day
         </label>
         <label class="text-xs flex items-center gap-1" style="color:var(--text-2)">
-          <input type="radio" name="myday-view" value="device_activity" onchange="loadPreview()"> Device activity
+          <input type="radio" name="device-view" value="device_activity_week" onchange="onKindChange()"> Weekly
         </label>
       </div>
     </div>
@@ -65,7 +66,8 @@
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
         <option value="my_day">My Day</option>
-        <option value="device_activity">Device Activity</option>
+        <option value="device_activity">Device Activity (Day)</option>
+        <option value="device_activity_week">Device Activity (Week)</option>
         <option value="analytics">Analytics</option>
         <option value="standup">Standup</option>
       </select>
@@ -79,7 +81,7 @@
         <option value="off">Off</option>
         <option value="daily">Daily</option>
         <option value="weekdays">Weekdays</option>
-        <option value="weekly">Weekly (Mon)</option>
+        <option value="weekly">Weekly (Fri)</option>
       </select>
     </div>
 
@@ -102,7 +104,11 @@
 </div>
 
 <script>
-  const KINDS = { my_day: 'My Day', device_activity: 'Device Activity', analytics: 'Analytics', standup: 'Standup' };
+  const KINDS = {
+    my_day: 'My Day', device_activity: 'Device Activity (Day)',
+    device_activity_week: 'Device Activity (Week)', analytics: 'Analytics', standup: 'Standup'
+  };
+  const WEEK_KINDS = ['analytics', 'device_activity_week'];
 
   function localToday() {
     const d = new Date();
@@ -119,22 +125,23 @@
   }
 
   // ── Send panel ──────────────────────────────────────────────────────────────
-  // My Day carries a toggle → the effective report is my_day (digest) or device_activity.
+  // Device Activity carries a Day/Weekly toggle → effective kind is device_activity
+  // (day) or device_activity_week (weekly). Other reports pass through unchanged.
   function effectiveKind() {
     const kind = document.getElementById('email-kind').value;
-    if (kind === 'my_day') {
-      const v = document.querySelector('input[name="myday-view"]:checked');
-      return v ? v.value : 'my_day';
+    if (kind === 'device_activity') {
+      const v = document.querySelector('input[name="device-view"]:checked');
+      return v ? v.value : 'device_activity';
     }
     return kind;
   }
 
   function updateDateUI() {
-    const kind = document.getElementById('email-kind').value;   // analytics is a top-level entry
+    const isWeek = WEEK_KINDS.includes(effectiveKind());
     const label = document.getElementById('email-date-label');
     const hint = document.getElementById('email-date-hint');
     const date = document.getElementById('email-date').value;
-    if (kind === 'analytics') {
+    if (isWeek) {
       label.textContent = 'Week (pick any day)';
       hint.textContent = date ? weekLabel(date) : '';
     } else {
@@ -145,7 +152,7 @@
 
   function onKindChange() {
     const kind = document.getElementById('email-kind').value;
-    document.getElementById('myday-toggle').style.display = (kind === 'my_day') ? 'flex' : 'none';
+    document.getElementById('device-toggle').style.display = (kind === 'device_activity') ? 'flex' : 'none';
     updateDateUI();
     loadPreview();
   }

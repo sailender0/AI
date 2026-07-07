@@ -28,7 +28,7 @@ from app.storage.postgres import AsyncSessionLocal, get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_SUPPORTED = {"standup", "device_activity", "analytics", "my_day"}
+_SUPPORTED = {"standup", "device_activity", "device_activity_week", "analytics", "my_day"}
 _FREQUENCIES = {"daily", "weekdays", "weekly"}
 
 
@@ -72,6 +72,28 @@ async def _fetch(kind: str, profile_id: str, db: AsyncSession, date: str | None 
         data = await build_activity_today(profile_id, tzinfo, the_date)
         data["_date"] = the_date
         return data
+
+    if kind == "device_activity_week":
+        from app.routes.agent.analytics import build_activity_week
+        from app.services.timezone import day_bounds, local_date
+        from app.storage.mongodb import local_commits
+        week_start = _week_start_of(the_date)
+        week = await build_activity_week(profile_id, tzinfo, week_start)
+        # per-day commit counts (the week payload only carries a total)
+        w_start, _ = day_bounds(week_start, tzinfo)
+        cdocs = await local_commits().find(
+            {"profile_id": profile_id,
+             "timestamp": {"$gte": w_start, "$lt": w_start + timedelta(days=7)}},
+            projection={"timestamp": 1, "_id": 0},
+        ).to_list(2000)
+        by_day: dict[str, int] = {}
+        for c in cdocs:
+            ts = c.get("timestamp")
+            if ts:
+                dk = local_date(ts, tzinfo)
+                by_day[dk] = by_day.get(dk, 0) + 1
+        week["commits_by_day"] = by_day
+        return week
 
     if kind == "analytics":
         from app.routes.exports import _fetch_week_stats, _fetch_week_events, _get_summary
@@ -166,7 +188,7 @@ class PreferenceBody(BaseModel):
     kind: str
     frequency: str = "daily"   # daily | weekdays | weekly | off
     hour: int = 9              # local hour 0-23
-    weekday: int = 0           # 0=Mon, used when weekly
+    weekday: int = 4           # Fri (matches the app's weekly-summary cadence), used when weekly
 
 
 @router.get("/api/email/preferences")

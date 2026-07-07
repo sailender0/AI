@@ -12,6 +12,7 @@ _SOURCE_NAMES = {
     "teams": "Teams", "teams_subscription": "Teams",
 }
 _KPI_ORDER = [("github", "GitHub"), ("gitlab", "GitLab"), ("jira", "Jira"), ("teams", "Teams")]
+_TD = "padding:4px 8px;border-bottom:1px solid #eee"
 
 
 def _wrap(title: str, body_html: str) -> str:
@@ -81,15 +82,18 @@ def _device_body(data: dict) -> str:
     fm = data.get("total_focus_min", 0)
     h, m = divmod(fm, 60)
     tools = data.get("active_tools", [])
-    claude_tok = sum(
-        c.get("input_tokens", 0) + c.get("output_tokens", 0)
-        for c in data.get("claude_usage", [])
-    )
     parts = [f"<p><b>Focus/coding time:</b> {h}h {m}m</p>"]
     if tools:
         parts.append(f"<p><b>AI tools:</b> {html.escape(', '.join(tools))}</p>")
-    if claude_tok:
-        parts.append(f"<p><b>Claude Code tokens:</b> {claude_tok:,}</p>")
+    # Per-repo Claude token usage (input / output)
+    cu = data.get("claude_usage", [])
+    if cu:
+        items = "".join(
+            f"<li>{html.escape(c.get('repo') or '?')}: "
+            f"{c.get('input_tokens', 0):,} in / {c.get('output_tokens', 0):,} out</li>"
+            for c in cu
+        )
+        parts.append(f"<p><b>Claude Code tokens (input / output):</b></p><ul>{items}</ul>")
     parts.append(_commits_html(data.get("commits", [])))
     return "".join(p for p in parts if p)
 
@@ -106,6 +110,48 @@ def render_device_activity(data: dict) -> tuple[str, str]:
     body = _device_body(data) or "<p>No activity recorded.</p>"
     subject = f"Your device activity — {date}" if date else "Your device activity"
     return subject, _wrap(f"Device Activity · {date}".strip(" ·"), body)
+
+
+def render_device_activity_week(data: dict) -> tuple[str, str]:
+    ws = data.get("week_start", "")
+    days = data.get("days", [])
+    cbd = data.get("claude_by_day", {})
+    tbd = data.get("tools_by_day", {})
+    commits = data.get("commits_by_day", {})
+
+    rows = []
+    for d in sorted(days, key=lambda x: x.get("date", "")):
+        date = d.get("date", "")
+        try:
+            wd = datetime.strptime(date, "%Y-%m-%d").strftime("%a")
+        except ValueError:
+            wd = ""
+        h, m = divmod(d.get("focus_min", 0), 60)
+        entries = cbd.get(date, [])
+        tin = sum(e.get("input_tokens", 0) for e in entries)
+        tout = sum(e.get("output_tokens", 0) for e in entries)
+        tools = tbd.get(date, [])
+        nc = commits.get(date, 0)
+        rows.append(
+            f"<tr><td style='{_TD}'><b>{html.escape(wd)}</b> {html.escape(date)}</td>"
+            f"<td style='{_TD}'>{h}h {m}m</td>"
+            f"<td style='{_TD}'>{tin:,} in / {tout:,} out</td>"
+            f"<td style='{_TD}'>{nc}</td>"
+            f"<td style='{_TD}'>{html.escape(', '.join(tools)) or '—'}</td></tr>"
+        )
+
+    if rows:
+        header = (f"<tr style='text-align:left'>"
+                  f"<th style='{_TD}'>Day</th><th style='{_TD}'>Focus</th>"
+                  f"<th style='{_TD}'>Tokens</th><th style='{_TD}'>Commits</th>"
+                  f"<th style='{_TD}'>AI tools</th></tr>")
+        body = (f"<table style='border-collapse:collapse;width:100%;font-size:13px'>"
+                f"{header}{''.join(rows)}</table>")
+    else:
+        body = "<p style='color:#888'>No device activity this week.</p>"
+
+    subject = f"Your device activity — week of {ws}" if ws else "Your device activity — week"
+    return subject, _wrap(f"Device Activity · week of {ws}".strip(" ·"), body)
 
 
 def render_my_day(data: dict) -> tuple[str, str]:
@@ -147,10 +193,11 @@ def render_analytics(data: dict) -> tuple[str, str]:
 
 
 _RENDERERS = {
-    "standup":         render_standup,
-    "device_activity": render_device_activity,
-    "analytics":       render_analytics,
-    "my_day":          render_my_day,
+    "standup":              render_standup,
+    "device_activity":      render_device_activity,
+    "device_activity_week": render_device_activity_week,
+    "analytics":            render_analytics,
+    "my_day":               render_my_day,
 }
 
 

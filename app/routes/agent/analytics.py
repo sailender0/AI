@@ -174,7 +174,6 @@ async def activity_week(request: Request, tz: str = "", week_start: str = ""):
         raise HTTPException(401, "Sign in required")
 
     tzinfo = resolve(request_tz=tz)
-    now = datetime.now(timezone.utc)
 
     if week_start and re.match(r"^\d{4}-\d{2}-\d{2}$", week_start):
         week_start_str = week_start
@@ -182,6 +181,14 @@ async def activity_week(request: Request, tz: str = "", week_start: str = ""):
         # Default: Monday of the current local week (not a rolling 7 days)
         local_now      = now_local(tzinfo)
         week_start_str = (local_now - timedelta(days=local_now.weekday())).strftime("%Y-%m-%d")
+    return await build_activity_week(profile_id, tzinfo, week_start_str)
+
+
+async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> dict:
+    """Weekly device-activity payload — per-day focus, tokens, and AI tools.
+    Extracted from the /week route so the email report can reuse it; the route's
+    JSON response is unchanged."""
+    now = datetime.now(timezone.utc)
     week_end_str = (datetime.strptime(week_start_str, "%Y-%m-%d") + timedelta(days=7)).strftime("%Y-%m-%d")
     w_start, _   = day_bounds(week_start_str, tzinfo)   # UTC start of the local Monday
     w_end,   _   = day_bounds(week_end_str, tzinfo)     # UTC start of the following Monday

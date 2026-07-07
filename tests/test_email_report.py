@@ -13,15 +13,30 @@ def test_standup_render_escapes_and_labels():
     assert "&lt;x&gt;" in html_body and "<x>" not in html_body   # escaped
 
 
-def test_device_activity_render():
+def test_device_activity_render_per_repo_tokens():
     subject, html_body = render("device_activity", {
         "_date": "2026-07-07", "total_focus_min": 95, "active_tools": ["claude-code"],
-        "claude_usage": [{"input_tokens": 10, "output_tokens": 5}],
+        "claude_usage": [{"repo": "app", "input_tokens": 12000, "output_tokens": 3000}],
         "commits": [{"repo": "app", "branch": "main", "message": "fix <bug>"}],
     })
     assert "device activity" in subject and "2026-07-07" in subject
     assert "1h 35m" in html_body
+    assert "12,000 in / 3,000 out" in html_body                      # per-repo in/out
     assert "&lt;bug&gt;" in html_body and "<bug>" not in html_body   # escaped
+
+
+def test_device_activity_week_render_per_day():
+    subject, html_body = render("device_activity_week", {
+        "week_start": "2026-07-06",
+        "days": [{"date": "2026-07-06", "focus_min": 60}],
+        "claude_by_day": {"2026-07-06": [{"input_tokens": 10, "output_tokens": 5}]},
+        "tools_by_day": {"2026-07-06": ["claude-code"]},
+        "commits_by_day": {"2026-07-06": 2},
+    })
+    assert "week of 2026-07-06" in subject
+    assert "Mon" in html_body and "1h 0m" in html_body               # 2026-07-06 is a Monday
+    assert "10 in / 5 out" in html_body
+    assert "claude-code" in html_body
 
 
 def test_my_day_render_has_summary_kpi_timeline():
