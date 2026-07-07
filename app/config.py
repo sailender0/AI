@@ -55,11 +55,6 @@ class Settings(BaseSettings):
     FOUNDRY_PROJECT: str = ""
     FOUNDRY_AGENT_ID: str = ""
 
-    # Azure AI Foundry
-    FOUNDRY_ENDPOINT: str = ""
-    FOUNDRY_PROJECT: str = ""
-    FOUNDRY_AGENT_ID: str = ""
-
     # Storage
     POSTGRES_URL: str = "postgresql+asyncpg://user:password@localhost:5432/activity_tracker"
     MONGODB_URL: str = "mongodb://localhost:27017"

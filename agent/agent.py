@@ -305,7 +305,6 @@ def get_claude_usage() -> list[dict]:
         return []
 
     cutoff_mtime = time.time() - _CUTOFF_DAYS * 86400
-    cutoff_date  = datetime.now().strftime("%Y-%m-%d")  # filled below
     from datetime import timedelta
     cutoff_date  = (datetime.now() - timedelta(days=_CUTOFF_DAYS)).strftime("%Y-%m-%d")
 
