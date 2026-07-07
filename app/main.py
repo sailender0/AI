@@ -65,9 +65,10 @@ async def lifespan(app: FastAPI):
     # Hourly: generates + flags the standup for profiles at their local 09:00, for
     # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
     scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
-    # Hourly: sends each user's scheduled email digest(s) at their local hour
-    # (per-profile hour/frequency in email_preferences; deduped in email_sends).
-    scheduler.add_job(run_email_digest_job, "cron", minute=15, id="email_digest")
+    # Top of every hour: sends each user's scheduled digest(s) when their local
+    # hour matches — lands on exactly HH:00 for whole-hour timezones. Deduped in
+    # email_sends. (Half-hour-offset zones, e.g. IST, land on their local :30.)
+    scheduler.add_job(run_email_digest_job, "cron", minute=0, id="email_digest")
 
     scheduler.start()
     logger.info("Scheduler started")
