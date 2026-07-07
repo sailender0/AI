@@ -101,7 +101,7 @@ async def disconnect_gitlab(request: Request):
     return JSONResponse({"ok": True})
 
 
-@router.get("/api/gitlab/reregister")
+@router.post("/api/gitlab/reregister")
 async def reregister_gitlab_webhooks(request: Request):
     """Re-register GitLab webhooks, skipping projects that already have our URL."""
     profile_id = await get_profile_from_session(request)

@@ -41,6 +41,7 @@ DEFAULT_BACKEND = os.environ.get("DA_BACKEND", "http://localhost:8000")
 
 HEARTBEAT_INTERVAL  = 30   # seconds
 AI_CHECK_INTERVAL   = 60
+AI_RESEND_INTERVAL  = 1800  # re-emit unchanged tool set every 30 min so each local day has an event
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 60
 STANDUP_INTERVAL    = 300  # poll for a deliverable standup every 5 min
@@ -478,12 +479,17 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
     client = AgentClient(token, backend)
     log.info("Agent starting — backend=%s", backend)
 
+    if not backend.startswith("https://") and not any(h in backend for h in ("localhost", "127.0.0.1")):
+        log.warning("Backend %s is not HTTPS — tool definitions and standup text are "
+                    "fetched in cleartext and can be tampered with in transit", backend)
+
     if not client.ping():
         log.warning("Could not reach backend on startup — will retry each heartbeat")
 
     _refresh_tool_definitions(backend)  # load remote maps immediately on startup
 
     last_ai_check        = 0.0
+    last_ai_sent         = 0.0
     last_extension_check = 0.0
     last_claude_check    = 0.0
     last_tool_def_check  = time.monotonic()
@@ -542,13 +548,17 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                     last_extensions = exts
                 last_extension_check = now
 
-            # AI tools — process scan + installed extensions
+            # AI tools — process scan + installed extensions.
+            # Re-send on change OR every AI_RESEND_INTERVAL: a continuously-running
+            # tool emits no change event across midnight, so without the periodic
+            # resend it silently drops off the new day's active-tools view.
             if now - last_ai_check >= AI_CHECK_INTERVAL:
                 tools = detect_ai_tools(last_extensions)
-                if tools != last_ai_tools:
+                if tools != last_ai_tools or now - last_ai_sent >= AI_RESEND_INTERVAL:
                     client.ai_event(tools)
                     log.info("AI tools: %s", tools or "none")
                     last_ai_tools = tools
+                    last_ai_sent  = now
                 last_ai_check = now
 
             # Tool definitions — refresh from server every 6 hours

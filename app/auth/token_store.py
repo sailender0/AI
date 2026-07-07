@@ -39,6 +39,11 @@ async def decrypt_token(ciphertext: str) -> str:
 
 
 def _keyvault_encrypt(plaintext: str) -> str:
+    # ponytail/SECURITY: this stores the token verbatim as a new KV secret and
+    # returns the secret NAME as the "ciphertext" — one orphaned secret per token,
+    # never deleted (unbounded growth), and no key rotation. Inactive today
+    # (AZURE_KEYVAULT_URL unset → Fernet path). Upgrade: KV-wrapped DEK envelope
+    # encryption + a delete on token revoke, before enabling Key Vault in prod.
     from azure.identity import DefaultAzureCredential
     from azure.keyvault.secrets import SecretClient
 

@@ -589,7 +589,7 @@
     const btn = document.getElementById('rereg-btn');
     btn.textContent = 'Syncing…'; btn.disabled = true;
     try {
-      const res  = await fetch('/api/gitlab/reregister', { credentials: 'include' });
+      const res  = await fetch('/api/gitlab/reregister', { method: 'POST', credentials: 'include' });
       const data = await res.json();
       if (data.registered !== undefined) {
         btn.textContent = `✓ ${data.registered}/${data.total} registered`;

@@ -9,6 +9,7 @@ the me/messages Graph subscription resource.
 import json
 import secrets
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import msal
 from fastapi import APIRouter, Request
@@ -65,6 +66,19 @@ async def acquire_delegated_token(profile_id: str) -> str | None:
     return None
 
 
+def _is_local_callback(url: str) -> bool:
+    """True only for a real http(s)://localhost or 127.0.0.1 callback (any port/path).
+    startswith() is bypassable via userinfo (http://localhost:@evil.com) or a bogus
+    port (localhost:80.evil.com); urlparse isolates the true host so the device
+    token can't be redirected off-box. Accessing .port forces port validation."""
+    try:
+        u = urlparse(url)
+        _ = u.port  # raises ValueError on a non-numeric port
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and u.hostname in ("localhost", "127.0.0.1")
+
+
 @router.get("/auth/login")
 async def login(request: Request):
     state = secrets.token_urlsafe(16)
@@ -75,8 +89,10 @@ async def login(request: Request):
     is_desktop    = request.query_params.get("desktop") == "1"
     agent_callback = request.query_params.get("agent_callback", "")
     device_name   = request.query_params.get("device_name", "Desktop")
-    # Validate: agent_callback must be a localhost URL (no open redirect)
-    if agent_callback and not (agent_callback.startswith("http://localhost:") or agent_callback.startswith("http://127.0.0.1:")):
+    # Validate: agent_callback must be a real localhost URL (no open redirect).
+    # The device token is appended to this URL and the browser redirected to it,
+    # so a spoofed host would leak the token — see _is_local_callback.
+    if agent_callback and not _is_local_callback(agent_callback):
         agent_callback = ""
     redis = get_redis()
     await redis.set(f"oauth_state:{state}", next_url, ex=600)

@@ -34,17 +34,20 @@ async def _resolve_profile(account_id: str | None) -> str | None:
             if row:
                 return str(row.profile_id)
 
-        # Fallback: return first profile with an active Jira integration
+        # Fallback: only when EXACTLY ONE active Jira integration exists — an
+        # unambiguous single-tenant deployment. With 2+ tenants, attributing an
+        # unmatched event to a guessed profile cross-contaminates timelines (the
+        # webhook secret is shared, so this path is spoofable) — drop it instead.
         from app.storage.models import Integration
-        row = (
+        rows = (
             await db.execute(
                 select(Integration).where(
                     Integration.source == "jira",
                     Integration.sync_status == "active",
                 )
             )
-        ).scalar_one_or_none()
-        return str(row.profile_id) if row else None
+        ).scalars().all()
+        return str(rows[0].profile_id) if len(rows) == 1 else None
 
 
 async def _process(body: dict, jira_event: str):
