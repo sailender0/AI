@@ -45,6 +45,8 @@ AI_RESEND_INTERVAL  = 1800  # re-emit unchanged tool set every 30 min so each lo
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 60
 STANDUP_INTERVAL    = 300  # poll for a deliverable standup every 5 min
+REPO_SCAN_INTERVAL  = 300  # rediscover repos from all process cwds every 5 min
+_MAX_WATCHED_REPOS  = 25   # cap on repos polled for commits (ponytail: bound growth)
 
 # Known process name keywords → tool name
 # Fallback maps used when the backend is unreachable.
@@ -183,21 +185,59 @@ def get_idle_seconds() -> int:
         return 0
 
 
-def find_git_repo(path: Path | None) -> tuple[str | None, str | None]:
+# Repos under these path segments are never tracked (system dirs, vendored copies).
+# ponytail: substring denylist — cheap; extend if a real repo ever collides.
+_EXCLUDED_REPO_PARTS = ("\\windows\\", "\\program files", "\\programdata\\", "node_modules")
+
+
+def _is_trackable_repo(root: Path) -> bool:
+    s = str(root).lower()
+    return not any(part in s for part in _EXCLUDED_REPO_PARTS)
+
+
+def _repo_root(path: Path | None) -> Path | None:
+    """First .git dir at or above `path`, or None if there isn't one / it's excluded.
+    Stops at the first .git so a system checkout (e.g. C:\\Windows) can't be reported."""
     if not path:
-        return None, None
+        return None
     for p in [path, *path.parents]:
-        git_dir = p / ".git"
-        if git_dir.is_dir():
-            branch = "unknown"
-            try:
-                head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
-                if head.startswith("ref: refs/heads/"):
-                    branch = head[len("ref: refs/heads/"):]
-            except Exception:
-                pass
-            return p.name, branch
-    return None, None
+        if (p / ".git").is_dir():
+            return p if _is_trackable_repo(p) else None
+    return None
+
+
+def _branch_of(root: Path) -> str:
+    try:
+        head = (root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: refs/heads/"):
+            return head[len("ref: refs/heads/"):]
+    except Exception:
+        pass
+    return "unknown"
+
+
+def find_git_repo(path: Path | None) -> tuple[str | None, str | None]:
+    root = _repo_root(path)
+    return (root.name, _branch_of(root)) if root else (None, None)
+
+
+def discover_repos() -> set[Path]:
+    """Git repos any running process is sitting in — focus-independent discovery, so
+    commits are tracked no matter which window (VS Code, terminal) is on top.
+    ponytail: scans all process cwds; the loop runs this only every REPO_SCAN_INTERVAL
+    and caps the watched set, so cost stays bounded."""
+    found: set[Path] = set()
+    for proc in psutil.process_iter(["cwd"]):
+        try:
+            cwd = proc.info.get("cwd")
+            if not cwd:
+                continue
+            root = _repo_root(Path(cwd))
+            if root:
+                found.add(root)
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+            pass
+    return found
 
 # ── Local git commits ─────────────────────────────────────────────────────────
 
@@ -496,6 +536,7 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
     last_ai_tools:     list[str] = []
     last_extensions:   list[str] = []
     known_shas:        dict[str, str | None] = {}
+    last_repo_scan     = 0.0
     last_standup_date: str | None = None
 
     while not (stop_event and stop_event.is_set()):
@@ -510,33 +551,40 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                 on_status(ok)
             log.debug("heartbeat ok=%s app=%s repo=%s idle=%s", ok, app, repo, idle)
 
-            # Commit polling
-            if repo and branch and proc_cwd:
-                repo_path: Path | None = None
-                check = proc_cwd if (proc_cwd / ".git").is_dir() else None
-                if not check:
-                    for p in proc_cwd.parents:
-                        if (p / ".git").is_dir():
-                            repo_path = p
-                            break
-                else:
-                    repo_path = check
+            # Repo discovery (scoped Option B): watch the foreground repo AND every
+            # repo a running process sits in (periodic scan) — so commits are tracked
+            # regardless of which window is focused. get_new_commits' today-filter means
+            # a repo with no recent commits posts nothing.
+            fg_root = _repo_root(proc_cwd)
+            if fg_root:
+                known_shas.setdefault(str(fg_root), None)
+            if now - last_repo_scan >= REPO_SCAN_INTERVAL:
+                for r in discover_repos():
+                    known_shas.setdefault(str(r), None)
+                last_repo_scan = now
+                if len(known_shas) > _MAX_WATCHED_REPOS:  # ponytail: drop oldest keys
+                    for k in list(known_shas)[:-_MAX_WATCHED_REPOS]:
+                        known_shas.pop(k, None)
 
-                if repo_path:
-                    last_sha   = known_shas.get(str(repo_path))
-                    new_commits = get_new_commits(repo_path, last_sha)
-                    for c in new_commits:
-                        client.commit(repo, branch, c)
-                        log.info("commit %s %s", c["sha"], c["message"][:60])
-                    try:
-                        head = subprocess.run(
-                            ["git", "rev-parse", "HEAD"],
-                            cwd=repo_path, capture_output=True, text=True, timeout=3,
-                        )
-                        if head.returncode == 0:
-                            known_shas[str(repo_path)] = head.stdout.strip()
-                    except Exception:
-                        pass
+            # Poll every watched repo for new commits.
+            for rp_str in list(known_shas):
+                rp = Path(rp_str)
+                r_name, r_branch = find_git_repo(rp)
+                if not r_name:
+                    known_shas.pop(rp_str, None)   # repo vanished or became untrackable
+                    continue
+                for c in get_new_commits(rp, known_shas.get(rp_str)):
+                    client.commit(r_name, r_branch, c)
+                    log.info("commit %s %s", c["sha"], c["message"][:60])
+                try:
+                    head = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=rp, capture_output=True, text=True, timeout=3,
+                    )
+                    if head.returncode == 0:
+                        known_shas[rp_str] = head.stdout.strip()
+                except Exception:
+                    pass
 
             # VS Code extensions (check before AI tools so extensions feed into detection)
             if now - last_extension_check >= EXTENSION_INTERVAL:
