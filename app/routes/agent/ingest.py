@@ -26,9 +26,12 @@ _TOOL_DEFS_PATH = Path(__file__).parent.parent.parent / "ai" / "tool_definitions
 @router.get("/tool-definitions")
 async def tool_definitions():
     """Public endpoint — returns AI tool detection maps. No auth required.
-    Edit app/ai/tool_definitions.json to add new tools; agents pick it up within an hour."""
-    return JSONResponse(_TOOL_DEFS_PATH.read_text(encoding="utf-8"),
-                        media_type="application/json")
+    Edit app/ai/tool_definitions.json to add new tools; agents pick it up within an hour.
+
+    Parse-then-serve: JSONResponse must receive a dict, not the raw file text —
+    passing the text double-encodes it into a JSON string, so the agent's
+    r.json().get(...) fails and silently falls back to built-in defaults."""
+    return JSONResponse(json.loads(_TOOL_DEFS_PATH.read_text(encoding="utf-8")))
 
 
 @router.post("/heartbeat")
