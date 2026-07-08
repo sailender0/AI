@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.ai import agent
+from app.ai import llm
 from app.ai.summarizer import _format_events
 from app.auth.sso import get_profile_from_session
 from app.services.activity_query import compute_focus_blocks
@@ -27,7 +27,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 def _load_instructions() -> str:
-    return agent.load_prompt(
+    return llm.load_prompt(
         "instructions.txt",
         "You are a personal work assistant. Answer only from the data provided.",
     )
@@ -72,7 +72,7 @@ async def _gpt_parse_intent(question: str, today: str, tz_name: str = "UTC") -> 
         '  "event_type": one of commit, pr, issue, meeting, comment or null'
     )
     try:
-        return await agent.extract_json(system_prompt, question, max_tokens=80)
+        return await llm.extract_json(system_prompt, question, max_tokens=80)
     except Exception as exc:
         logger.warning("GPT intent parse failed: %s", exc)
         return {}
@@ -366,7 +366,7 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
     async def event_stream():
         tokens: list[str] = []
         try:
-            async for delta in agent.answer_stream(
+            async for delta in llm.answer_stream(
                 system_content, question, chat_history,
                 max_tokens=400, temperature=0.3,
             ):

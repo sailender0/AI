@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.ai import agent
+from app.ai import llm
 from app.ai import query as q
 
 UTC = timezone.utc
@@ -16,12 +16,12 @@ LA = ZoneInfo("America/Los_Angeles")
 # ── _messages: chat envelope ────────────────────────────────────────────────────
 
 def test_messages_envelope():
-    assert agent._messages("", "hi") == [{"role": "user", "content": "hi"}]
-    assert agent._messages("sys", "hi") == [
+    assert llm._messages("", "hi") == [{"role": "user", "content": "hi"}]
+    assert llm._messages("sys", "hi") == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hi"},
     ]
-    assert agent._messages("sys", "q", [{"role": "user", "content": "a"},
+    assert llm._messages("sys", "q", [{"role": "user", "content": "a"},
                                         {"role": "assistant", "content": "b"}]) == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "a"},

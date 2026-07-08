@@ -2,7 +2,7 @@
 per-1M prices (config.py). Prices must track AZURE_OPENAI_DEPLOYMENT."""
 import pytest
 
-from app.ai.agent import _estimate_cost
+from app.ai.llm import _estimate_cost
 from app.config import settings
 
 

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import agent
+from app.ai import llm
 from app.ai.summarizer import _is_scheduled_time
 from app.auth.sso import get_profile_from_session
 from app.services.activity_query import compute_focus_blocks, get_profile_tz
@@ -23,7 +23,7 @@ from app.storage.postgres import AsyncSessionLocal, get_db
 router  = APIRouter()
 log     = logging.getLogger(__name__)
 def _load_instructions() -> str:
-    return agent.load_prompt(
+    return llm.load_prompt(
         "standup_instructions.txt",
         "Generate a brief engineering standup with bullets: Yesterday / Today / Blockers.",
     )
@@ -133,7 +133,7 @@ async def _generate(profile_id: str, db: AsyncSession, target_date: str | None =
     log.info("Standup context for %s (%s): %s…", profile_id, date_str, context[:300])
 
     try:
-        text = await agent.answer(
+        text = await llm.answer(
             _load_instructions(),
             f"Here is my activity data for {day_label}:\n\n{context}",
             max_tokens=220,

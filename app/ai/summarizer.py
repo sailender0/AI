@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from app.ai import agent
+from app.ai import llm
 from app.config import settings
 from app.services.timezone import day_bounds, resolve
 from app.storage.models import Integration, Profile, Summary
@@ -156,7 +156,7 @@ async def _summarise_profile(
     caveat = f"Note: data from {', '.join(failed)} was unavailable." if failed else ""
 
     prompt = _build_prompt(period_type, events, caveat)
-    summary_text = await agent.answer("", prompt, max_tokens=400, temperature=0.3)
+    summary_text = await llm.answer("", prompt, max_tokens=400, temperature=0.3)
     logger.info("Summary generated — profile=%s period=%s", profile_id, period_type)
 
     async with AsyncSessionLocal() as db:
