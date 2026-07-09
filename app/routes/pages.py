@@ -14,11 +14,14 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     profile_id = await get_profile_from_session(request)
+    if profile_id is None:
+        # Logged out (incl. after /auth/logout, which redirects here) → marketing Homepage.
+        return templates.TemplateResponse(request=request, name="homepage.html")
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
-            "logged_in": profile_id is not None,
+            "logged_in": True,
             "github_app_slug": settings.GITHUB_APP_SLUG,
             "app_base_url": settings.APP_BASE_URL,
             "active_page": "overview",

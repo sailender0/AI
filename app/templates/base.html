@@ -443,6 +443,7 @@
     <div class="px-4 py-4 border-t border-gray-800">
       <p id="sidebar-email" class="sidebar-label text-xs text-gray-500 truncate"></p>
       <a href="/auth/login" id="sidebar-login" class="sidebar-label hidden mt-2 text-xs text-indigo-400 hover:text-indigo-300">Sign in</a>
+      <a href="/auth/logout" id="sidebar-logout" class="sidebar-label hidden mt-2 text-xs text-gray-400 hover:text-gray-100">Sign out</a>
     </div>
   </aside>
 
@@ -654,6 +655,7 @@
         return;
       }
 
+      document.getElementById('sidebar-logout').classList.remove('hidden');
       document.getElementById('sidebar-email').textContent = data.email;
       document.getElementById('page-greeting').textContent = getGreeting(data.email);
       const av = document.getElementById('header-avatar');
