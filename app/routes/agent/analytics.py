@@ -62,6 +62,49 @@ def _aggregate_claude(claude_docs: list[dict]) -> tuple[list[dict], int]:
     return summary, total
 
 
+def _tool_active_minutes(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[str, int]:
+    """Real active minutes per tool = overlap between each tool's detected-presence
+    intervals and the focus blocks (true non-idle device time).
+
+    A tool is "present" from when an ai_tool_events doc first lists it until the next
+    doc that omits it — the agent emits on change and re-emits every 30 min while
+    unchanged (agent AI_RESEND_INTERVAL). Still-open intervals extend to the last
+    focus-block end, so a tool running right now counts up to the latest heartbeat.
+    Intersecting with focus blocks means idle/offline time is never counted, and the
+    per-tool total can never exceed total_focus_min shown on the page.
+    ponytail: O(intervals × blocks) nested scan — both are tiny per day; upgrade to a
+    sweep line only if a day ever has thousands of either.
+    """
+    if not focus_blocks:
+        return {}
+    docs = sorted((d for d in ai_docs if d.get("timestamp")), key=lambda d: d["timestamp"])
+    end_cap = max(b["end"] for b in focus_blocks)
+
+    intervals: dict[str, list[tuple]] = {}
+    open_since: dict[str, datetime] = {}
+    for d in docs:
+        t = d["timestamp"]
+        tools = set(d.get("tools", []))
+        for tool in tools - open_since.keys():
+            open_since[tool] = t
+        for tool in list(open_since.keys() - tools):   # tool disappeared → close its interval
+            intervals.setdefault(tool, []).append((open_since.pop(tool), t))
+    for tool, start in open_since.items():             # still running → cap at last activity
+        intervals.setdefault(tool, []).append((start, end_cap))
+
+    out: dict[str, int] = {}
+    for tool, ivs in intervals.items():
+        secs = 0.0
+        for a_start, a_end in ivs:
+            for b in focus_blocks:
+                lo = max(a_start, b["start"])
+                hi = min(a_end, b["end"])
+                if hi > lo:
+                    secs += (hi - lo).total_seconds()
+        out[tool] = round(secs / 60)
+    return out
+
+
 def _isoZ(dt: datetime) -> str:
     # Normalize to UTC naive before formatting — Motor may return tz-aware datetimes
     # which would produce "+00:00Z" (malformed) if we just append "Z".
@@ -108,25 +151,27 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
 
     ai_docs = await ai_tool_events().find(
         {"profile_id": profile_id, "timestamp": ts_filter},
-        projection={"tools": 1, "_id": 0},
+        projection={"tools": 1, "timestamp": 1, "_id": 0},
     ).to_list(1500)
-    tool_counts: dict[str, int] = {}
+    tools_seen: set[str] = set()
     for doc in ai_docs:
-        for tool in doc.get("tools", []):
-            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+        tools_seen.update(doc.get("tools", []))
 
     claude_docs = await claude_usage().find(
         {"profile_id": profile_id, "date": the_date}
     ).to_list(100)
     claude_summary, _ = _aggregate_claude(claude_docs)
 
-    log.info("TODAY debug: tz=%s day_start=%s date=%s ai_tool_events=%d claude_docs=%d tool_counts=%s",
-             tzinfo.key, day_start, the_date, len(ai_docs), len(claude_docs), tool_counts)
-
     # If claude usage exists for the day, ensure claude-code shows up in active_tools
     # regardless of whether ai_tool_events captured it (agent may not restart daily).
     if claude_docs:
-        tool_counts.setdefault("claude-code", 1)
+        tools_seen.add("claude-code")
+
+    # Real active minutes per tool — overlap of detection windows with focus blocks.
+    tool_active_min = _tool_active_minutes(ai_docs, focus_blocks)
+
+    log.info("TODAY debug: tz=%s day_start=%s date=%s ai_tool_events=%d claude_docs=%d tools=%s",
+             tzinfo.key, day_start, the_date, len(ai_docs), len(claude_docs), sorted(tools_seen))
 
     commits = await local_commits().find(
         {"profile_id": profile_id, "timestamp": ts_filter},
@@ -151,8 +196,8 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
             for b in focus_blocks
         ],
         "total_focus_min": total_focus_min,
-        "active_tools":    sorted(tool_counts.keys()),
-        "tool_active_min": tool_counts,
+        "active_tools":    sorted(tools_seen),
+        "tool_active_min": tool_active_min,
         "claude_usage":    claude_summary,
         "commits": [
             {**c, "timestamp": _isoZ(c["timestamp"]) if c.get("timestamp") else None}
@@ -219,8 +264,10 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         days.setdefault(local_date(hb["timestamp"], tzinfo), []).append(hb)
 
     week_data = []
+    all_blocks: list[dict] = []
     for day, day_hbs in sorted(days.items()):
         blocks = compute_focus_blocks(day_hbs)
+        all_blocks.extend(blocks)
         week_data.append({
             "date":         day,
             "focus_min":    sum(b["duration_min"] for b in blocks),
@@ -254,12 +301,11 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         {"profile_id": profile_id, "timestamp": ts_filter},
         projection={"tools": 1, "timestamp": 1, "_id": 0},
     ).to_list(10_000)
-    tool_counts: dict[str, int] = {}
+    tools_seen: set[str] = set()
     tools_by_day: dict[str, set] = {}
     for doc in ai_docs:
         tools = doc.get("tools", [])
-        for tool in tools:
-            tool_counts[tool] = tool_counts.get(tool, 0) + 1
+        tools_seen.update(tools)
         ts = doc.get("timestamp")
         if ts:
             dk = local_date(ts, tzinfo)
@@ -267,7 +313,10 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
     tools_by_day_out = {dk: sorted(s) for dk, s in tools_by_day.items()}
 
     if claude_docs:
-        tool_counts.setdefault("claude-code", 1)
+        tools_seen.add("claude-code")
+
+    # Real active minutes per tool across the week (overlap with all focus blocks).
+    tool_active_min = _tool_active_minutes(ai_docs, all_blocks)
 
     commit_count = await local_commits().count_documents(
         {"profile_id": profile_id, "timestamp": ts_filter}
@@ -281,8 +330,8 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         "claude_usage":    claude_summary,
         "claude_by_day":   claude_by_day,
         "tools_by_day":    tools_by_day_out,
-        "tool_active_min": tool_counts,
-        "active_tools":    sorted(tool_counts.keys()),
+        "tool_active_min": tool_active_min,
+        "active_tools":    sorted(tools_seen),
     }
 
     if is_past:
