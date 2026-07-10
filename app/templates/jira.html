@@ -37,10 +37,15 @@
   <!-- Main content (hidden until connected) -->
   <div id="main-content" class="hidden space-y-6">
 
-  <!-- Period toggle -->
-  <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
-    <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
-    <button id="period-week"  onclick="setPeriod('week')"  class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
+  <!-- Period toggle + backfill -->
+  <div class="flex items-center justify-between gap-2">
+    <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
+      <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
+      <button id="period-week"  onclick="setPeriod('week')"  class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
+    </div>
+    <button onclick="backfillNow('jira')" class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
+      style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)"
+      title="Import the last 30 days of history">Backfill 30d</button>
   </div>
 
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="metric-cards"></div>

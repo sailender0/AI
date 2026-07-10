@@ -535,6 +535,22 @@
       }));
     }
 
+    // ---------- Backfill (ADR-0003): import recent connector history on demand ----------
+    async function backfillNow(source) {
+      if (!confirm('Import the last 30 days of ' + source + ' history? This runs in '
+                 + 'the background; new events appear as they arrive.')) return;
+      try {
+        const res = await fetch('/api/backfill/' + source + '?days=30',
+                                { method: 'POST', credentials: 'include' });
+        if (res.status === 202)      alert('Backfill started for ' + source + '.');
+        else if (res.status === 429) alert('You ran a backfill recently — please wait before retrying.');
+        else if (res.status === 401) alert('Please sign in again.');
+        else                         alert('Could not start backfill (HTTP ' + res.status + ').');
+      } catch (e) {
+        alert('Could not reach the server to start backfill.');
+      }
+    }
+
     // ---------- Sidebar ----------
     function toggleSidebar() {
       const collapsed = document.getElementById('sidebar').classList.contains('collapsed');

@@ -43,6 +43,12 @@
       <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background:#10b98120;color:#10b981">● Connected</span>
     </div>
     <div class="flex items-center gap-2">
+      <button onclick="backfillNow('gitlab')"
+        class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
+        style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)"
+        title="Import the last 30 days of history">
+        Backfill 30d
+      </button>
       <button onclick="reregisterWebhooks()" id="rereg-btn"
         class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
         style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">

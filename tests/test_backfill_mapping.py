@@ -5,7 +5,7 @@ equivalent webhook payload. If this drifts, backfill creates duplicates.
 
 Pure — runs offline (no live API, no DB), unlike the fetch layer.
 """
-from app.backfill import github, gitlab
+from app.backfill import github, gitlab, jira
 from app.webhooks.normalizer import normalize
 
 PID = "11111111-1111-1111-1111-111111111111"
@@ -93,3 +93,16 @@ def test_gitlab_issue_parity():
     live = normalize(webhook, "gitlab", PID, event_type=None)
     rest = {"id": 950, "iid": 7, "title": "A bug", "updated_at": "2026-07-01T11:00:00Z"}
     assert _key(gitlab.issue_to_event(rest, PID, "grp/proj")) == _key(live)
+
+
+# ── Jira ────────────────────────────────────────────────────────────────────
+
+def test_jira_issue_parity():
+    issue = {"id": "10042", "key": "PROJ-1",
+             "fields": {"summary": "Login broken", "project": {"key": "PROJ"},
+                        "updated": "2026-07-01T12:00:00.000+0000"}}
+    webhook = {"webhookEvent": "jira:issue_updated", "user": {"accountId": "a"}, "issue": issue}
+    live = normalize(webhook, "jira", PID, event_type="jira:issue_updated")  # receiver passes webhookEvent
+    back = jira.issue_to_event(issue, PID)
+    assert _key(back) == _key(live)
+    assert back["workspace"] == live["workspace"] == "PROJ"

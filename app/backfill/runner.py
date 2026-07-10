@@ -7,12 +7,16 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from app.auth.oauth import get_valid_token
-from app.backfill import github, gitlab
+from app.backfill import github, gitlab, jira
 from app.webhooks.normalizer import ingest
 
 logger = logging.getLogger(__name__)
 
-_FETCHERS = {"github": github.fetch_events, "gitlab": gitlab.fetch_events}
+_FETCHERS = {
+    "github": github.fetch_events,
+    "gitlab": gitlab.fetch_events,
+    "jira":   jira.fetch_events,
+}
 SUPPORTED = frozenset(_FETCHERS)
 _MAX_DAYS = 90
 
