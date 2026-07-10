@@ -348,6 +348,7 @@
 
   function renderItems(items, src) {
     if (!items || !items.length) return '';
+    items = escEvents(items);
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     const groups   = {};

@@ -512,6 +512,29 @@
   <script>
     const ACTIVE_PAGE = "{{ active_page }}";
 
+    // ---------- HTML escaping (XSS guard for innerHTML sinks) ----------
+    // Activity titles, repo/workspace names, filenames, event types and SHAs
+    // all originate from webhook/connector payloads and are rendered via
+    // innerHTML across the pages. Escape at the render boundary so injected
+    // markup shows as inert text instead of executing.
+    function esc(s) {
+      return (s == null ? '' : String(s))
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    // Returns escaped COPIES (never mutates the caller's cache) so re-renders on
+    // tab switches don't double-escape. Covers every user-controlled event field.
+    function escEvents(events) {
+      return (events || []).map(it => ({
+        ...it,
+        title:      it.title      != null ? esc(it.title)      : it.title,
+        workspace:  it.workspace  != null ? esc(it.workspace)  : it.workspace,
+        sha:        it.sha        != null ? esc(it.sha)        : it.sha,
+        event_type: it.event_type != null ? esc(it.event_type) : it.event_type,
+        files:      Array.isArray(it.files) ? it.files.map(esc) : it.files,
+      }));
+    }
+
     // ---------- Sidebar ----------
     function toggleSidebar() {
       const collapsed = document.getElementById('sidebar').classList.contains('collapsed');

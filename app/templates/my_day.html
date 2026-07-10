@@ -455,6 +455,7 @@
   }
 
   function renderTimeline(events) {
+    events = escEvents(events);
     const bySource = events.reduce((acc, e) => {
       (acc[e.source] = acc[e.source] || []).push(e);
       return acc;

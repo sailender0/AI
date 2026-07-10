@@ -584,6 +584,7 @@
   }
 
   function renderTimelineFeed(events) {
+    events = escEvents(events);
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     const bySource = events.reduce((acc, e) => {
@@ -634,6 +635,7 @@
   }
 
   function renderHistoryFeed(events) {
+    events = escEvents(events);
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     return `<div class="commit-feed">${events.map(it => {

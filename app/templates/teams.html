@@ -319,6 +319,7 @@
   const _tmFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 
   function renderConnFeed(events) {
+    events = escEvents(events);
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     if (evtPeriod === 'history') {

@@ -426,7 +426,7 @@
       topEl.innerHTML = data.top_items.map(item => `
         <div>
           <div class="flex justify-between text-xs mb-1">
-            <span class="text-gray-300 truncate">${item.name}</span>
+            <span class="text-gray-300 truncate">${esc(item.name)}</span>
             <span class="text-gray-500 ml-2 shrink-0">${item.count}</span>
           </div>
           <div class="h-1 bg-gray-800 rounded-full">
@@ -454,6 +454,7 @@
   }
 
   function renderConnFeed(events) {
+    events = escEvents(events);
     const initials = window._actUserInitials || '??';
     const author   = window._actAuthorName   || 'you';
     if (evtPeriod === 'history') {
