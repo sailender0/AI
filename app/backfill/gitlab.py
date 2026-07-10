@@ -4,10 +4,15 @@ Each mapper reproduces the (source_event_id, event_type, title) the live webhook
 receiver produces for the same object, so backfilled rows dedup against webhook
 rows. See docs/adr-0003-backfill.md §2-4.
 """
-from app.backfill import make_event, parse_iso
+from datetime import datetime, timezone
+
+import httpx
+
+from app.backfill import make_event, paged, parse_iso
 from app.webhooks.normalizer import sanitize
 
 _SOURCE = "gitlab"
+_API = "https://gitlab.com/api/v4"
 
 
 def commit_to_event(item: dict, profile_id: str, namespace: str) -> dict:
@@ -47,3 +52,32 @@ def issue_to_event(item: dict, profile_id: str, namespace: str) -> dict:
         occurred_at=parse_iso(item.get("updated_at") or item.get("created_at")),
         workspace=namespace, raw=item,
     )
+
+
+# ── Fetch (live API — smoke-test with a real token; contract unverified in CI) ──
+
+async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dict]:
+    """Pull commits, MRs and issues updated since `since` across the user's
+    projects and map them to normalized events. Project discovery mirrors
+    registration.py. See docs/adr-0003-backfill.md §Phase-1."""
+    since_iso = since.astimezone(timezone.utc).isoformat()
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    events: list[dict] = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        projects = await paged(client, f"{_API}/projects", headers,
+                               {"membership": True, "simple": True})
+        for proj in projects:
+            pid = proj.get("id")
+            ns = proj.get("path_with_namespace", "")
+            if pid is None:
+                continue
+            for c in await paged(client, f"{_API}/projects/{pid}/repository/commits", headers,
+                                 {"since": since_iso}):
+                events.append(commit_to_event(c, profile_id, ns))
+            for mr in await paged(client, f"{_API}/projects/{pid}/merge_requests", headers,
+                                  {"updated_after": since_iso}):
+                events.append(mr_to_event(mr, profile_id, ns))
+            for it in await paged(client, f"{_API}/projects/{pid}/issues", headers,
+                                  {"updated_after": since_iso}):
+                events.append(issue_to_event(it, profile_id, ns))
+    return events

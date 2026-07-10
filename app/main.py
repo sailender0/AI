@@ -33,6 +33,7 @@ from app.ai.query import router as query_router
 from app.routes.agent import router as agent_router
 from app.routes.standup import router as standup_router, run_standup_job
 from app.routes.email import router as email_router, run_email_digest_job
+from app.routes.backfill import router as backfill_router
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -114,6 +115,7 @@ app.include_router(query_router)
 app.include_router(agent_router)
 app.include_router(standup_router)
 app.include_router(email_router)
+app.include_router(backfill_router)
 
 
 @app.get("/health")

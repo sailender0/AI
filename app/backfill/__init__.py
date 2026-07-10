@@ -23,6 +23,28 @@ def parse_iso(raw_ts) -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def paged(client, url: str, headers: dict, params: dict, *, cap: int = 10) -> list:
+    """GET `url` paging via ?per_page=100&page=N until a short/empty page or cap.
+    Works for GitHub and GitLab (both accept page/per_page). `client` is any
+    object with an async .get(url, headers, params) returning .status_code/.json().
+
+    ponytail: cap bounds a runaway backfill at cap*100 items/endpoint; raise cap
+    if a real backfill needs deeper history than ~1000 items per repo/endpoint."""
+    page, out = 1, []
+    while page <= cap:
+        r = await client.get(url, headers=headers, params={**params, "per_page": 100, "page": page})
+        if getattr(r, "status_code", None) != 200:
+            break
+        batch = r.json()
+        if not isinstance(batch, list) or not batch:
+            break
+        out.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return out
+
+
 def make_event(*, profile_id: str, source: str, event_type: str,
                source_event_id: str, title: str, occurred_at: datetime,
                workspace: str | None = None, due_date: datetime | None = None,
