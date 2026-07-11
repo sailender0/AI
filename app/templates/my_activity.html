@@ -195,6 +195,50 @@
             <!-- Expanded detail panel -->
             <div x-show="toolExpanded[t.name]" class="px-4 pb-4 pt-3 space-y-3"
                  style="background:var(--surface)">
+              <!-- Timeline — active segments across the working day -->
+              <template x-if="t.periods && t.periods.length && timelineTicks.length">
+                <div>
+                  <div class="relative mb-1" style="height:13px">
+                    <template x-for="tk in timelineTicks" :key="tk.left">
+                      <span class="absolute font-mono"
+                            style="font-size:10px;color:var(--text-3);transform:translateX(-50%)"
+                            :style="'left:' + tk.left + '%'" x-text="tk.label"></span>
+                    </template>
+                  </div>
+                  <div class="relative overflow-hidden" style="height:12px;border-radius:4px;background:var(--surface-2)">
+                    <template x-for="g in timelineGrid" :key="g">
+                      <div class="absolute top-0 bottom-0" style="width:1px;background:var(--border)"
+                           :style="'left:' + g + '%'"></div>
+                    </template>
+                    <template x-for="(p, i) in t.periods" :key="i">
+                      <div class="absolute top-0 bottom-0" style="border-radius:2px"
+                           :style="segStyle(p) + ';background:' + t.color + ';opacity:0.9'"></div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <!-- Active sessions — exact ranges the tool ran while you were active -->
+              <template x-if="t.periods && t.periods.length">
+                <div class="space-y-1.5">
+                  <p class="text-xs font-semibold" style="color:var(--text-3)">ACTIVE SESSIONS</p>
+                  <template x-for="(p, i) in t.periods" :key="i">
+                    <div class="flex items-center gap-2 text-xs py-0.5"
+                         style="border-bottom:1px solid var(--border)">
+                      <span class="w-1.5 h-1.5 rounded-sm flex-shrink-0" :style="'background:' + t.color"></span>
+                      <span class="font-mono" style="color:var(--text-2)"
+                            x-text="formatClock(p.start) + ' – ' + formatClock(p.end)"></span>
+                      <template x-if="p.input_tokens !== undefined">
+                        <span class="font-mono" style="color:var(--text-3)">
+                          · <span style="color:#6366f1" x-text="formatTokens(p.input_tokens)"></span> in
+                          / <span style="color:#e07b39" x-text="formatTokens(p.output_tokens)"></span> out
+                        </span>
+                      </template>
+                      <span class="ml-auto font-mono" style="color:var(--text-3)"
+                            x-text="formatMinutes(p.minutes)"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
               <!-- Per-repo token + file breakdown (claude-code with data) -->
               <template x-if="t.repos && t.repos.length">
                 <div class="space-y-4">
@@ -237,17 +281,6 @@
                 <p class="text-xs" style="color:var(--text-3)">
                   Detected active &middot; token data syncs every 5 min
                 </p>
-              </template>
-              <!-- Other tools: active time bar -->
-              <template x-if="t.name !== 'claude-code' && t.active_min > 0">
-                <div>
-                  <div class="h-1.5 rounded-full overflow-hidden mb-1" style="background:var(--surface-2)">
-                    <div class="h-full rounded-full"
-                         :style="'width:' + Math.min(100, t.active_min / 480 * 100) + '%;background:' + t.color + ';opacity:0.6'"></div>
-                  </div>
-                  <p class="text-xs" style="color:var(--text-3)"
-                     x-text="formatMinutes(t.active_min) + ' of 8h shown'"></p>
-                </div>
               </template>
             </div>
           </div>
@@ -461,6 +494,7 @@ function activityApp() {
     totalFocusMin:     0,
     activeTools:       [],
     toolActiveMin:     {},
+    toolActivePeriods: {},
     totalTokens:       0,
     claudeUsage:       [],
     commits:           [],
@@ -514,6 +548,7 @@ function activityApp() {
         this.totalFocusMin = d.total_focus_min || 0;
         this.activeTools   = d.active_tools    || [];
         this.toolActiveMin = d.tool_active_min || {};
+        this.toolActivePeriods = d.tool_active_periods || {};
         this.claudeUsage   = d.claude_usage    || [];
         this.commits       = d.commits         || [];
         this.totalTokens   = this.claudeUsage.reduce((s, u) => s + u.input_tokens + u.output_tokens, 0);
@@ -652,6 +687,7 @@ function activityApp() {
           name,
           color:       TOOL_COLORS[name] || '#6b7280',
           active_min:  this.toolActiveMin[name] || 0,
+          periods:     this.toolActivePeriods[name] || [],
           repos,
           totalTokens: repos.reduce((s, r) => s + r.input_tokens + r.output_tokens, 0),
         };
@@ -676,6 +712,41 @@ function activityApp() {
       if (!min) return '0 min';
       const h = Math.floor(min / 60), m = min % 60;
       return h ? `${h}h ${m}m` : `${m} min`;
+    },
+    formatClock(iso) {
+      return new Date(iso).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+    },
+    formatHour(ms) {
+      const h = new Date(ms).getHours();
+      const hh = (h % 12) || 12;
+      return hh + (h < 12 ? 'a' : 'p');
+    },
+    // Full-day axis: local midnight → next midnight, so every hour of the day shows.
+    // (DST days are ±1h — negligible for a usage timeline. ponytail: fixed 24h span.)
+    get timelineWindow() {
+      const lo = new Date(this.selectedDate + 'T00:00:00').getTime();
+      const span = 24 * 3600000;
+      return {lo, hi: lo + span, span};
+    },
+    get timelineTicks() {          // text labels every 3h — 24 labels won't fit the width
+      const w = this.timelineWindow, ticks = [];
+      for (let h = 0; h <= 24; h += 3) {
+        ticks.push({left: h / 24 * 100, label: this.formatHour(w.lo + h * 3600000)});
+      }
+      return ticks;
+    },
+    get timelineGrid() {           // a faint line at every hour
+      const lines = [];
+      for (let h = 1; h < 24; h++) lines.push(h / 24 * 100);
+      return lines;
+    },
+    segStyle(p) {
+      const w = this.timelineWindow;
+      if (!w) return 'display:none';
+      const s = new Date(p.start).getTime(), e = new Date(p.end).getTime();
+      const left  = (s - w.lo) / w.span * 100;
+      const width = Math.max(0.8, (e - s) / w.span * 100);
+      return `left:${left}%;width:${width}%`;
     },
     formatTokens(t) {
       if (!t) return '0';

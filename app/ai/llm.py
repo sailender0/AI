@@ -12,6 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import openai
 from openai import AsyncAzureOpenAI
 
 from app.config import settings
@@ -61,8 +62,12 @@ def _log_usage(usage) -> None:
         return
     pt = getattr(usage, "prompt_tokens", 0) or 0
     ct = getattr(usage, "completion_tokens", 0) or 0
-    logger.info("LLM usage | prompt=%d completion=%d total=%d cost=$%.6f",
-                pt, ct, pt + ct, _estimate_cost(pt, ct))
+    cached = 0                                    # cached prefix tokens (~0.5x price)
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None:
+        cached = getattr(details, "cached_tokens", 0) or 0
+    logger.info("LLM usage | prompt=%d (cached=%d) completion=%d total=%d cost=$%.6f",
+                pt, cached, ct, pt + ct, _estimate_cost(pt, ct))
 
 
 def _messages(system: str, user: str, history: list[dict] | None = None) -> list[dict]:
@@ -119,20 +124,35 @@ async def answer_stream(
             yield delta
 
 
-async def extract_json(system: str, user: str, *, max_tokens: int = 80) -> dict:
-    """Structured JSON extraction (temperature 0, json_object mode).
-
-    Raises on invalid JSON — callers decide the fallback.
-    """
-    resp = await _get_client().chat.completions.create(
-        model=settings.AZURE_OPENAI_DEPLOYMENT,
-        messages=_messages(system, user),
-        max_tokens=max_tokens,
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-    _log_usage(resp.usage)
-    return json.loads(resp.choices[0].message.content)
+async def extract_schema(system: str, user: str, schema: dict, *,
+                         name: str = "result", max_tokens: int = 120) -> dict:
+    """Structured JSON extraction constrained to `schema` (strict structured outputs,
+    temperature 0). If the deployment/api-version rejects `json_schema`, falls back to
+    plain `json_object` mode so a non-structured-outputs model degrades instead of
+    erroring. Returns {} on a refusal / empty content. Raises on invalid JSON —
+    callers decide the fallback.
+    ponytail: the json_object fallback keeps Ask AI working even where structured
+    outputs isn't available; drop it once every deployment is confirmed to support it."""
+    strict = {"type": "json_schema",
+              "json_schema": {"name": name, "strict": True, "schema": schema}}
+    for response_format in (strict, {"type": "json_object"}):
+        try:
+            resp = await _get_client().chat.completions.create(
+                model=settings.AZURE_OPENAI_DEPLOYMENT,
+                messages=_messages(system, user),
+                max_tokens=max_tokens,
+                temperature=0,
+                response_format=response_format,
+            )
+        except openai.BadRequestError:
+            if response_format is strict:
+                logger.warning("json_schema rejected by deployment — falling back to json_object")
+                continue
+            raise
+        _log_usage(resp.usage)
+        content = resp.choices[0].message.content
+        return json.loads(content) if content else {}   # content is None on a refusal
+    return {}
 
 
 def demo() -> None:

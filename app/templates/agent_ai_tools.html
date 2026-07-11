@@ -187,7 +187,8 @@
                   <span class="w-2 h-2 rounded-full flex-shrink-0"
                         :style="'background:' + ({'github-copilot':'#6e40c9','cursor-ai':'#1a73e8','windsurf':'#06b6d4','tabnine':'#22c55e','codeium':'#f59e0b','gemini-cli':'#3b82f6','gemini-code-assist':'#3b82f6','amazon-q':'#f97316','ollama':'#64748b'}[tool] || '#6b7280')"></span>
                   <span x-text="tool"></span>
-                  <span style="color:var(--text-3)">· active</span>
+                  <span style="color:var(--text-3)"
+                        x-text="dayData.activeMin[tool] ? '· ' + formatMinutes(dayData.activeMin[tool]) + ' active' : '· active'"></span>
                 </span>
               </template>
             </div>
@@ -295,6 +296,7 @@ function aiToolsPage() {
     weekClaudeUsage: [],
     weekClaudeByDay: {},
     weekToolsByDay:  {},
+    weekToolActiveByDay: {},
     dayExpanded:     {},
     loading:         false,
 
@@ -328,6 +330,7 @@ function aiToolsPage() {
           this.weekClaudeUsage = d.claude_usage  || [];
           this.weekClaudeByDay = d.claude_by_day  || {};
           this.weekToolsByDay  = d.tools_by_day   || {};
+          this.weekToolActiveByDay = d.tool_active_by_day || {};
         }
       } finally { this.loading = false; }
     },
@@ -384,7 +387,8 @@ function aiToolsPage() {
         }
         const allTools  = this.weekToolsByDay[date] || [];
         const otherTools = allTools.filter(t => t !== 'claude-code');
-        return {date, repos, totalTokens: repos.reduce((s,r)=>s+r.input_tokens+r.output_tokens,0), otherTools};
+        const activeMin = this.weekToolActiveByDay[date] || {};
+        return {date, repos, totalTokens: repos.reduce((s,r)=>s+r.input_tokens+r.output_tokens,0), otherTools, activeMin};
       });
     },
 
@@ -450,6 +454,11 @@ function aiToolsPage() {
       if (!t) return '0';
       if (t >= 1_000_000) return (t / 1_000_000).toFixed(1) + 'M';
       return t >= 1000 ? (t / 1000).toFixed(1) + 'k' : String(t);
+    },
+    formatMinutes(min) {
+      if (!min) return '0 min';
+      const h = Math.floor(min / 60), m = min % 60;
+      return h ? `${h}h ${m}m` : `${m} min`;
     },
   };
 }

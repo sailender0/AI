@@ -125,6 +125,7 @@ async def receive_claude_usage(
                 "output_tokens":         entry.output_tokens,
                 "message_count":         entry.message_count,
                 "files":                 sorted(entry.files),
+                "hourly":                [h.model_dump() for h in entry.hourly],
             }},
             upsert=True,
         )

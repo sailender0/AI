@@ -41,9 +41,10 @@ DEFAULT_BACKEND = os.environ.get("DA_BACKEND", "http://localhost:8000")
 
 HEARTBEAT_INTERVAL  = 30   # seconds
 AI_CHECK_INTERVAL   = 60
-AI_RESEND_INTERVAL  = 1800  # re-emit unchanged tool set every 30 min so each local day has an event
+AI_RESEND_INTERVAL  = 120   # re-emit unchanged tool set every 2 min so each local day has an event
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 60
+DISCOVER_INTERVAL   = 180  # scan the home folder for AI-tool data dirs every 3 min
 STANDUP_INTERVAL    = 300  # poll for a deliverable standup every 5 min
 REPO_SCAN_INTERVAL  = 300  # rediscover repos from all process cwds every 5 min
 _MAX_WATCHED_REPOS  = 25   # cap on repos polled for commits (ponytail: bound growth)
@@ -284,6 +285,85 @@ def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
 
 # ── AI tool detection ─────────────────────────────────────────────────────────
 
+# ── Local AI-tool discovery ───────────────────────────────────────────────────
+# Find AI tools by the data they leave in the home folder — no per-tool config.
+# Known dot-dirs map to a clean name; an unknown dot-dir whose name hints at AI is
+# surfaced raw (same idea as the unknown-process heuristic in detect_ai_tools).
+# A tool only counts when its data was written recently, so "installed months ago"
+# isn't reported as active. Usage (tokens/context) is a SEPARATE per-tool reader —
+# discovery gives presence; readers give numbers.
+_AI_DATA_DIRS: dict[str, str] = {
+    ".claude":   "claude-code",
+    ".codex":    "codex",
+    ".cursor":   "cursor-ai",
+    ".gemini":   "gemini-cli",
+    ".aider":    "aider",
+    ".continue": "continue-dev",
+    ".codeium":  "windsurf",
+    ".ollama":   "ollama",
+    ".tabnine":  "tabnine",
+}
+_AI_DIR_KEYWORDS = ("claude", "codex", "cursor", "copilot", "gemini", "gpt",
+                    "aider", "windsurf", "codeium", "ollama", "tabnine",
+                    "anthropic", "openai", "llm")
+_AI_DATA_FRESH_SECS = 900   # data touched within 15 min → tool is in active use
+
+
+def _tool_name_for_dir(dirname: str) -> str | None:
+    """Home dot-dir name -> tool name: known dir gets a clean name, unknown but
+    AI-named dir surfaces raw (dot stripped); anything else is None."""
+    if not dirname.startswith("."):
+        return None
+    low = dirname.lower()
+    if low in _AI_DATA_DIRS:
+        return _AI_DATA_DIRS[low]
+    if any(k in low for k in _AI_DIR_KEYWORDS):
+        return dirname.lstrip(".")
+    return None
+
+
+def _touched_recently(path: Path, cutoff: float, cap: int = 1500) -> bool:
+    """True if any file under `path` has mtime >= cutoff. Bounded to `cap` files so a
+    huge history dir can't stall the loop; returns on the first fresh file, so an
+    actively-used tool is cheap. ponytail: bounded scan — raise cap only if a real
+    tool dir is larger and its fresh file sorts behind that many idle ones."""
+    seen = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                if os.stat(os.path.join(root, f)).st_mtime >= cutoff:
+                    return True
+            except OSError:
+                pass
+            seen += 1
+            if seen >= cap:
+                return False
+    return False
+
+
+def discover_local_ai_tools(fresh_secs: int = _AI_DATA_FRESH_SECS) -> list[str]:
+    """Auto-find AI tools by the data they save under the home folder — no per-tool
+    setup. Scans only top-level dot-dirs (fast; that's where tools live). Reports a
+    tool only if its data was written within `fresh_secs`, so this reflects use."""
+    home = Path.home()
+    cutoff = time.time() - fresh_secs
+    found: set[str] = set()
+    try:
+        entries = list(home.iterdir())
+    except OSError:
+        return []
+    for d in entries:
+        try:
+            if not d.is_dir():
+                continue
+        except OSError:
+            continue
+        tool = _tool_name_for_dir(d.name)
+        if tool and _touched_recently(d, cutoff):
+            found.add(tool)
+    return sorted(found)
+
+
 def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
     detected: set[str] = set()
 
@@ -372,23 +452,28 @@ def get_claude_usage() -> list[dict]:
                             continue
                         ts = entry.get("timestamp", "")
                         try:
-                            dt       = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                            date_str = dt.astimezone().strftime("%Y-%m-%d")
+                            ldt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
                         except Exception:
-                            date_str = datetime.now().strftime("%Y-%m-%d")
+                            ldt = datetime.now()
+                        date_str = ldt.strftime("%Y-%m-%d")
                         if date_str < cutoff_date:
                             continue
                         model = (msg.get("model") or "claude-sonnet").lower()
                         key   = (date_str, model, repo)
                         if key not in agg:
                             agg[key] = {"input": 0, "cache_w": 0, "cache_r": 0,
-                                        "output": 0, "messages": 0, "files": set()}
+                                        "output": 0, "messages": 0, "files": set(), "hours": {}}
                         a = agg[key]
-                        a["input"]    += usage.get("input_tokens", 0)
+                        in_tok  = usage.get("input_tokens", 0)
+                        out_tok = usage.get("output_tokens", 0)
+                        a["input"]    += in_tok
                         a["cache_w"]  += usage.get("cache_creation_input_tokens", 0)
                         a["cache_r"]  += usage.get("cache_read_input_tokens", 0)
-                        a["output"]   += usage.get("output_tokens", 0)
+                        a["output"]   += out_tok
                         a["messages"] += 1
+                        hb = a["hours"].setdefault(ldt.hour, {"in": 0, "out": 0})
+                        hb["in"]  += in_tok
+                        hb["out"] += out_tok
                         for fp in _files_from_content(msg.get("content", [])):
                             a["files"].add(fp)
             except Exception:
@@ -403,6 +488,10 @@ def get_claude_usage() -> list[dict]:
             "output_tokens":         v["output"],
             "message_count":         v["messages"],
             "files":                 sorted(v["files"]),
+            "hourly": [
+                {"hour": h, "input_tokens": hv["in"], "output_tokens": hv["out"]}
+                for h, hv in sorted(v["hours"].items())
+            ],
         }
         for (date, model, repo), v in agg.items() if v["messages"] > 0
     ]
@@ -531,9 +620,11 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
     last_ai_sent         = 0.0
     last_extension_check = 0.0
     last_claude_check    = 0.0
+    last_discover_check  = 0.0
     last_tool_def_check  = time.monotonic()
     last_standup_check   = 0.0
     last_ai_tools:     list[str] = []
+    discovered_tools:  list[str] = []
     last_extensions:   list[str] = []
     known_shas:        dict[str, str | None] = {}
     last_repo_scan     = 0.0
@@ -595,12 +686,18 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                     last_extensions = exts
                 last_extension_check = now
 
-            # AI tools — process scan + installed extensions.
+            # Local AI-tool discovery — find tools by their home data dirs (every
+            # DISCOVER_INTERVAL; the fs scan is heavier than the process scan).
+            if now - last_discover_check >= DISCOVER_INTERVAL:
+                discovered_tools = discover_local_ai_tools()
+                last_discover_check = now
+
+            # AI tools — process scan + installed extensions + local-data discovery.
             # Re-send on change OR every AI_RESEND_INTERVAL: a continuously-running
             # tool emits no change event across midnight, so without the periodic
             # resend it silently drops off the new day's active-tools view.
             if now - last_ai_check >= AI_CHECK_INTERVAL:
-                tools = detect_ai_tools(last_extensions)
+                tools = sorted(set(detect_ai_tools(last_extensions)) | set(discovered_tools))
                 if tools != last_ai_tools or now - last_ai_sent >= AI_RESEND_INTERVAL:
                     client.ai_event(tools)
                     log.info("AI tools: %s", tools or "none")

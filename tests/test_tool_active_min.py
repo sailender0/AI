@@ -2,7 +2,9 @@
 detection windows (ai_tool_events) with the focus blocks (true non-idle time)."""
 from datetime import datetime, timedelta, timezone
 
-from app.routes.agent.analytics import _tool_active_minutes
+from app.routes.agent.analytics import (
+    _tool_active_minutes, _tool_active_periods, _merge_hourly, _session_token_totals,
+)
 
 T0 = datetime(2026, 7, 2, 9, 0, 0, tzinfo=timezone.utc)
 
@@ -46,6 +48,68 @@ def test_presence_outside_focus_counts_zero():
     docs = [{"timestamp": _at(120), "tools": ["ollama"]}]
     blocks = [_block(0, 30)]
     assert _tool_active_minutes(docs, blocks).get("ollama", 0) == 0
+
+
+def test_periods_split_around_idle():
+    # ollama running from 09:00 (still open), but user idle 09:20–09:40 → two blocks.
+    docs = [{"timestamp": _at(0), "tools": ["ollama"]}]
+    blocks = [_block(0, 20), _block(40, 60)]
+    ps = _tool_active_periods(docs, blocks)["ollama"]
+    assert len(ps) == 2
+    assert [p["minutes"] for p in ps] == [20, 20]   # sums to _tool_active_minutes total
+
+
+def test_periods_merge_contiguous_blocks():
+    # touching focus blocks → one continuous session, not two.
+    docs = [{"timestamp": _at(0), "tools": ["ollama"]}]
+    blocks = [_block(0, 20), _block(20, 40)]
+    ps = _tool_active_periods(docs, blocks)["ollama"]
+    assert len(ps) == 1 and ps[0]["minutes"] == 40
+
+
+def test_periods_sum_matches_minutes():
+    docs = [
+        {"timestamp": _at(0),  "tools": ["cursor-ai"]},
+        {"timestamp": _at(30), "tools": ["cursor-ai", "claude-code"]},
+        {"timestamp": _at(50), "tools": ["claude-code"]},
+    ]
+    blocks = [_block(0, 60)]
+    mins = _tool_active_minutes(docs, blocks)
+    pers = _tool_active_periods(docs, blocks)
+    for tool, total in mins.items():
+        assert sum(p["minutes"] for p in pers[tool]) == total
+
+
+def test_session_tokens_attributed_and_reconcile():
+    # Day starts at UTC midnight; sessions 09:00–10:00 and 13:00–15:00 (UTC == local here).
+    day_start = datetime(2026, 7, 2, 0, 0, tzinfo=timezone.utc)
+    periods = [
+        {"start": "2026-07-02T09:00:00Z", "end": "2026-07-02T10:00:00Z", "minutes": 60},
+        {"start": "2026-07-02T13:00:00Z", "end": "2026-07-02T15:00:00Z", "minutes": 120},
+    ]
+    hourly = [
+        {"hour": 9,  "input_tokens": 100, "output_tokens": 20},   # → session 0
+        {"hour": 13, "input_tokens": 200, "output_tokens": 40},   # → session 1
+        {"hour": 14, "input_tokens": 300, "output_tokens": 60},   # → session 1
+        {"hour": 20, "input_tokens": 90,  "output_tokens": 10},   # no session → nearest (session 1)
+    ]
+    out = _session_token_totals(periods, hourly, day_start)
+    assert out[0] == {"input_tokens": 100, "output_tokens": 20}
+    assert out[1] == {"input_tokens": 590, "output_tokens": 110}
+    # every token lands somewhere → sums reconcile to the day total
+    assert sum(o["input_tokens"] for o in out) == 690
+
+
+def test_merge_hourly_sums_across_docs():
+    docs = [
+        {"hourly": [{"hour": 9, "input_tokens": 10, "output_tokens": 1}]},
+        {"hourly": [{"hour": 9, "input_tokens": 5,  "output_tokens": 2},
+                    {"hour": 10, "input_tokens": 7, "output_tokens": 3}]},
+    ]
+    assert _merge_hourly(docs) == [
+        {"hour": 9,  "input_tokens": 15, "output_tokens": 3},
+        {"hour": 10, "input_tokens": 7,  "output_tokens": 3},
+    ]
 
 
 if __name__ == "__main__":

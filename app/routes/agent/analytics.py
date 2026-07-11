@@ -77,20 +77,8 @@ def _tool_active_minutes(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[
     """
     if not focus_blocks:
         return {}
-    docs = sorted((d for d in ai_docs if d.get("timestamp")), key=lambda d: d["timestamp"])
-    end_cap = max(b["end"] for b in focus_blocks)
-
-    intervals: dict[str, list[tuple]] = {}
-    open_since: dict[str, datetime] = {}
-    for d in docs:
-        t = d["timestamp"]
-        tools = set(d.get("tools", []))
-        for tool in tools - open_since.keys():
-            open_since[tool] = t
-        for tool in list(open_since.keys() - tools):   # tool disappeared → close its interval
-            intervals.setdefault(tool, []).append((open_since.pop(tool), t))
-    for tool, start in open_since.items():             # still running → cap at last activity
-        intervals.setdefault(tool, []).append((start, end_cap))
+    end_cap   = max(b["end"] for b in focus_blocks)
+    intervals = _tool_presence_intervals(ai_docs, end_cap)
 
     out: dict[str, int] = {}
     for tool, ivs in intervals.items():
@@ -103,6 +91,105 @@ def _tool_active_minutes(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[
                     secs += (hi - lo).total_seconds()
         out[tool] = round(secs / 60)
     return out
+
+
+def _tool_presence_intervals(ai_docs: list[dict], end_cap: datetime) -> dict[str, list[tuple]]:
+    """Per tool, the [start, end) intervals during which it was detected as present.
+    Present from the first event that lists it until the next event that omits it; a
+    still-open interval is capped at end_cap (the last focus-block end)."""
+    docs = sorted((d for d in ai_docs if d.get("timestamp")), key=lambda d: d["timestamp"])
+    intervals: dict[str, list[tuple]] = {}
+    open_since: dict[str, datetime] = {}
+    for d in docs:
+        t = d["timestamp"]
+        tools = set(d.get("tools", []))
+        for tool in tools - open_since.keys():
+            open_since[tool] = t
+        for tool in list(open_since.keys() - tools):   # tool disappeared → close its interval
+            intervals.setdefault(tool, []).append((open_since.pop(tool), t))
+    for tool, start in open_since.items():             # still running → cap at last activity
+        intervals.setdefault(tool, []).append((start, end_cap))
+    return intervals
+
+
+def _tool_active_periods(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[str, list[dict]]:
+    """Per tool, the actual active sessions = each presence interval clipped to the
+    focus blocks, merged where segments touch. Same overlap logic as
+    _tool_active_minutes but keeps the [start, end] ranges so the UI can list real
+    sessions. Sessions split around idle gaps, so they sum to the header's active total."""
+    if not focus_blocks:
+        return {}
+    end_cap   = max(b["end"] for b in focus_blocks)
+    intervals = _tool_presence_intervals(ai_docs, end_cap)
+    blocks    = sorted(focus_blocks, key=lambda b: b["start"])
+
+    out: dict[str, list[dict]] = {}
+    for tool, ivs in intervals.items():
+        segs: list[tuple] = []
+        for a_start, a_end in ivs:
+            for b in blocks:
+                lo = max(a_start, b["start"])
+                hi = min(a_end, b["end"])
+                if hi > lo:
+                    segs.append((lo, hi))
+        segs.sort()
+        merged: list[list] = []
+        for s, e in segs:
+            if merged and s <= merged[-1][1]:          # touching/contiguous → extend
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+        out[tool] = [
+            {"start": _isoZ(s), "end": _isoZ(e), "minutes": round((e - s).total_seconds() / 60)}
+            for s, e in merged
+        ]
+    return out
+
+
+def _merge_hourly(claude_docs: list[dict]) -> list[dict]:
+    """Sum the per-hour token buckets across a day's claude_usage docs into one
+    [{hour, input_tokens, output_tokens}] series (hour = local 0–23)."""
+    acc: dict[int, dict] = {}
+    for d in claude_docs:
+        for hb in d.get("hourly", []):
+            a = acc.setdefault(hb.get("hour", 0), {"input_tokens": 0, "output_tokens": 0})
+            a["input_tokens"]  += hb.get("input_tokens", 0)
+            a["output_tokens"] += hb.get("output_tokens", 0)
+    return [{"hour": h, **v} for h, v in sorted(acc.items())]
+
+
+def _session_token_totals(periods: list[dict], day_hourly: list[dict],
+                          day_start: datetime) -> list[dict]:
+    """Split each local hour's input/output tokens across the claude-code sessions it
+    overlaps (proportional to overlap; an hour touching no session goes to the nearest
+    one) so every session's totals reconcile to the day total.
+    ponytail: hour buckets can misdate by ±1h on DST days — negligible for usage."""
+    if not periods:
+        return []
+    start0 = day_start.astimezone(timezone.utc).replace(tzinfo=None)   # naive-UTC, matches _isoZ
+    sess = [[datetime.strptime(p["start"], "%Y-%m-%dT%H:%M:%SZ"),
+             datetime.strptime(p["end"],   "%Y-%m-%dT%H:%M:%SZ")] for p in periods]
+    totals = [{"input": 0.0, "output": 0.0} for _ in sess]
+
+    for hb in day_hourly:
+        h_start = start0 + timedelta(hours=hb["hour"])
+        h_end   = h_start + timedelta(hours=1)
+        tin, tout = hb["input_tokens"], hb["output_tokens"]
+        overlaps = [(i, ov) for i, (s, e) in enumerate(sess)
+                    if (ov := (min(h_end, e) - max(h_start, s)).total_seconds()) > 0]
+        if overlaps:
+            tot = sum(ov for _, ov in overlaps)
+            for i, ov in overlaps:
+                totals[i]["input"]  += tin  * ov / tot
+                totals[i]["output"] += tout * ov / tot
+        else:                                              # no session this hour → nearest
+            mid = h_start + timedelta(minutes=30)
+            i = min(range(len(sess)),
+                    key=lambda k: abs((sess[k][0] + (sess[k][1] - sess[k][0]) / 2 - mid).total_seconds()))
+            totals[i]["input"]  += tin
+            totals[i]["output"] += tout
+
+    return [{"input_tokens": round(t["input"]), "output_tokens": round(t["output"])} for t in totals]
 
 
 def _isoZ(dt: datetime) -> str:
@@ -169,6 +256,16 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
 
     # Real active minutes per tool — overlap of detection windows with focus blocks.
     tool_active_min = _tool_active_minutes(ai_docs, focus_blocks)
+    # Same overlap, kept as individual sessions so the tool dropdown can list ranges.
+    tool_active_periods = _tool_active_periods(ai_docs, focus_blocks)
+    # Option C — attribute per-hour Claude tokens to each claude-code session.
+    # Skipped for days with no hourly data (pre-rebuild) so old rows don't show 0/0.
+    cc_periods = tool_active_periods.get("claude-code")
+    day_hourly = _merge_hourly(claude_docs)
+    if cc_periods and day_hourly:
+        for p, tk in zip(cc_periods, _session_token_totals(cc_periods, day_hourly, day_start)):
+            p["input_tokens"]  = tk["input_tokens"]
+            p["output_tokens"] = tk["output_tokens"]
 
     log.info("TODAY debug: tz=%s day_start=%s date=%s ai_tool_events=%d claude_docs=%d tools=%s",
              tzinfo.key, day_start, the_date, len(ai_docs), len(claude_docs), sorted(tools_seen))
@@ -198,6 +295,7 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
         "total_focus_min": total_focus_min,
         "active_tools":    sorted(tools_seen),
         "tool_active_min": tool_active_min,
+        "tool_active_periods": tool_active_periods,
         "claude_usage":    claude_summary,
         "commits": [
             {**c, "timestamp": _isoZ(c["timestamp"]) if c.get("timestamp") else None}
@@ -265,9 +363,11 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
 
     week_data = []
     all_blocks: list[dict] = []
+    blocks_by_day: dict[str, list] = {}
     for day, day_hbs in sorted(days.items()):
         blocks = compute_focus_blocks(day_hbs)
         all_blocks.extend(blocks)
+        blocks_by_day[day] = blocks
         week_data.append({
             "date":         day,
             "focus_min":    sum(b["duration_min"] for b in blocks),
@@ -303,6 +403,7 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
     ).to_list(10_000)
     tools_seen: set[str] = set()
     tools_by_day: dict[str, set] = {}
+    ai_by_day: dict[str, list] = {}
     for doc in ai_docs:
         tools = doc.get("tools", [])
         tools_seen.update(tools)
@@ -310,6 +411,7 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         if ts:
             dk = local_date(ts, tzinfo)
             tools_by_day.setdefault(dk, set()).update(tools)
+            ai_by_day.setdefault(dk, []).append(doc)
     tools_by_day_out = {dk: sorted(s) for dk, s in tools_by_day.items()}
 
     if claude_docs:
@@ -317,6 +419,11 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
 
     # Real active minutes per tool across the week (overlap with all focus blocks).
     tool_active_min = _tool_active_minutes(ai_docs, all_blocks)
+    # Same, but per local day, so the day chips can show each tool's active time.
+    tool_active_by_day = {
+        dk: _tool_active_minutes(docs, blocks_by_day.get(dk, []))
+        for dk, docs in ai_by_day.items()
+    }
 
     commit_count = await local_commits().count_documents(
         {"profile_id": profile_id, "timestamp": ts_filter}
@@ -331,6 +438,7 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         "claude_by_day":   claude_by_day,
         "tools_by_day":    tools_by_day_out,
         "tool_active_min": tool_active_min,
+        "tool_active_by_day": tool_active_by_day,
         "active_tools":    sorted(tools_seen),
     }
 

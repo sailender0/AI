@@ -110,7 +110,7 @@ async def export_daily_pdf(request: Request, date: str = "", db: AsyncSession = 
                         headers={"Content-Disposition": f'attachment; filename="daily-{date}.pdf"'})
     except Exception as _exc:
         logger.exception("daily-pdf failed: %s", _exc)
-        return JSONResponse({"error": str(_exc), "type": type(_exc).__name__}, status_code=500)
+        return JSONResponse({"error": "export_failed"}, status_code=500)
 
 
 @router.get("/api/export/weekly-pdf")
@@ -138,7 +138,7 @@ async def export_weekly_pdf(request: Request, week_start: str = "", db: AsyncSes
                         headers={"Content-Disposition": f'attachment; filename="weekly-{week_start}.pdf"'})
     except Exception as _exc:
         logger.exception("weekly-pdf failed: %s", _exc)
-        return JSONResponse({"error": str(_exc), "type": type(_exc).__name__}, status_code=500)
+        return JSONResponse({"error": "export_failed"}, status_code=500)
 
 
 def _events_to_csv(events: list) -> str:

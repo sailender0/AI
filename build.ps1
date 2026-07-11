@@ -31,11 +31,20 @@ if ($iscc) {
 # Deploy exe + installer to the served downloads dir. The served exe is the
 # autostart/Start-menu target and may be running (file-locked): stop, copy, restart.
 $downloads = "$root\app\static\downloads"
+$install   = "$env:LOCALAPPDATA\Developer Activity"   # stable autostart copy (if installed)
 $running = Get-Process -Name DevActivityAgent -ErrorAction SilentlyContinue
 if ($running) { Stop-Process -Name DevActivityAgent -Force; Start-Sleep -Milliseconds 800 }
 Copy-Item $built "$downloads\DevActivityAgent.exe" -Force
 if (Test-Path "$root\dist\DevActivitySetup.exe") {
   Copy-Item "$root\dist\DevActivitySetup.exe" "$downloads\DevActivitySetup.exe" -Force
 }
+# Keep the installed autostart copy (%LocalAppData%) fresh, only if this machine uses it.
+$installedExe = "$install\DevActivityAgent.exe"
+if (Test-Path $install) { Copy-Item $built $installedExe -Force; Write-Host "Updated install copy -> $installedExe" }
 Write-Host "Deployed -> $downloads"
-if ($running) { Start-Process -FilePath "$downloads\DevActivityAgent.exe"; Write-Host "Agent restarted." }
+# Restart from the installed copy if present (matches autostart), else the served copy.
+if ($running) {
+  $launch = if (Test-Path $installedExe) { $installedExe } else { "$downloads\DevActivityAgent.exe" }
+  Start-Process -FilePath $launch
+  Write-Host "Agent restarted from $launch"
+}

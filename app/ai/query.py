@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.ai import llm
 from app.ai.summarizer import _format_events
 from app.auth.sso import get_profile_from_session
+from app.routes.agent.analytics import _tool_active_minutes, _tool_active_periods, _merge_hourly
 from app.services.activity_query import compute_focus_blocks
 from app.services.timezone import day_bounds, is_valid_tz, local_date, now_local, resolve
 from app.storage.models import ChatConversation, ChatMessage, Profile
@@ -56,6 +57,21 @@ def _scope_to_range(scope: str, tz_name: str = "UTC") -> dict:
     return {"$gte": day_bounds(now.strftime("%Y-%m-%d"), tz)[0]}
 
 
+# Strict schema for structured outputs — nullable enums via ["string","null"] + null
+# in the enum; all keys required + additionalProperties:false, as strict mode demands.
+_INTENT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "date_from":  {"type": ["string", "null"]},
+        "date_to":    {"type": ["string", "null"]},
+        "source":     {"type": ["string", "null"], "enum": ["github", "gitlab", "jira", "teams", None]},
+        "event_type": {"type": ["string", "null"], "enum": ["commit", "pr", "issue", "meeting", "comment", None]},
+    },
+    "required": ["date_from", "date_to", "source", "event_type"],
+}
+
+
 async def _gpt_parse_intent(question: str, today: str, tz_name: str = "UTC") -> dict:
     """Ask GPT to extract date_from, date_to, source, event_type from the question."""
     local_now    = datetime.now(ZoneInfo(tz_name or "UTC"))
@@ -72,7 +88,7 @@ async def _gpt_parse_intent(question: str, today: str, tz_name: str = "UTC") -> 
         '  "event_type": one of commit, pr, issue, meeting, comment or null'
     )
     try:
-        return await llm.extract_json(system_prompt, question, max_tokens=80)
+        return await llm.extract_schema(system_prompt, question, _INTENT_SCHEMA, name="intent")
     except Exception as exc:
         logger.warning("GPT intent parse failed: %s", exc)
         return {}
@@ -135,7 +151,14 @@ def _claude_date_range(time_filter: dict, tzinfo) -> tuple[str, str] | None:
     return local_date(start_dt, tzinfo), local_date(end_dt, tzinfo)
 
 
-async def _fetch_my_activity_context(profile_id: str, time_filter: dict, tz_name: str = "UTC") -> str:
+def _fmt_local(iso_z: str, tz) -> str:
+    """'YYYY-MM-DDTHH:MM:SSZ' (naive-UTC) → local clock like '9:00 AM'."""
+    dt = datetime.strptime(iso_z, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(tz)
+    return dt.strftime("%I:%M %p").lstrip("0")
+
+
+async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
+                                     tz_name: str = "UTC", question: str = "") -> str:
     lines: list[str] = []
 
     # Focus time — gap-based blocks, the SAME calc the My Activity page uses
@@ -144,7 +167,8 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict, tz_name
         {"profile_id": profile_id, "timestamp": time_filter, "idle": False},
         projection={"timestamp": 1, "_id": 0},
     ).sort("timestamp", 1).to_list(35_000)
-    focus_min = sum(b["duration_min"] for b in compute_focus_blocks(hbs))
+    focus_blocks = compute_focus_blocks(hbs)
+    focus_min = sum(b["duration_min"] for b in focus_blocks)
     logger.info(
         "AI context | profile=%s tz=%s filter=%s→%s heartbeats=%d focus_min=%d",
         profile_id[:8], tz_name,
@@ -178,6 +202,13 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict, tz_name
                 repos[repo] = repos.get(repo, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
             for repo, toks in sorted(repos.items(), key=lambda x: -x[1]):
                 lines.append(f"  {repo}: {toks:,} tokens")
+            hourly = _merge_hourly(claude_docs)                  # when tokens were spent
+            if hourly:
+                lines.append("  tokens by hour of day (local):")
+                for hb in hourly:
+                    h = hb["hour"]; hr = h % 12 or 12; ampm = "am" if h < 12 else "pm"
+                    tot = hb["input_tokens"] + hb["output_tokens"]
+                    lines.append(f"    {hr}{ampm}: {tot:,} ({hb['input_tokens']:,} in / {hb['output_tokens']:,} out)")
 
     # Local commits
     commits = await local_commits().find(
@@ -192,27 +223,47 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict, tz_name
             lines.append(f"  [{tss}] {c.get('repo','?')}/{c.get('branch','?')}: "
                          f"{c.get('message','')[:80]}")
 
-    # AI tools detected
+    # AI tools — with real active time per tool (running while not idle), the same
+    # overlap-with-focus-blocks number the My Activity dropdown shows.
     ai_docs = await ai_tool_events().find(
         {"profile_id": profile_id, "timestamp": time_filter},
-        projection={"tools": 1, "_id": 0},
+        projection={"tools": 1, "timestamp": 1, "_id": 0},
     ).to_list(2000)
     if ai_docs:
+        active_min = _tool_active_minutes(ai_docs, focus_blocks)
+        periods    = _tool_active_periods(ai_docs, focus_blocks)
+        tz = resolve(tz_name)
         all_tools: set[str] = set()
         for doc in ai_docs:
             all_tools.update(doc.get("tools", []))
         if all_tools:
-            lines.append(f"\nAI tools detected: {', '.join(sorted(all_tools))}")
+            lines.append("\nAI tools used (active = running while not idle):")
+            for tool in sorted(all_tools):
+                mins = active_min.get(tool, 0)
+                if mins:
+                    h, m = divmod(mins, 60)
+                    lines.append(f"  {tool}: {f'{h}h {m}m' if h else f'{m}m'} active")
+                else:
+                    lines.append(f"  {tool}: detected")
+                tool_periods = periods.get(tool, [])
+                for p in tool_periods[:8]:                       # sessions = when it was active
+                    lines.append(f"    {_fmt_local(p['start'], tz)}–{_fmt_local(p['end'], tz)}")
+                if len(tool_periods) > 8:
+                    lines.append(f"    (+{len(tool_periods) - 8} more sessions)")
 
-    # Standup history — last 30 days so user can ask "what was my standup last Tuesday?"
-    standup_docs = await standups().find(
-        {"profile_id": profile_id},
-        projection={"date": 1, "text": 1, "_id": 0},
-    ).sort("date", -1).to_list(30)
-    if standup_docs:
-        lines.append("\nPAST STANDUPS (most recent first):")
-        for s in standup_docs:
-            lines.append(f"  [{s['date']}] {s['text']}")
+    # Standup history — ONLY when the question is about standups. Dumping 30 days of
+    # standup text into every request drowns out sparse activity data and skews every
+    # answer toward reciting a standup. ponytail: keyword gate; make it intent-driven
+    # if "standup" ever needs synonyms.
+    if "standup" in question.lower():
+        standup_docs = await standups().find(
+            {"profile_id": profile_id},
+            projection={"date": 1, "text": 1, "_id": 0},
+        ).sort("date", -1).to_list(10)
+        if standup_docs:
+            lines.append("\nPAST STANDUPS (most recent first):")
+            for s in standup_docs:
+                lines.append(f"  [{s['date']}] {s['text']}")
 
     return "\n".join(lines)
 
@@ -346,7 +397,7 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
     if et:
         mongo_filter["event_type"] = {"$regex": et}
     events = await activity_events().find(mongo_filter).to_list(length=100)
-    my_activity = await _fetch_my_activity_context(profile_id, time_filter, tz_name)
+    my_activity = await _fetch_my_activity_context(profile_id, time_filter, tz_name, question)
 
     activity_text = _format_events(events) if events else "No activity data found for that period."
     period_label  = _period_label(parsed, body.scope)

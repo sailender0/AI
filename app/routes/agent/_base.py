@@ -57,6 +57,14 @@ class AiEventPayload(BaseModel):
     timestamp: datetime | None = None
 
 
+class HourlyBucket(BaseModel):
+    # Typed so ints are coerced/rejected at ingest — these values feed timedelta()
+    # and token arithmetic in analytics; an untyped dict let a string hour 500 /today.
+    hour:          int = 0    # local 0–23
+    input_tokens:  int = 0
+    output_tokens: int = 0
+
+
 class ClaudeUsageEntry(BaseModel):
     date:                  str
     model:                 str
@@ -67,6 +75,7 @@ class ClaudeUsageEntry(BaseModel):
     output_tokens:         int = 0
     message_count:         int = 0
     files:                 list[str] = []
+    hourly:                list[HourlyBucket] = []
 
 
 class ClaudeUsagePayload(BaseModel):
