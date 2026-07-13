@@ -50,3 +50,4 @@ alembic/versions/*.pyc
 # Built desktop-agent binary — 27MB PyInstaller output, regenerate from
 # agent/DevActivityAgent.spec. The .gitkeep preserves the served directory.
 app/static/downloads/*.exe
+node_modules/

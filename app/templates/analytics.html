@@ -268,20 +268,18 @@
       },
     ];
 
-    const INTG_GRAD = { github:'#f97316,#fb923c', jira:'#06b6d4,#22d3ee', teams:'#8b5cf6,#a78bfa', gitlab:'#10b981,#34d399' };
-    const INTG_CLS  = { github:'kpi-num-github',  jira:'kpi-num-jira',   teams:'kpi-num-teams',  gitlab:'kpi-num-gitlab'  };
     const cards = INTEGRATIONS
       .filter(intg => {
         const d = data[intg.key];
         return d && Object.values(d).some(v => v > 0);
       })
       .map(intg => {
+        const src  = srcOf(intg.key);   // SOURCES aliases teams -> teams_subscription
         const rows = intg.stats(data[intg.key])
-          .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val ${INTG_CLS[intg.key]||''}">${r.val}</span></div>`)
+          .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val ${src.cls}">${r.val}</span></div>`)
           .join('');
-        const grad = INTG_GRAD[intg.key] || '#64748b,#94a3b8';
         return `<div class="int-card kpi-tilt-card" style="overflow:hidden;padding:0">
-          <div style="height:2px;background:linear-gradient(90deg,${grad})"></div>
+          <div style="height:2px;background:linear-gradient(90deg,${src.grad})"></div>
           <div style="padding:10px 14px">
             <div class="int-card-title">${intg.label}</div>${rows}
           </div>
@@ -307,9 +305,7 @@
   const _breakdownView  = {};
   const _breakdownConn  = {};
 
-  const SRC_LABELS = { github:'GitHub', jira:'Jira', teams_subscription:'Teams', gitlab:'GitLab' };
-  const SRC_COLOR  = { github:'#f97316', jira:'#06b6d4', teams_subscription:'#8b5cf6', gitlab:'#10b981' };
-  const SOURCES    = ['github','jira','teams_subscription','gitlab'];
+  // Source labels/colours come from SOURCES + SOURCE_ORDER in app.js.
 
   function fmtDayLabel(dateStr) {
     const [y,m,d] = dateStr.split('-').map(Number);
@@ -322,10 +318,7 @@
     return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
-  function fmtTime(isoStr) {
-    if (!isoStr) return '';
-    return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
+  // fmtTime() comes from app.js (identical implementation).
 
   const _FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _feedRepoColor(str) {
@@ -403,13 +396,13 @@
 
   function setConnector(i, src) {
     _breakdownConn[i] = src;
-    SOURCES.forEach(s => {
+    SOURCE_ORDER.forEach(s => {
       const btn = document.getElementById('conn-btn-' + i + '-' + s);
       if (!btn) return;
       const active = s === src;
-      btn.style.background  = active ? SRC_COLOR[s]  : 'var(--surface-2)';
-      btn.style.color       = active ? '#fff'         : 'var(--text-2)';
-      btn.style.borderColor = active ? SRC_COLOR[s]  : 'var(--border)';
+      btn.style.background  = active ? SOURCES[s].color : 'var(--surface-2)';
+      btn.style.color       = active ? '#fff'           : 'var(--text-2)';
+      btn.style.borderColor = active ? SOURCES[s].color : 'var(--border)';
     });
     renderBreakdown(i);
   }
@@ -427,11 +420,11 @@
   function renderDayView(days) {
     if (!days.length) return '<p class="text-xs" style="color:var(--text-3)">No activity this week yet.</p>';
     return [...days].reverse().map(day => {
-      const connRows = SOURCES.map(src => {
+      const connRows = SOURCE_ORDER.map(src => {
         const c = day.connectors[src] || { count:0, items:[] };
         return `<div class="mb-3">
-          <div class="flex items-center gap-2 mb-2 pl-2" style="border-left:2px solid ${SRC_COLOR[src]}">
-            <span class="text-xs font-semibold" style="color:${SRC_COLOR[src]}">${SRC_LABELS[src]}</span>
+          <div class="flex items-center gap-2 mb-2 pl-2" style="border-left:2px solid ${SOURCES[src].color}">
+            <span class="text-xs font-semibold" style="color:${SOURCES[src].color}">${SOURCES[src].label}</span>
             <span class="text-xs" style="color:var(--text-3)">${c.count > 0 ? c.count + ' event' + (c.count>1?'s':'') : 'No activity'}</span>
           </div>
           ${c.count > 0 ? renderItems(c.items, src) : ''}
@@ -453,7 +446,7 @@
           <div class="text-xs font-bold" style="color:var(--text-1)">${fmtDayLabel(day.date)}</div>
           ${c.count > 0 ? `<span class="text-xs" style="color:var(--text-3)">${c.count} event${c.count>1?'s':''}</span>` : ''}
         </div>
-        <div class="pl-3" style="border-left:2px solid ${SRC_COLOR[src]}">
+        <div class="pl-3" style="border-left:2px solid ${SOURCES[src].color}">
           ${c.count > 0 ? renderItems(c.items, src) : '<span class="text-xs" style="color:var(--text-3)">No activity</span>'}
         </div>
       </div>`;

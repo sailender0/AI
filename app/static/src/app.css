@@ -1,0 +1,321 @@
+/* SOURCE FILE — do not edit app/static/app.css directly, it is GENERATED.
+   Build:  npm run css        (one-shot, minified)
+           npm run css:watch  (during development)
+
+   The old `!important` colour shim that used to live here is gone: the colour
+   mapping now lives in tailwind.config.js, so Tailwind emits it natively. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Everything below is our own CSS. It comes after the utilities so it still
+   wins ties, exactly as the linked stylesheet did over the CDN's injected styles. */
+
+/* ─────────────────────────────────────────────────────────────
+   Shared app stylesheet.
+   Extracted verbatim from base.html so all pages share one file
+   instead of re-declaring styles per template.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── Design tokens ─────────────────────────────── */
+:root {
+  --bg:           #09090B;
+  --surface:      #111115;
+  --surface-2:    #18181C;
+  --border:       rgba(255,255,255,0.07);
+  --border-strong:rgba(255,255,255,0.12);
+  --text-1:       #ECECF0;
+  --text-2:       #9B9BAD;
+  --text-3:       #636378;
+  --accent:       var(--chrome);
+  --positive:     #22C55E;
+  --negative:     #EF4444;
+  --card-shadow:  0 1px 3px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  --scrollbar-track: #111115;
+  --scrollbar-thumb: #2A2A32;
+  --chrome:       #2a2d3e;
+  --chrome-hover: #353849;
+  --chrome-text:  #e2e8f0;
+}
+[data-theme="light"] {
+  --bg:           #F4F4F6;
+  --surface:      #FFFFFF;
+  --surface-2:    #F0F0F4;
+  --border:       rgba(0,0,0,0.07);
+  --border-strong:rgba(0,0,0,0.12);
+  --text-1:       #111115;
+  --text-2:       #3E3E52;
+  --text-3:       #606078;
+  --card-shadow:  0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --scrollbar-track: #F0F0F4;
+  --scrollbar-thumb: #C8C8D4;
+  --chrome:       #1e293b;
+  --chrome-hover: #334155;
+  --chrome-text:  #f8fafc;
+}
+
+/* ── Base ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+
+/* ── Sidebar collapse ──────────────────────────── */
+#sidebar { transition: width 0.22s cubic-bezier(.4,0,.2,1); overflow-x: hidden; overflow-y: auto; flex-shrink: 0; }
+#sidebar.collapsed { width: 3.5rem; }
+#sidebar.collapsed .sidebar-label { display: none !important; }
+#sidebar.collapsed nav a { justify-content: center; }
+#sidebar.collapsed #sidebar-connectors a { justify-content: center; }
+
+/* ── Cards ─────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+}
+
+/* ── KPI blocks ────────────────────────────────── */
+.kpi-number {
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text-1);
+}
+.kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-2);
+}
+.kpi-change {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.kpi-change.up   { background: rgba(34,197,94,0.12);  color: #22C55E; }
+.kpi-change.down { background: rgba(239,68,68,0.12);  color: #EF4444; }
+.kpi-change.flat { background: rgba(136,136,148,0.12); color: #888894; }
+
+/* ── Activity feed ─────────────────────────────── */
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+.feed-row:hover { background: var(--surface-2); }
+.feed-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.feed-title { font-size: 12px; color: var(--text-1); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-badge { font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 10px; flex-shrink: 0; }
+.feed-time  { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; flex-shrink: 0; width: 56px; text-align: right; }
+
+/* ── Commit feed ───────────────────────────────── */
+.commit-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.commit-item:last-child { border-bottom: none; padding-bottom: 0; }
+.commit-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.commit-body { flex: 1; min-width: 0; }
+.commit-meta {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap;
+}
+.commit-author { font-size: 13px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
+.commit-repo-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 8px;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.commit-time {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--text-3); white-space: nowrap; margin-left: auto;
+}
+.commit-title { font-size: 14px; font-weight: 600; color: var(--text-1); line-height: 1.4; }
+.commit-sub   { font-size: 12px; color: var(--text-3); line-height: 1.4; margin-top: 1px; }
+
+/* ── Activity cards (expandable) ───────────────── */
+.act-card {
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 5px;
+  background: var(--surface);
+  transition: border-color 0.12s;
+  cursor: pointer;
+  user-select: none;
+}
+.act-card:hover { border-color: var(--border-strong); }
+.act-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+}
+.act-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+  flex-shrink: 0; letter-spacing: 0;
+}
+.act-meta { flex: 1; min-width: 0; }
+.act-msg {
+  font-size: 14px; font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.act-submeta {
+  display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap;
+}
+.act-repo-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 8px;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.act-time {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: var(--text-3); white-space: nowrap;
+}
+.act-chevron {
+  flex-shrink: 0; color: var(--text-3);
+  transition: transform 0.2s ease; width: 14px; height: 14px;
+}
+.act-card.open .act-chevron { transform: rotate(180deg); }
+.act-detail {
+  display: none;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.act-card.open .act-detail { display: block; }
+.act-detail-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; color: var(--text-2); padding: 3px 0;
+}
+.act-detail-row > span:first-child {
+  color: var(--text-3); font-size: 11px; width: 52px; flex-shrink: 0;
+}
+.act-hash {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 11px; background: var(--border-strong);
+  color: var(--text-2); padding: 2px 6px; border-radius: 4px;
+}
+.act-status { display: inline-flex; align-items: center; gap: 5px; }
+.act-dot    { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Nav active glow ───────────────────────────────────── */
+#sidebar .bg-indigo-600 {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+[data-theme="light"] #sidebar .bg-indigo-600 {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+}
+
+/* ── Source badge pill ─────────────────────────────────── */
+.src-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 600;
+  padding: 1px 7px; border-radius: 999px;
+  letter-spacing: 0.02em; white-space: nowrap;
+}
+
+/* ── KPI tilt card ─────────────────────────────────────── */
+.kpi-tilt-card {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  will-change: transform;
+}
+
+/* ── KPI number glow (dark) / color (light) ────────────── */
+[data-theme="dark"]  .kpi-num-github { text-shadow: 0 0 18px rgba(249,115,22,0.35); }
+[data-theme="light"] .kpi-num-github { color: #f97316; }
+[data-theme="dark"]  .kpi-num-gitlab { text-shadow: 0 0 18px rgba(16,185,129,0.35); }
+[data-theme="light"] .kpi-num-gitlab { color: #10b981; }
+[data-theme="dark"]  .kpi-num-jira   { text-shadow: 0 0 18px rgba(6,182,212,0.35); }
+[data-theme="light"] .kpi-num-jira   { color: #06b6d4; }
+[data-theme="dark"]  .kpi-num-teams  { text-shadow: 0 0 18px rgba(139,92,246,0.35); }
+[data-theme="light"] .kpi-num-teams  { color: #8b5cf6; }
+
+/* ── Live pulse dot ────────────────────────────────────── */
+.live-dot {
+  display: inline-block; position: relative;
+  width: 7px; height: 7px;
+  margin-right: 5px; vertical-align: middle; flex-shrink: 0;
+}
+.live-dot::after {
+  content: ''; position: absolute; inset: 1px;
+  border-radius: 50%; background: #22c55e;
+}
+.live-dot::before {
+  content: ''; position: absolute; inset: 0;
+  border-radius: 50%; background: rgba(34,197,94,0.4);
+  animation: live-ping 1.6s ease-out infinite;
+}
+[data-theme="light"] .live-dot::before { background: rgba(22,163,74,0.25); }
+@keyframes live-ping {
+  0%   { transform: scale(1);   opacity: 1; }
+  75%  { transform: scale(2.8); opacity: 0; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+/* ── Chat widget typing dots ───────────────────────────── */
+@keyframes dot-bounce {
+  0%,80%,100% { transform:translateY(0); opacity:0.4; }
+  40%         { transform:translateY(-4px); opacity:1; }
+}
+
+/* ── Week picker (shared by dashboard/github/gitlab/jira/teams) ──
+   Was hand-rolled 5× with drifted markup and 3 different week-start
+   conventions. One implementation now; Monday-start to match the
+   backend (activity.py, summarizer.py all use weekday()==0). */
+.pk-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 100;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 10px; padding: 12px; min-width: 252px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.pk-hdr  { text-align: center; font-size: 10px; color: var(--text-3); padding: 3px 0; }
+.pk-row  { display: grid; grid-template-columns: repeat(7,1fr); cursor: pointer; border-radius: 6px; border: 1.5px solid transparent; margin-bottom: 1px; }
+.pk-row:not(.pk-future):hover { background: var(--surface-2); }
+.pk-row.pk-selected { background: var(--chrome); }
+.pk-row.pk-selected .pk-cell { color: var(--chrome-text); }
+.pk-row.pk-future { cursor: default; opacity: 0.35; }
+.pk-cell { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-1); border-radius: 50%; }
+.pk-cell.pk-overflow { visibility: hidden; }
+.pk-cell.pk-today    { font-weight: 700; }
+
+/* ── Chart / period tabs (shared) ──────────────────────── */
+.chart-tab { background: transparent; color: var(--text-2); cursor: pointer; border: none; outline: none; }
+.chart-tab.active { background: var(--chrome); color: var(--chrome-text); }
+.chart-tab:not(.active):hover { background: var(--border); color: var(--text-1); }
+.period-btn { background: transparent; color: var(--text-2); cursor: pointer; }
+.period-btn.active { background: var(--chrome); color: var(--chrome-text); }
+.period-btn:not(.active):hover { background: var(--border); color: var(--text-1); }
+
+@keyframes spin { to { transform: rotate(360deg); } }

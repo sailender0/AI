@@ -14,26 +14,15 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind is compiled ahead of time into app.css (npm run css) — no CDN compiler.
+       Tokens come from app.css too. This page deliberately does NOT extend base.html:
+       it's the logged-out landing page and must not carry the app sidebar/chat shell. -->
+  <link rel="stylesheet" href="/static/app.css"/>
   <style>
-    /* ── Design tokens (shared with base.html) ─────── */
-    :root {
-      --bg:#09090B; --surface:#111115; --surface-2:#18181C;
-      --border:rgba(255,255,255,0.07); --border-strong:rgba(255,255,255,0.12);
-      --text-1:#ECECF0; --text-2:#9B9BAD; --text-3:#636378;
-      --accent:#6366F1; --accent-2:#818CF8;
-    }
-    [data-theme="light"] {
-      --bg:#F4F4F6; --surface:#FFFFFF; --surface-2:#F0F0F4;
-      --border:rgba(0,0,0,0.07); --border-strong:rgba(0,0,0,0.12);
-      --text-1:#111115; --text-2:#3E3E52; --text-3:#606078;
-      --accent:#4F46E5; --accent-2:#6366F1;
-    }
-    *,*::before,*::after { box-sizing:border-box; }
-    body {
-      font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var(--text-1);
-      -webkit-font-smoothing:antialiased; margin:0; overflow-x:hidden;
-    }
+    /* Landing-page accent only — the rest of the tokens are inherited from app.css. */
+    :root            { --accent:#6366F1; --accent-2:#818CF8; }
+    [data-theme="light"] { --accent:#4F46E5; --accent-2:#6366F1; }
+    body { margin:0; overflow-x:hidden; }
     a { text-decoration:none; color:inherit; }
 
     /* Ambient glow behind the hero */

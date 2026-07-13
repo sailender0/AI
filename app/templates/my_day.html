@@ -422,9 +422,7 @@
     list.innerHTML = renderTimeline(events);
   }
 
-  const _DAY_SRC_COLOR = { github:'#f97316', jira:'#06b6d4', teams_subscription:'#8b5cf6', gitlab:'#10b981' };
-  const _DAY_SRC_LABEL = { github:'GitHub',  jira:'Jira',    teams_subscription:'Teams',   gitlab:'GitLab'  };
-
+  // Source colours/labels come from SOURCES in app.js.
   const _DAY_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
   function _dayRepoColor(str) {
     let h = 0;
@@ -466,8 +464,7 @@
     const author   = window._actAuthorName   || 'you';
 
     return sources.map(src => {
-      const color = _DAY_SRC_COLOR[src] || '#64748b';
-      const label = _DAY_SRC_LABEL[src] || src;
+      const { color, label } = srcOf(src);
       const items = bySource[src];
       const groups = {};
       items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
