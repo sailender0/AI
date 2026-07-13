@@ -43,4 +43,11 @@ jobs:
       # The frontend guards skip locally when node is absent, but FAIL when CI=1
       # (which Actions sets) — a skipped guard is a guard that isn't guarding.
       - name: Run tests
+        env:
+          # config.py deliberately has no default for SECRET_KEY and asserts on
+          # import, so nothing can ship with a known key. There is no .env in a
+          # clean checkout, so without this the suite cannot even be COLLECTED.
+          # Tests only need *a* value — this is not a real secret and is not
+          # used anywhere but session signing in unit tests.
+          SECRET_KEY: ci-test-only-not-a-real-secret
         run: python -m pytest tests/ -v
