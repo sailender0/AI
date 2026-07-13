@@ -123,9 +123,10 @@
     const s = new Date(_chartStartDate + 'T00:00:00');
     const e = new Date(s); e.setDate(s.getDate() + 7);
     const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
-    const res = await fetch(`/api/events/recent?source=github&start_date=${_chartStartDate}&end_date=${endIso}&limit=500`, { credentials: 'include' });
-    const data = await res.json();
-    _panelEvents = data.events || [];
+    // limit must stay within the endpoint's cap (le=200 in activity.py) — 500
+    // was silently rejected with a 422 and rendered as "no activity".
+    const data = await getJSON(`/api/events/recent?source=github&start_date=${_chartStartDate}&end_date=${endIso}&limit=200`);
+    _panelEvents = data?.events || [];
     renderPanelFeed();
   }
   let _ghChartData    = null;

@@ -65,6 +65,19 @@ function escEvents(events) {
   }));
 }
 
+/* ══ JSON fetch ═══════════════════════════════════════════════
+   Callers used to do `(await res.json()).events || []`, which turns a failed
+   response into an empty list — a 422 then renders as "no activity" instead of
+   an error. That hid a broken week-activity panel indefinitely. Fail loudly. */
+async function getJSON(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) {
+    console.error(`GET ${url} → HTTP ${res.status}`);
+    return null;
+  }
+  return res.json();
+}
+
 /* ══ Backfill (ADR-0003) ══════════════════════════════════════ */
 async function backfillNow(source) {
   if (!confirm('Import the last 30 days of ' + source + ' history? This runs in '
