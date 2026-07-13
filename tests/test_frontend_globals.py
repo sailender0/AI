@@ -9,7 +9,6 @@ still renders but nothing initialises. That's how the analytics page broke
 node --check on the concatenation reproduces exactly what the browser does.
 """
 import re
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -31,13 +30,13 @@ def _inline_js(html: str) -> str:
     return js
 
 
-def _node_check(source: str) -> str | None:
+def _node_check(node: str, source: str) -> str | None:
     """Return the syntax error, or None if the source parses."""
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(source)
         path = f.name
     try:
-        r = subprocess.run(["node", "--check", path], capture_output=True, text=True)
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
         if r.returncode == 0:
             return None
         return next((l for l in r.stderr.splitlines() if "Error" in l), r.stderr[:200]).strip()
@@ -51,17 +50,15 @@ def test_all_templates_compile():
         env.get_template(tpl.name)  # raises TemplateSyntaxError on failure
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
-def test_app_js_is_valid():
-    assert _node_check(APP_JS.read_text(encoding="utf-8")) is None
+def test_app_js_is_valid(node):
+    assert _node_check(node, APP_JS.read_text(encoding="utf-8")) is None
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
 @pytest.mark.parametrize("tpl", sorted(TEMPLATES.glob("*.html")), ids=lambda p: p.name)
-def test_template_does_not_clash_with_app_js(tpl: Path):
+def test_template_does_not_clash_with_app_js(node, tpl: Path):
     js = _inline_js(tpl.read_text(encoding="utf-8"))
     if not js.strip():
         pytest.skip("no inline script")
     # Same global scope the browser gives them.
-    err = _node_check(APP_JS.read_text(encoding="utf-8") + "\n;\n" + js)
+    err = _node_check(node, APP_JS.read_text(encoding="utf-8") + "\n;\n" + js)
     assert err is None, f"{tpl.name} clashes with app.js: {err}"

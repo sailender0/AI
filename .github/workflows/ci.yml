@@ -18,8 +18,21 @@ jobs:
           python-version: "3.13"
           cache: pip
 
+      # Node is only for the CSS toolchain. Without it the frontend guards
+      # (stale app.css, app.js/template global-scope clashes) silently SKIP,
+      # which is how a broken page would sail through CI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Install CSS toolchain
+        run: npm ci
+
+      # The frontend guards skip locally when node is absent, but FAIL when CI=1
+      # (which Actions sets) — a skipped guard is a guard that isn't guarding.
       - name: Run tests
         run: python -m pytest tests/ -v

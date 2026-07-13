@@ -7,32 +7,33 @@ and the class is simply missing in production — no error, just unstyled markup
 
 This rebuilds into a temp file and compares. If it fails, run `npm run css`.
 """
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
-import pytest
-
 SRC = Path("app/static/src/app.css")
 OUT = Path("app/static/app.css")
 
-# Invoke the CLI through node rather than `npx`: on Windows npx is a .cmd, which
-# subprocess cannot exec without a shell.
-NODE = shutil.which("node")
-CLI = Path("node_modules/tailwindcss/lib/cli.js")
 
-
-@pytest.mark.skipif(not (NODE and CLI.exists()), reason="node/tailwindcss not installed")
-def test_committed_css_is_up_to_date():
+def test_committed_css_is_up_to_date(tailwind):
+    # Invoke the CLI through node, not `npx`: on Windows npx is a .cmd, which
+    # subprocess cannot exec without a shell.
+    node, cli = tailwind
     with tempfile.TemporaryDirectory() as tmp:
         rebuilt = Path(tmp) / "app.css"
         r = subprocess.run(
-            [NODE, str(CLI), "-i", str(SRC), "-o", str(rebuilt), "--minify"],
+            [node, str(cli), "-i", str(SRC), "-o", str(rebuilt), "--minify"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0, f"tailwind build failed:\n{r.stderr}"
-        assert rebuilt.read_text(encoding="utf-8") == OUT.read_text(encoding="utf-8"), (
+
+        # Compare on content, not bytes: core.autocrlf hands this file back as
+        # CRLF on Windows and LF on Linux CI, so a raw byte compare would fail
+        # on one platform for no real reason.
+        def norm(p: Path) -> str:
+            return p.read_text(encoding="utf-8").replace("\r\n", "\n").strip()
+
+        assert norm(rebuilt) == norm(OUT), (
             "app/static/app.css is stale — a template or the CSS source changed "
             "without rebuilding. Run: npm run css"
         )
