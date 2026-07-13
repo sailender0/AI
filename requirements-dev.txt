@@ -1,2 +1,16 @@
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Desktop-agent deps. agent/agent.py imports psutil, requests and keyring at
+# module level, and tests/test_agent_*.py + test_discover_tools.py import from
+# it — so the suite cannot even be COLLECTED without them.
+#
+# They live here, not in requirements.txt, because the Docker image runs the web
+# app and never the agent; adding them there would bloat the runtime for nothing.
+#
+# Undeclared until now: the agent tests only passed because these happened to be
+# installed on the dev machine. CI never caught it because CI only ran on main,
+# and the agent tests only exist on feature branches.
+psutil>=5.9.0
+requests>=2.31.0
+keyring>=24.0.0
