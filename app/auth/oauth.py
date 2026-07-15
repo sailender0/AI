@@ -49,7 +49,9 @@ _OAUTH_CONFIGS = {
         "token_url": "https://auth.atlassian.com/oauth/token",
         "client_id": lambda: settings.JIRA_CLIENT_ID,
         "client_secret": lambda: settings.JIRA_CLIENT_SECRET,
-        "scopes": "read:jira-work read:jira-user manage:jira-webhook",
+        # offline_access is required for Atlassian to issue a refresh token —
+        # without it the integration dies 1h after connecting.
+        "scopes": "read:jira-work read:jira-user manage:jira-webhook offline_access",
     },
 }
 
@@ -199,6 +201,13 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
             and row.token_expires_at < datetime.now(timezone.utc) + timedelta(minutes=5)
         )
 
+        if needs_refresh and not row.refresh_token_enc:
+            # expired with no way to refresh — a dead token is worse than none;
+            # flag it so /api/me surfaces the broken connection in the UI
+            row.sync_status = "error"
+            await db.commit()
+            return None
+
         if needs_refresh and row.refresh_token_enc:
             try:
                 new_tokens = await _refresh_token(source, await decrypt_token(row.refresh_token_enc))
@@ -215,6 +224,23 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
                 return None
 
         return await decrypt_token(row.access_token_enc) if row.access_token_enc else None
+
+
+async def mark_integration_error(profile_id: str, source: str) -> None:
+    """Flag a connection as broken so /api/me surfaces it (amber sidebar dot +
+    reconnect banner). Called by live-API endpoints when the provider says 401."""
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(Integration).where(
+                    Integration.profile_id == profile_id,
+                    Integration.source == source,
+                )
+            )
+        ).scalar_one_or_none()
+        if row and row.sync_status != "error":
+            row.sync_status = "error"
+            await db.commit()
 
 
 async def _refresh_token(source: str, refresh_token: str) -> dict:

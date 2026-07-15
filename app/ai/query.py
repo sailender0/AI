@@ -17,12 +17,13 @@ from app.ai import llm
 from app.ai.summarizer import _format_events
 from app.auth.sso import get_profile_from_session
 from app.routes.agent.analytics import _tool_active_minutes, _tool_active_periods, _merge_hourly
+from app.routes.stats import fetch_assigned
 from app.services.activity_query import compute_focus_blocks
 from app.services.timezone import day_bounds, is_valid_tz, local_date, now_local, resolve
 from app.storage.models import ChatConversation, ChatMessage, Profile
 from app.storage.mongodb import activity_events, device_heartbeats, claude_usage, local_commits, ai_tool_events, standups
 from app.storage.postgres import AsyncSessionLocal
-from app.webhooks.normalizer import _INJECTION_PATTERNS
+from app.webhooks.normalizer import _INJECTION_PATTERNS, sanitize
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,6 +35,31 @@ def _load_instructions() -> str:
     )
 
 _MAX_HISTORY_MSGS = 20  # cap conversation context to prevent unbounded token growth
+
+# ponytail: keyword gate (same spirit as the standup gate below) — the live
+# Jira fetch is three Atlassian round-trips, too heavy for every chat message.
+_JIRA_STATE_WORDS = ("jira", "issue", "ticket", "assigned", "sprint",
+                     "overdue", "deadline", "backlog", "story point")
+
+
+def _format_jira_live(assigned: dict) -> str:
+    """Prompt block for the user's CURRENT Jira plate. Unlike ACTIVITY DATA this
+    is a live snapshot, independent of the question's date filter."""
+    lines = [f"CURRENTLY ASSIGNED JIRA ISSUES (live snapshot, current state — "
+             f"independent of the date range above; {len(assigned['issues'])} open):"]
+    if assigned.get("done_7d") is not None:
+        lines.append(f"  Resolved by the user in the last 7 days: {assigned['done_7d']}")
+    for it in assigned["issues"]:
+        bits = [it.get("key", ""), it.get("status", ""), it.get("priority", "")]
+        if it.get("due_date"):
+            bits.append(f"due {it['due_date']}")
+        if it.get("sprint"):
+            bits.append(it["sprint"])
+        if it.get("story_points") is not None:
+            bits.append(f"{it['story_points']} pts")
+        lines.append("  " + " | ".join(str(b) for b in bits if b)
+                     + f" — {sanitize(it.get('summary', ''))}")
+    return "\n".join(lines)
 
 
 def _sanitize_question(text: str) -> str:
@@ -399,6 +425,13 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
     events = await activity_events().find(mongo_filter).to_list(length=100)
     my_activity = await _fetch_my_activity_context(profile_id, time_filter, tz_name, question)
 
+    jira_live = ""
+    q_lower = question.lower()
+    if parsed.get("source") == "jira" or any(w in q_lower for w in _JIRA_STATE_WORDS):
+        assigned = await fetch_assigned(profile_id)
+        if assigned:
+            jira_live = _format_jira_live(assigned)
+
     activity_text = _format_events(events) if events else "No activity data found for that period."
     period_label  = _period_label(parsed, body.scope)
     system_content = (
@@ -409,6 +442,8 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
     )
     if my_activity:
         system_content += f"\n\nDESKTOP/LOCAL ACTIVITY:\n{my_activity}"
+    if jira_live:
+        system_content += f"\n\n{jira_live}"
     chat_history = [
         {"role": m.role, "content": m.content}
         for m in list(history)[-_MAX_HISTORY_MSGS:]

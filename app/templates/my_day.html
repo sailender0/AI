@@ -5,6 +5,9 @@
 {% block content %}
 <div class="space-y-6">
 
+  <!-- Jira deadline strip — hidden unless something is overdue or due today -->
+  <div id="due-strip" class="hidden rounded-xl p-4" style="background:#78350f18;border:1px solid #b45309"></div>
+
   <!-- Week range header -->
   <div onclick="toggleCalendar()" id="week-header"
     class="inline-flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition select-none"
@@ -184,13 +187,35 @@
   function dateFmt(d) { return d.toISOString().slice(0, 10); }
 
   async function onBaseReady(data) {
-    const raw = ((data || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     updateWeekHeader(selectedDate);
     renderCalendar();
     renderMonthPicker();
+    if (data.integrations?.jira) loadDueStrip();   // fire-and-forget: strip is a bonus
     await loadDayData(selectedDate);
+  }
+
+  // "What's burning today" — live from Jira; stays hidden on a clean day.
+  async function loadDueStrip() {
+    const el = document.getElementById('due-strip');
+    const data = await getJSON('/api/jira/assigned');
+    if (!el || !data) return;
+    const urgent = (data.issues || [])
+      .map(it => ({ it, d: _dueInfo(it.due_date) }))
+      .filter(x => x.d && x.d.days <= 0);
+    if (!urgent.length) return;
+    const overdue = urgent.filter(x => x.d.days < 0).length;
+    const today   = urgent.length - overdue;
+    const head = [overdue ? `${overdue} overdue` : '', today ? `${today} due today` : '']
+      .filter(Boolean).join(' · ');
+    el.innerHTML = `
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="text-sm font-semibold" style="color:#fbbf24">⏰ ${head}</span>
+        ${urgent.slice(0, 6).map(x => `<span class="flex items-center gap-1.5">
+          ${_keyLink(x.it.key)}<span class="text-xs" style="color:${x.d.color}">${esc(x.d.label)}</span>
+        </span>`).join('')}
+        ${urgent.length > 6 ? `<span class="text-xs" style="color:var(--text-3)">+${urgent.length - 6} more</span>` : ''}
+      </div>`;
+    el.classList.remove('hidden');
   }
 
   function renderCalendar() {
@@ -422,13 +447,7 @@
     list.innerHTML = renderTimeline(events);
   }
 
-  // Source colours/labels come from SOURCES in app.js.
-  const _DAY_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _dayRepoColor(str) {
-    let h = 0;
-    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-    return _DAY_FEED_COLORS[h % _DAY_FEED_COLORS.length];
-  }
+  // Source colours/labels and repoColor() come from app.js.
 
   const _DY_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _DY_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
@@ -475,7 +494,7 @@
             <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
           </div>
           <div class="commit-feed">${evts.map(it => {
-            const avatarColor = _dayRepoColor(it.workspace || src || '');
+            const avatarColor = repoColor(it.workspace || src || '');
             const time        = _dayFmtTime(it.occurred_at);
             const {shaHtml, filesHtml} = _dayCommitExtra(it);
             return `<div class="commit-item">
@@ -486,7 +505,8 @@
                   ${it.workspace ? `<span class="commit-repo-pill">${_DY_BRANCH} ${it.workspace}</span>` : ''}
                   ${time ? `<span class="commit-time">${_DY_CLOCK} ${time}</span>` : ''}
                 </div>
-                <div class="commit-title">${it.title || '—'}${shaHtml}</div>
+                <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title || '—'}${shaHtml}</div>
+                ${(it.status || it.priority) ? `<div class="flex items-center gap-1.5 mt-0.5">${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>` : ''}
                 ${filesHtml}
               </div>
             </div>`;

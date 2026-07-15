@@ -282,9 +282,6 @@
   };
 
   async function onBaseReady(meData) {
-    const raw = ((meData || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     if (!meData.integrations.github) {
       document.getElementById('not-connected').classList.remove('hidden');
       document.getElementById('connect-btn').href = meData.connect_urls.github;

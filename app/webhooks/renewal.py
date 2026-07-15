@@ -1,9 +1,4 @@
-"""
-Background renewal jobs — run via APScheduler.
-
-FIX (issue #5): Renamed local variable from `integrations` to `rows`
-in check_github_webhook_health to avoid shadowing the module-level import.
-"""
+"""Background renewal jobs — run via APScheduler."""
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -87,17 +82,22 @@ async def renew_jira_webhooks():
         if not token:
             continue
         try:
+            # OAuth tokens only work via api.atlassian.com with a cloud id —
+            # same as registration/backfill; a site-URL call would just 401.
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             async with httpx.AsyncClient() as client:
-                resp = await client.put(
-                    f"{settings.JIRA_BASE_URL}/rest/api/3/webhook/refresh",
-                    json={"webhookIds": [int(row.jira_webhook_id)]},
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                )
+                res = await client.get(
+                    "https://api.atlassian.com/oauth/token/accessible-resources", headers=headers)
+                cloud_id = res.json()[0]["id"] if res.status_code == 200 and res.json() else None
+                resp = None
+                if cloud_id:
+                    resp = await client.put(
+                        f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/webhook/refresh",
+                        json={"webhookIds": [int(row.jira_webhook_id)]},
+                        headers=headers,
+                    )
 
-            if resp.status_code == 200:
+            if resp is not None and resp.status_code == 200:
                 async with AsyncSessionLocal() as db:
                     r = await db.get(Integration, row.id)
                     if r:
@@ -110,11 +110,7 @@ async def renew_jira_webhooks():
 
 
 async def check_github_webhook_health():
-    """Detect silently disabled GitHub webhooks. Runs every 6 hours.
-
-    FIX (issue #5): local variable renamed to `rows` to avoid shadowing
-    the `integrations` table reference used in queries.
-    """
+    """Detect silently disabled GitHub webhooks. Runs every 6 hours."""
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(

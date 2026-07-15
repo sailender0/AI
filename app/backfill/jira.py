@@ -12,8 +12,6 @@ import httpx
 from app.backfill import make_event, parse_iso
 from app.webhooks.normalizer import sanitize
 
-_SOURCE = "jira"
-
 
 def issue_to_event(issue: dict, profile_id: str) -> dict:
     """A /search issue. Keys on issue id, event_type jira:issue_updated —
@@ -22,7 +20,7 @@ def issue_to_event(issue: dict, profile_id: str) -> dict:
     project = fields.get("project") or {}
     due = fields.get("duedate")
     return make_event(
-        profile_id=profile_id, source=_SOURCE, event_type="jira:issue_updated",
+        profile_id=profile_id, source="jira", event_type="jira:issue_updated",
         source_event_id=str(issue.get("id", "")),
         title=sanitize(fields.get("summary", "")),
         occurred_at=parse_iso(fields.get("updated")),
@@ -36,8 +34,9 @@ def issue_to_event(issue: dict, profile_id: str) -> dict:
 
 async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dict]:
     """Resolve the cloud id, then page issues assigned to the user updated since
-    `since`. Jira paginates with startAt/maxResults (not page/per_page), so it
-    doesn't use the shared paged() helper. See docs/adr-0003-backfill.md §Phase-2."""
+    `since`. Uses /search/jql with nextPageToken pagination — the legacy /search
+    endpoint was removed from Jira Cloud in Oct 2025 (410 Gone), so it doesn't
+    use the shared paged() helper. See docs/adr-0003-backfill.md §Phase-2."""
     since_date = since.astimezone(timezone.utc).strftime("%Y-%m-%d")
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     events: list[dict] = []
@@ -50,18 +49,17 @@ async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dic
         base = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3"
         jql = f'assignee = currentUser() AND updated >= "{since_date}" ORDER BY updated DESC'
 
-        start = 0
-        while start < 1000:                      # ponytail: cap 1000 issues/backfill
-            r = await client.get(
-                f"{base}/search", headers=headers,
-                params={"jql": jql, "startAt": start, "maxResults": 100,
-                        "fields": "summary,project,updated,duedate"})
+        params = {"jql": jql, "maxResults": 100,
+                  "fields": "summary,project,updated,duedate,status,priority,assignee,issuetype"}
+        while len(events) < 1000:                # ponytail: cap 1000 issues/backfill
+            r = await client.get(f"{base}/search/jql", headers=headers, params=params)
             if r.status_code != 200:
                 break
             data = r.json()
             issues = data.get("issues", [])
             events.extend(issue_to_event(it, profile_id) for it in issues)
-            if not issues or start + len(issues) >= data.get("total", 0):
+            next_token = data.get("nextPageToken")
+            if not issues or not next_token:
                 break
-            start += len(issues)
+            params["nextPageToken"] = next_token
     return events

@@ -119,6 +119,41 @@
     </div>
   </div>
 
+  <!-- Jira: My Work (live) — hidden unless Jira is connected -->
+  <div class="card p-5 hidden" id="jira-assigned-card">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-1)">
+        My Jira Work
+        <span id="assigned-count" class="text-xs px-1.5 py-0.5 rounded-full font-normal" style="background:var(--surface-2);color:var(--text-3)"></span>
+        <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Live</span>
+      </h2>
+      <button onclick="loadAssigned()" class="text-xs text-gray-400 hover:text-gray-100">Refresh</button>
+    </div>
+
+    <!-- KPI strip: open / in progress / due soon / points -->
+    <div id="jira-kpis" class="flex flex-wrap rounded-lg mb-4" style="background:var(--surface-2);border:1px solid var(--border)"></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <!-- urgency-sorted issue list -->
+      <div class="lg:col-span-2">
+        <div id="assigned-list" class="overflow-y-auto" style="max-height:300px">
+          <p class="text-xs" style="color:var(--text-3)">Loading…</p>
+        </div>
+      </div>
+      <!-- mini breakdowns -->
+      <div class="space-y-4">
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By status</p>
+          <div style="height:110px"><canvas id="jira-status-chart"></canvas></div>
+        </div>
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By priority</p>
+          <div style="height:110px"><canvas id="jira-prio-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Activity Timeline — full width below chart -->
   <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
@@ -162,16 +197,14 @@
   let statsPeriod      = 'week';
   let timelinePeriod   = 'today';
 
-  window.onWSEvent = function() {
+  window.onWSEvent = function(data) {
     loadStats();
     loadChartForWeek(_chartStartDate);
     loadTimeline();
+    if (data?.source === 'jira') loadAssigned();
   };
 
   async function onBaseReady(data) {
-    const raw = ((data || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     document.getElementById('main-content').classList.remove('hidden');
 
     document.getElementById('chart-legend').innerHTML = SOURCE_ORDER.map(k => `
@@ -184,7 +217,12 @@
 
     setStatsPeriod('week', false);
     setTimelinePeriod('today', false);
-    await Promise.all([loadStats(), setRangeDefault(), loadTimeline()]);
+    const jobs = [loadStats(), setRangeDefault(), loadTimeline()];
+    if (data?.integrations?.jira) {
+      document.getElementById('jira-assigned-card').classList.remove('hidden');
+      jobs.push(loadAssigned());
+    }
+    await Promise.all(jobs);
   }
 
   // ── Week range ───────────────────────────────────────────────────────────

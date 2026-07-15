@@ -114,24 +114,18 @@ async def test_github_stats_today_response_shape():
 
 # ── Jira stats ────────────────────────────────────────────────────────────────
 
-async def test_jira_stats_week_response_shape():
+async def test_jira_stats_response_shape():
+    """Chart + top projects only — the KPI metrics block was removed with the
+    page redesign (work KPIs come live from /api/jira/assigned instead)."""
     app = _mini_stats_app()
     patches = _auth_patches("jira")
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
-        r = await _get(app, "/api/jira/stats", params={"period": "week"})
+        r = await _get(app, "/api/jira/stats")
     assert r.status_code == 200
     body = r.json()
-    assert "metrics" in body and "chart" in body
-    assert any(m["label"] == "Total" for m in body["metrics"])
-
-
-async def test_jira_stats_today_no_change_field():
-    app = _mini_stats_app()
-    patches = _auth_patches("jira")
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
-        r = await _get(app, "/api/jira/stats", params={"period": "today"})
-    assert r.status_code == 200
-    assert not any("change" in m for m in r.json()["metrics"])
+    assert "metrics" not in body
+    assert set(body["chart"]["datasets"]) == {"created", "updated", "comments"}
+    assert "top_items" in body and body["top_label"] == "Top Projects"
 
 
 # ── Teams stats ───────────────────────────────────────────────────────────────

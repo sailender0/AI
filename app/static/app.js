@@ -396,6 +396,10 @@ async function initBase() {
   document.getElementById('sidebar-logout').classList.remove('hidden');
   document.getElementById('sidebar-email').textContent = data.email;
   document.getElementById('page-greeting').textContent = getGreeting(data.email);
+  // Feed avatar identity, shared by every page's onBaseReady
+  const _emailUser = (data.email || '').split('@')[0];
+  window._actUserInitials = _emailUser.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
+  window._actAuthorName   = _emailUser.split(/[._]/)[0] || _emailUser;
   const av = document.getElementById('header-avatar');
   av.textContent = data.email[0].toUpperCase();
   av.classList.remove('hidden');
@@ -408,13 +412,14 @@ async function initBase() {
   for (const source of SOURCE_ORDER) {
     const meta      = SOURCES[source];
     const connected = data.integrations[source];
+    const broken    = (data.integration_errors || {})[source];
     const isActive  = ACTIVE_PAGE === source || (ACTIVE_PAGE === 'teams' && source === 'teams_subscription');
     container.innerHTML += `
-      <a href="${meta.href}" title="${meta.label}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
+      <a href="${meta.href}" title="${meta.label}${broken ? ' — connection problem, reconnect' : ''}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
         ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'}">
         <span class="text-base leading-none shrink-0">${meta.icon}</span>
         <span class="sidebar-label flex-1 whitespace-nowrap">${meta.label}</span>
-        <span class="sidebar-label w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-green-400' : 'bg-gray-600'}"></span>
+        <span class="sidebar-label w-1.5 h-1.5 rounded-full shrink-0 ${broken ? 'bg-amber-400' : connected ? 'bg-green-400' : 'bg-gray-600'}"></span>
       </a>`;
   }
 
@@ -567,6 +572,183 @@ function chatWidget() {
       });
     },
   };
+}
+
+/* ══ Jira "My Work" — shared by /jira and the dashboard ═══════
+   Always renders the assigned-issues list into #assigned-list (+ count badge);
+   when the host page provides them, also fills #jira-kpis (stat tiles) and the
+   #jira-status-chart / #jira-prio-chart mini bars. Bar colors deliberately
+   match the status/priority chips used across the app (color follows the
+   entity); identity is always carried by the axis text labels, never color
+   alone, so the shared-hue statuses stay readable for CVD users. */
+// Deterministic per-repo/workspace accent, shared by every feed renderer
+const _REPO_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
+function repoColor(s) { let h = 0; for (const c of (s || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return _REPO_COLORS[h % _REPO_COLORS.length]; }
+
+let _jiraSiteUrl = localStorage.getItem('jiraSiteUrl') || '';  // survives across pages that never call loadAssigned
+const _PRIO_COLORS = { highest:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#22c55e', lowest:'#64748b' };
+const _CAT_COLORS  = { new:'#64748b', indeterminate:'#f59e0b', done:'#22c55e' };  // Jira statusCategory keys
+const _PRIO_ORDER  = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
+const _chip = (txt, color) => txt ? `<span class="text-xs px-1.5 py-0.5 rounded" style="background:${color}22;color:${color}">${esc(txt)}</span>` : '';
+const _prioChip = p => _chip(p, _PRIO_COLORS[(p || '').toLowerCase()] || '#64748b');
+function _keyLink(key) {
+  if (!key) return '';
+  const k = esc(key);
+  return _jiraSiteUrl
+    ? `<a href="${esc(_jiraSiteUrl)}/browse/${k}" target="_blank" rel="noopener" class="text-xs font-semibold hover:underline" style="color:#06b6d4">${k}</a>`
+    : `<span class="text-xs font-semibold" style="color:#06b6d4">${k}</span>`;
+}
+
+// due date -> {days, color, label}; null when the issue has no due date
+function _dueInfo(due) {
+  if (!due) return null;
+  const days = Math.round((new Date(due + 'T00:00:00') - new Date(new Date().toDateString())) / 864e5);
+  if (days < 0)   return { days, color: '#ef4444', label: `overdue ${-days}d` };
+  if (days === 0) return { days, color: '#f59e0b', label: 'due today' };
+  if (days === 1) return { days, color: '#f59e0b', label: 'due tomorrow' };
+  const d = new Date(due + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return { days, color: 'var(--text-3)', label: `due ${d}` };
+}
+
+function _renderJiraKpis(issues, done7d) {
+  const el = document.getElementById('jira-kpis');
+  if (!el) return;
+  const inProg  = issues.filter(i => i.status_category === 'indeterminate').length;
+  const dues    = issues.map(i => _dueInfo(i.due_date)).filter(Boolean);
+  const overdue = dues.filter(d => d.days < 0).length;
+  const dueSoon = dues.filter(d => d.days >= 0 && d.days <= 7).length;
+  const tiles = [
+    ['Overdue', overdue, overdue ? '#ef4444' : null],
+    ['Due this week', dueSoon, null],
+    ['In progress', inProg, null],
+    ['Done this week', done7d == null ? '—' : done7d, done7d ? '#22c55e' : null],
+    ['Open total', issues.length, null],
+  ];
+  el.innerHTML = tiles.map(([label, value, color], i) => `
+    <div class="flex-1 min-w-0 px-4 py-2.5" ${i ? 'style="border-left:1px solid var(--border)"' : ''}>
+      <p class="kpi-label">${label}</p>
+      <p class="text-xl font-bold mt-0.5" style="color:${color || 'var(--text-1)'}">${value}</p>
+    </div>`).join('');
+}
+
+let _jiraStatusChart = null, _jiraPrioChart = null, _jiraDueChart = null, _jiraAgeChart = null;
+
+function _miniBar(canvasId, labels, data, colors, prev, horizontal = true) {
+  const el = document.getElementById(canvasId);
+  if (!el || typeof Chart === 'undefined') return prev;
+  if (prev) prev.destroy();
+  const cc = chartColors();
+  const valueAxis = { grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10 }, precision: 0 }, beginAtZero: true };
+  const catAxis   = { grid: { display: false }, ticks: { color: cc.tick, font: { size: 10 } } };
+  return new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 4, barThickness: 10 }] },
+    options: {
+      indexAxis: horizontal ? 'y' : 'x',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: horizontal ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis },
+    },
+  });
+}
+
+// Due outlook (overdue + next 7 days, vertical) and WIP aging (horizontal,
+// sequential cyan ramp — darker = older). Only render where the page mounts them.
+function _renderJiraExtraCharts(issues) {
+  if (document.getElementById('jira-due-chart')) {
+    const counts = new Array(8).fill(0);
+    issues.forEach(i => {
+      const d = _dueInfo(i.due_date);
+      if (!d) return;
+      if (d.days < 0) counts[0]++;
+      else if (d.days <= 6) counts[1 + d.days]++;
+    });
+    const labels = ['Overdue'];
+    for (let k = 0; k < 7; k++) {
+      const dt = new Date(); dt.setDate(dt.getDate() + k);
+      labels.push(k === 0 ? 'Today' : dt.toLocaleDateString(undefined, { weekday: 'short' }));
+    }
+    const colors = labels.map((_, i) => i === 0 ? '#ef4444' : '#06b6d4');
+    _jiraDueChart = _miniBar('jira-due-chart', labels, counts, colors, _jiraDueChart, false);
+  }
+
+  if (document.getElementById('jira-age-chart')) {
+    const now = Date.now();
+    const buckets = [0, 0, 0, 0];
+    issues.forEach(i => {
+      if (!i.created) return;
+      const weeks = (now - new Date(i.created)) / 6048e5;
+      buckets[weeks < 1 ? 0 : weeks < 2 ? 1 : weeks < 4 ? 2 : 3]++;
+    });
+    _jiraAgeChart = _miniBar('jira-age-chart', ['< 1 week', '1–2 weeks', '2–4 weeks', '> 1 month'],
+      buckets, ['#22d3ee', '#06b6d4', '#0891b2', '#155e75'], _jiraAgeChart);
+  }
+}
+
+function _renderJiraCharts(issues) {
+  // by status name (top 5), each bar wearing its statusCategory color
+  const byStatus = {};
+  issues.forEach(i => { const s = i.status || '—'; (byStatus[s] = byStatus[s] || { n: 0, cat: i.status_category }).n++; });
+  const sLabels = Object.keys(byStatus).sort((a, b) => byStatus[b].n - byStatus[a].n).slice(0, 5);
+  _jiraStatusChart = _miniBar('jira-status-chart', sLabels,
+    sLabels.map(s => byStatus[s].n),
+    sLabels.map(s => _CAT_COLORS[byStatus[s].cat] || '#06b6d4'),
+    _jiraStatusChart);
+
+  // by priority, in fixed severity order (unknown names appended)
+  const byPrio = {};
+  issues.forEach(i => { const p = i.priority || '—'; byPrio[p] = (byPrio[p] || 0) + 1; });
+  const pLabels = _PRIO_ORDER.filter(p => byPrio[p])
+    .concat(Object.keys(byPrio).filter(p => !_PRIO_ORDER.includes(p)));
+  _jiraPrioChart = _miniBar('jira-prio-chart', pLabels,
+    pLabels.map(p => byPrio[p]),
+    pLabels.map(p => _PRIO_COLORS[p.toLowerCase()] || '#64748b'),
+    _jiraPrioChart);
+}
+
+async function loadAssigned() {
+  const el = document.getElementById('assigned-list');
+  if (!el) return;
+  const data = await getJSON('/api/jira/assigned');
+  if (!data) {
+    el.innerHTML = '<p class="text-xs" style="color:var(--text-3)">Could not load assigned issues — the Jira connection may have expired. '
+      + '<a href="/connect/jira" class="hover:underline" style="color:#06b6d4">Reconnect Jira →</a></p>';
+    return;
+  }
+  _jiraSiteUrl = data.site_url || _jiraSiteUrl;
+  if (data.site_url) localStorage.setItem('jiraSiteUrl', data.site_url);
+  // overdue first, then soonest due; no due date last (stable sort keeps the
+  // server's priority ordering within each group)
+  const issues = (data.issues || []).slice().sort((a, b) => {
+    const da = _dueInfo(a.due_date), db = _dueInfo(b.due_date);
+    return (da ? da.days : Infinity) - (db ? db.days : Infinity);
+  });
+  const countEl = document.getElementById('assigned-count');
+  if (countEl) countEl.textContent = issues.length;
+  _renderJiraKpis(issues, data.done_7d);
+  _renderJiraCharts(issues);
+  _renderJiraExtraCharts(issues);
+  if (!issues.length) {
+    el.innerHTML = '<p class="text-xs" style="color:var(--text-3)">Nothing open is assigned to you.</p>';
+    return;
+  }
+  el.innerHTML = issues.map(it => {
+    const dueI = _dueInfo(it.due_date);
+    const due  = dueI ? `<span class="text-xs font-medium" style="color:${dueI.color}">${esc(dueI.label)}</span>` : '';
+    const meta = [it.issue_type, it.sprint, it.story_points != null ? `${it.story_points} pts` : null]
+      .filter(Boolean).map(esc).join(' · ');
+    const pc = _PRIO_COLORS[(it.priority || '').toLowerCase()] || 'var(--border)';
+    return `<div class="py-2 pl-3" style="border-bottom:1px solid var(--border);border-left:2px solid ${pc}">
+      <div class="flex items-center gap-2 flex-wrap">
+        ${_keyLink(it.key)}
+        ${_chip(it.status, _CAT_COLORS[it.status_category] || '#06b6d4')}
+        ${_prioChip(it.priority)}
+        ${due}
+      </div>
+      <div class="text-xs truncate mt-1" style="color:var(--text-1)">${esc(it.summary)}</div>
+      ${meta ? `<div class="text-xs mt-0.5" style="color:var(--text-3)">${meta}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 /* ══ Go ═══════════════════════════════════════════════════════ */

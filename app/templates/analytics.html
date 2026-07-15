@@ -121,9 +121,6 @@
 {% block scripts %}
 <script>
   async function onBaseReady(data) {
-    const raw = (data.email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     await loadSummaries();
   }
 
@@ -320,12 +317,6 @@
 
   // fmtTime() comes from app.js (identical implementation).
 
-  const _FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _feedRepoColor(str) {
-    let h = 0;
-    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-    return _FEED_COLORS[h % _FEED_COLORS.length];
-  }
   const _CF_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _CF_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 
@@ -353,7 +344,7 @@
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>
         <div class="commit-feed">${evts.map(it => {
-          const color = _feedRepoColor(it.workspace || src || '');
+          const color = repoColor(it.workspace || src || '');
           const time  = fmtTime(it.occurred_at);
           const {shaHtml, filesHtml} = _cfCommitExtra(it);
           return `<div class="commit-item">
@@ -364,7 +355,8 @@
                 ${it.workspace ? `<span class="commit-repo-pill">${_CF_BRANCH} ${it.workspace}</span>` : ''}
                 ${time ? `<span class="commit-time">${_CF_CLOCK} ${time}</span>` : ''}
               </div>
-              <div class="commit-title">${it.title || '—'}${shaHtml}</div>
+              <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title || '—'}${shaHtml}</div>
+              ${(it.status || it.priority) ? `<div class="flex items-center gap-1.5 mt-0.5">${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>` : ''}
               ${filesHtml}
             </div>
           </div>`;

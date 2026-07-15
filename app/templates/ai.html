@@ -152,8 +152,6 @@
   let isSending      = false;
 
   async function onBaseReady(data) {
-    const raw = ((data || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
     await loadConversations();
     document.getElementById('chat-input').focus();
   }

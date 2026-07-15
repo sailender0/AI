@@ -20,6 +20,41 @@ router = APIRouter()
 _VALID_SOURCES = {"github", "gitlab", "jira", "teams_subscription"}
 
 
+def _jira_extras(raw: dict) -> dict:
+    """Read-time enrichment from the stored payload — webhook payloads nest the
+    issue under 'issue'; backfill raw_payload IS the issue. Backfilled docs from
+    before the fields widening simply yield Nones (no status in their payload)."""
+    issue = raw.get("issue") or raw
+    f = issue.get("fields") or {}
+    return {
+        "issue_key": issue.get("key"),
+        "status":    (f.get("status") or {}).get("name"),
+        "priority":  (f.get("priority") or {}).get("name"),
+        "assignee":  (f.get("assignee") or {}).get("displayName"),
+    }
+
+
+def _event_extras(src: str, e: dict, raw: dict) -> dict:
+    """Per-source display extras — sha/files for git pushes, issue fields for
+    Jira. One implementation shared by all three event-serialization endpoints."""
+    if src == "github":
+        sha = (e.get("source_event_id") or raw.get("after") or "")[:7] or None
+        head = raw.get("head_commit") or {}
+        files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
+        return {"sha": sha, "files": files}
+    if src == "gitlab":
+        commits = raw.get("commits") or []
+        if not commits:
+            return {"sha": None, "files": []}
+        last = commits[-1]
+        sha = (last.get("id") or "")[:7] or None
+        files = ((last.get("modified") or []) + (last.get("added") or []) + (last.get("removed") or []))[:6]
+        return {"sha": sha, "files": files}
+    if src == "jira":
+        return {"sha": None, "files": [], **_jira_extras(raw)}
+    return {"sha": None, "files": []}
+
+
 @router.get("/api/events/recent")
 async def get_recent_events(
     request: Request,
@@ -57,28 +92,13 @@ async def get_recent_events(
         ts  = e.get("occurred_at")
         raw = e.get("raw_payload") or {}
         src = e.get("source", "")
-        sha   = None
-        files = []
-        if src == "github":
-            raw_sha = e.get("source_event_id") or raw.get("after") or ""
-            if raw_sha:
-                sha = raw_sha[:7]
-            head = raw.get("head_commit") or {}
-            files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
-        elif src == "gitlab":
-            commits = raw.get("commits") or []
-            if commits:
-                raw_sha = commits[-1].get("id") or ""
-                sha = raw_sha[:7] if raw_sha else None
-                files = ((commits[-1].get("modified") or []) + (commits[-1].get("added") or []) + (commits[-1].get("removed") or []))[:6]
         result.append({
             "source": src,
             "event_type": e.get("event_type", ""),
             "title": e.get("title", ""),
             "workspace": e.get("workspace", ""),
             "occurred_at": (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat() if isinstance(ts, datetime) else str(ts),
-            "sha": sha,
-            "files": files,
+            **_event_extras(src, e, raw),
         })
     return JSONResponse({"events": result})
 
@@ -183,20 +203,6 @@ async def get_day_data(request: Request, date: str = None, db: AsyncSession = De
         raw = e.get("raw_payload") or {}
         if src in source_counts:
             source_counts[src] += 1
-        sha   = None
-        files = []
-        if src == "github":
-            raw_sha = e.get("source_event_id") or raw.get("after") or ""
-            if raw_sha:
-                sha = raw_sha[:7]
-            head  = raw.get("head_commit") or {}
-            files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
-        elif src == "gitlab":
-            commits = raw.get("commits") or []
-            if commits:
-                raw_sha = commits[-1].get("id") or ""
-                sha = raw_sha[:7] if raw_sha else None
-                files = ((commits[-1].get("modified") or []) + (commits[-1].get("added") or []) + (commits[-1].get("removed") or []))[:6]
         result_events.append({
             "source": src,
             "event_type": e.get("event_type", ""),
@@ -206,7 +212,7 @@ async def get_day_data(request: Request, date: str = None, db: AsyncSession = De
                 (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat()
                 if isinstance(ts, datetime) else str(ts)
             ),
-            "sha": sha, "files": files,
+            **_event_extras(src, e, raw),
         })
 
     summary_row = (await db.execute(
@@ -281,26 +287,12 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
             items = []
             for e in src_events[:15]:
                 raw = e.get("raw_payload") or {}
-                sha   = None
-                files = []
-                if src == "github":
-                    raw_sha = e.get("source_event_id") or raw.get("after") or ""
-                    if raw_sha:
-                        sha = raw_sha[:7]
-                    head  = raw.get("head_commit") or {}
-                    files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
-                elif src == "gitlab":
-                    commits = raw.get("commits") or []
-                    if commits:
-                        raw_sha = commits[-1].get("id") or ""
-                        sha = raw_sha[:7] if raw_sha else None
-                        files = ((commits[-1].get("modified") or []) + (commits[-1].get("added") or []) + (commits[-1].get("removed") or []))[:6]
                 items.append({
                     "event_type":  e.get("event_type", ""),
                     "title":       e.get("title", "") or e.get("event_type", ""),
                     "workspace":   e.get("workspace", ""),
                     "occurred_at": e["occurred_at"].isoformat(),
-                    "sha": sha, "files": files,
+                    **_event_extras(src, e, raw),
                 })
             connectors[src] = {"count": len(src_events), "items": items}
         result_days.append({"date": day.strftime("%Y-%m-%d"), "connectors": connectors})

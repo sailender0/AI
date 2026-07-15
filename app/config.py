@@ -44,7 +44,6 @@ class Settings(BaseSettings):
     # Jira
     JIRA_CLIENT_ID: str = ""
     JIRA_CLIENT_SECRET: str = ""
-    JIRA_BASE_URL: str = ""
     JIRA_WEBHOOK_SECRET: str = ""
 
     # Teams

@@ -287,9 +287,6 @@
   };
 
   async function onBaseReady(meData) {
-    const raw = ((meData || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     const urlError = new URLSearchParams(window.location.search).get('error');
     if (urlError) {
       const el = document.getElementById('auth-error');

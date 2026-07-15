@@ -29,26 +29,64 @@
   <div id="webhook-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
     <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
     <div>
-      <p class="text-sm font-semibold" style="color:#fbbf24">Webhook registration failed</p>
-      <p class="text-xs mt-0.5" style="color:#92400e">Jira is connected but the webhook could not be registered — new events will not be captured. <a href="/connect/jira" style="color:#f59e0b">Reconnect to retry →</a></p>
+      <p class="text-sm font-semibold" style="color:#fbbf24">Jira connection problem</p>
+      <p class="text-xs mt-0.5" style="color:#92400e">Jira is connected but the app can't talk to it — the token may have expired or the webhook failed. New events are not being captured. <a href="/connect/jira" style="color:#f59e0b">Reconnect Jira →</a></p>
     </div>
   </div>
 
   <!-- Main content (hidden until connected) -->
   <div id="main-content" class="hidden space-y-6">
 
-  <!-- Period toggle + backfill -->
-  <div class="flex items-center justify-between gap-2">
-    <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
-      <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
-      <button id="period-week"  onclick="setPeriod('week')"  class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
+  <!-- My-work KPIs: overdue / due this week / in progress / done this week / open -->
+  <div id="jira-kpis" class="flex flex-wrap rounded-xl" style="background:var(--surface-2);border:1px solid var(--border)"></div>
+
+  <!-- My open issues (live from Jira) -->
+  <div class="card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-1)">
+        My open issues
+        <span id="assigned-count" class="text-xs px-1.5 py-0.5 rounded-full font-normal" style="background:var(--surface-2);color:var(--text-3)"></span>
+        <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Live</span>
+      </h2>
+      <button onclick="loadAssigned()" class="text-xs text-gray-400 hover:text-gray-100">Refresh</button>
     </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div class="lg:col-span-2">
+        <div id="assigned-list" class="overflow-y-auto" style="max-height:340px">
+          <p class="text-xs" style="color:var(--text-3)">Loading…</p>
+        </div>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By status</p>
+          <div style="height:110px"><canvas id="jira-status-chart"></canvas></div>
+        </div>
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By priority</p>
+          <div style="height:110px"><canvas id="jira-prio-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deadline outlook + WIP aging -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="card p-5">
+      <p class="text-sm font-semibold mb-3" style="color:var(--text-1)">Due outlook <span class="text-xs font-normal" style="color:var(--text-3)">· overdue + next 7 days</span></p>
+      <div style="height:150px"><canvas id="jira-due-chart"></canvas></div>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm font-semibold mb-3" style="color:var(--text-1)">Age of open issues <span class="text-xs font-normal" style="color:var(--text-3)">· since created</span></p>
+      <div style="height:150px"><canvas id="jira-age-chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Backfill -->
+  <div class="flex justify-end">
     <button onclick="backfillNow('jira')" class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
       style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)"
       title="Import the last 30 days of history">Backfill 30d</button>
   </div>
-
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="metric-cards"></div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="lg:col-span-2 card p-5">
@@ -120,7 +158,6 @@
 </style>
 <script>
   let chart           = null;
-  let statsPeriod     = 'week';
   let evtPeriod       = 'today';
   let _jrChartData    = null;
   let _chartRepos     = null;
@@ -133,6 +170,9 @@
     updated:  e => /issue_updated/i.test(e.event_type),
     comments: e => /comment/i.test(e.event_type),
   };
+
+  // "Assigned to me" panel: markup above renders via the shared loadAssigned()
+  // in app.js (also used by the dashboard).
 
   async function loadPanelEvents() {
     if (!_chartStartDate) return;
@@ -238,12 +278,10 @@
     loadStats();
     loadPanelEvents();
     loadEvents();
+    loadAssigned();
   };
 
   async function onBaseReady(meData) {
-    const raw = ((meData || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
     const urlError = new URLSearchParams(window.location.search).get('error');
     if (urlError) {
       const el = document.getElementById('auth-error');
@@ -260,8 +298,8 @@
       }
       document.getElementById('main-content').classList.remove('hidden');
       initPicker();
-      setPeriod('week', false);
       setEvtPeriod('today', false);
+      await loadAssigned();   // first: sets _jiraSiteUrl so feed key links render as links
       await Promise.all([setRangeDefault(), loadEvents(), loadPanelEvents()]);
     }
   }
@@ -273,34 +311,11 @@
     if (fetch) loadEvents();
   }
 
-  function setPeriod(p, fetch = true) {
-    statsPeriod = p;
-    document.getElementById('period-today').classList.toggle('active', p === 'today');
-    document.getElementById('period-week').classList.toggle('active',  p === 'week');
-    if (fetch) loadStats();
-  }
-
   async function loadStats() {
-    let url = `/api/jira/stats?period=${statsPeriod}`;
-    if (_chartStartDate) url += `&start_date=${_chartStartDate}`;
+    let url = '/api/jira/stats';
+    if (_chartStartDate) url += `?start_date=${_chartStartDate}`;
     const res = await fetch(url, { credentials: 'include' });
     const data = await res.json();
-
-    const grid = document.getElementById('metric-cards');
-    grid.innerHTML = (data.metrics || []).map(m => {
-      const changeHtml = m.change !== undefined
-        ? `<p class="text-xs mt-1 ${m.change >= 0 ? 'text-green-400' : 'text-red-400'}">${m.change >= 0 ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>`
-        : '';
-      return `<div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
-        <div style="height:2px;background:linear-gradient(90deg,#06b6d4,#22d3ee)"></div>
-        <div class="p-4">
-          <p class="kpi-label mb-2">${m.label}</p>
-          <p class="kpi-number kpi-num-jira">${m.value}</p>
-          ${changeHtml}
-        </div>
-      </div>`;
-    }).join('');
-    initKpiTilt();
 
     _jrChartData = data.chart;
     _chartRepos  = data.chart.repos || null;
@@ -353,13 +368,13 @@
         <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);color:var(--text-3)">${events.length}</span>
       </div>
       ${events.map(it => {
-        const color = _jrRepoColor(it.workspace || '');
+        const color = repoColor(it.workspace || '');
         const time  = new Date(it.occurred_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
         return `<div class="flex items-start gap-2 py-2" style="border-bottom:1px solid var(--border)">
           <div class="w-2 h-2 rounded-full mt-1.5 shrink-0" style="background:${color}"></div>
           <div class="min-w-0 flex-1">
             <span class="text-xs font-semibold truncate block" style="color:var(--text-1)">${it.workspace||'—'}</span>
-            <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.title||'—'}</span>
+            <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title||'—'}</span>
             <span class="text-xs mt-1 block" style="color:var(--text-3)">${time}</span>
           </div>
         </div>`;
@@ -367,8 +382,6 @@
   }
   // ── End right panel ───────────────────────────────────────────────────────
 
-  const _JR_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _jrRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _JR_COLORS[h%_JR_COLORS.length]; }
   const _JR_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _JR_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const _jrFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -379,7 +392,7 @@
     const author   = window._actAuthorName   || 'you';
     if (evtPeriod === 'history') {
       return `<div class="commit-feed">${events.map(it => {
-        const color = _jrRepoColor(it.workspace||'');
+        const color = repoColor(it.workspace||'');
         const time  = new Date(it.occurred_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
         return `<div class="commit-item">
           <div class="commit-avatar" style="background:${color}">${initials}</div>
@@ -389,8 +402,8 @@
               ${it.workspace?`<span class="commit-repo-pill">${_JR_BRANCH} ${it.workspace}</span>`:''}
               <span class="commit-time">${_JR_CLOCK} ${time}</span>
             </div>
-            <div class="commit-title">${it.title||'—'}</div>
-            <div class="commit-sub">${_jrFmt(it.event_type)}</div>
+            <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title||'—'}</div>
+            <div class="commit-sub flex items-center gap-1.5">${_jrFmt(it.event_type)} ${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>
           </div>
         </div>`;
       }).join('')}</div>`;
@@ -404,7 +417,7 @@
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>
         <div class="commit-feed">${evts.map(it => {
-          const color = _jrRepoColor(it.workspace||'');
+          const color = repoColor(it.workspace||'');
           const time  = new Date(it.occurred_at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
           return `<div class="commit-item">
             <div class="commit-avatar" style="background:${color}">${initials}</div>
@@ -414,7 +427,8 @@
                 ${it.workspace?`<span class="commit-repo-pill">${_JR_BRANCH} ${it.workspace}</span>`:''}
                 <span class="commit-time">${_JR_CLOCK} ${time}</span>
               </div>
-              <div class="commit-title">${it.title||'—'}</div>
+              <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title||'—'}</div>
+              ${(it.status || it.priority) ? `<div class="flex items-center gap-1.5 mt-0.5">${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>` : ''}
             </div>
           </div>`;
         }).join('')}</div>
