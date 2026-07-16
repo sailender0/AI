@@ -33,6 +33,13 @@ import keyring
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
+# Windowed exe: every console child (git, code) flashes a visible console
+# window unless suppressed — pass this to every subprocess.run.
+_NO_WINDOW = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW}
+    if platform.system() == "Windows" else {}
+)
+
 KEYRING_SERVICE   = "da-agent"
 KEYRING_TOKEN_KEY = "device-token"
 KEYRING_URL_KEY   = "backend-url"
@@ -250,7 +257,7 @@ def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
             today = datetime.now().strftime("%Y-%m-%d")
             cmd   = ["git", "log", f"--after={today} 00:00", "--format=%H|%s|%aI", "--no-merges"]
 
-        result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True, timeout=5)
+        result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True, timeout=5, **_NO_WINDOW)
         if result.returncode != 0 or not result.stdout.strip():
             return []
 
@@ -262,7 +269,7 @@ def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
             sha, message = parts[0], parts[1]
             stats = subprocess.run(
                 ["git", "show", "--stat", "--format=", sha],
-                cwd=repo_path, capture_output=True, text=True, timeout=5,
+                cwd=repo_path, capture_output=True, text=True, timeout=5, **_NO_WINDOW,
             )
             files_changed = insertions = deletions = 0
             for stat_line in stats.stdout.splitlines():
@@ -501,7 +508,7 @@ def get_claude_usage() -> list[dict]:
 def get_vscode_extensions() -> list[str]:
     for cmd in (["code", "--list-extensions"], ["cursor", "--list-extensions"]):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15, **_NO_WINDOW)
             if r.returncode == 0 and r.stdout.strip():
                 return sorted({e.strip() for e in r.stdout.splitlines() if e.strip()})
         except Exception:
@@ -670,7 +677,7 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                 try:
                     head = subprocess.run(
                         ["git", "rev-parse", "HEAD"],
-                        cwd=rp, capture_output=True, text=True, timeout=3,
+                        cwd=rp, capture_output=True, text=True, timeout=3, **_NO_WINDOW,
                     )
                     if head.returncode == 0:
                         known_shas[rp_str] = head.stdout.strip()
