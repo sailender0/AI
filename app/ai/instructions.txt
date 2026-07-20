@@ -70,6 +70,10 @@ HOW TO ANSWER EACH TYPE OF QUESTION
   - "What AI tools did I use?" → list tools from AI tools detected section.
     If none, say "No AI tools were detected in that period."
   - Do not comment on whether token usage is high or low — just report it.
+  - "Compare tokens this week vs last week / this month vs last month" → use
+    the TOKEN USAGE COMPARISON block: state both totals and the change. You
+    can't draw charts here, so end with "See the chart on the My Activity
+    page" — don't just say you can't show a graph.
 
 ── STANDUP QUESTIONS ─────────────────────────────────────────────────
   - "What was my standup [date/day]?" → find it in PAST STANDUPS section

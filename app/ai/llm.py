@@ -124,6 +124,45 @@ async def answer_stream(
             yield delta
 
 
+async def answer_with_tools(
+    system: str,
+    user: str,
+    tools: list[dict],
+    dispatch,
+    history: list[dict] | None = None,
+    *,
+    max_tokens: int,
+    temperature: float,
+    max_rounds: int = 4,
+) -> str:
+    """Agentic completion: the model may call `tools`; each call is run via
+    `dispatch(name, args)` (async, returns a JSON-able result) and fed back until
+    the model returns text. Bounded by max_rounds so a tool loop can't run away."""
+    msgs = _messages(system, user, history)
+    for _ in range(max_rounds):
+        resp = await _get_client().chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT,
+            messages=msgs,
+            tools=tools,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        _log_usage(resp.usage)
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return (msg.content or "").strip()
+        msgs.append(msg)                                    # the assistant's tool-call request
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            result = await dispatch(tc.function.name, args)
+            msgs.append({"role": "tool", "tool_call_id": tc.id,
+                         "content": json.dumps(result, default=str)})
+    return "Sorry — I couldn't finish that lookup in time."
+
+
 async def extract_schema(system: str, user: str, schema: dict, *,
                          name: str = "result", max_tokens: int = 120) -> dict:
     """Structured JSON extraction constrained to `schema` (strict structured outputs,

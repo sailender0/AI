@@ -3,20 +3,23 @@ On-demand Q&A endpoint + persistent multi-turn chat conversations.
 """
 import logging
 import uuid as _uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import json as _json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.ai import llm
 from app.ai.summarizer import _format_events
-from app.auth.sso import get_profile_from_session
-from app.routes.agent.analytics import _tool_active_minutes, _tool_active_periods, _merge_hourly
+from app.auth.sso import require_profile
+from app.routes.agent.analytics import (
+    _tool_active_minutes, _tool_active_periods, _merge_hourly,
+    _period_ranges, _token_total,
+)
 from app.routes.stats import fetch_assigned
 from app.services.activity_query import compute_focus_blocks
 from app.services.timezone import day_bounds, is_valid_tz, local_date, now_local, resolve
@@ -67,18 +70,42 @@ def _sanitize_question(text: str) -> str:
     return cleaned.strip()[:1000]
 
 
+# The single-window activity pipeline can't compare two periods, so a token
+# comparison ("this week vs last week") gets its own fetch of both periods.
+_COMPARE_WORDS = ("last week", "last month", "previous week", "previous month",
+                  "compare", "comparison", " vs ", "versus",
+                  "week over week", "month over month")
+
+
+async def _token_comparison_block(profile_id: str, tz_name: str, question: str) -> str:
+    ql = question.lower()
+    if not any(w in ql for w in _COMPARE_WORDS):
+        return ""
+    gran = "month" if "month" in ql else "week"
+    rng = _period_ranges(gran, now_local(resolve(tz_name)).date())
+    (tf, tt), (lf, lt) = rng["this"], rng["last"]
+    this_total = await _token_total(profile_id, tf, tt)
+    last_total = await _token_total(profile_id, lf, lt)
+    if not (this_total or last_total):
+        return ""
+    delta = this_total - last_total
+    pct = f"{delta / last_total * 100:+.0f}%" if last_total else "n/a (no prior data)"
+    return (f"CLAUDE TOKEN USAGE COMPARISON (input+output tokens):\n"
+            f"  This {gran} ({tf} to {tt}): {this_total:,} tokens\n"
+            f"  Last {gran} ({lf} to {lt}): {last_total:,} tokens\n"
+            f"  Change: {delta:+,} ({pct})")
+
+
 def _scope_to_range(scope: str, tz_name: str = "UTC") -> dict:
     tz  = resolve(tz_name)
     now = now_local(tz)
     if scope == "week":
         monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
         return {"$gte": day_bounds(monday, tz)[0]}
-    # ponytail: month/all are rolling windows (now - N days), not day-aligned,
-    # so day_bounds doesn't apply. Both are vestigial — scope is ~always "today".
+    # ponytail: month is a rolling window (now - 30d), not day-aligned, so
+    # day_bounds doesn't apply. Vestigial — scope is ~always "today".
     if scope == "month":
         return {"$gte": (now - timedelta(days=30)).astimezone(timezone.utc)}
-    if scope == "all":
-        return {"$gte": (now - timedelta(days=365)).astimezone(timezone.utc)}
     # today: local midnight → UTC
     return {"$gte": day_bounds(now.strftime("%Y-%m-%d"), tz)[0]}
 
@@ -297,10 +324,7 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
 # ── Chat conversation endpoints ────────────────────────────────────────────────
 
 @router.get("/api/chat/conversations")
-async def list_conversations(request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def list_conversations(profile_id: str = Depends(require_profile)):
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(ChatConversation)
@@ -317,10 +341,7 @@ async def list_conversations(request: Request):
 
 
 @router.post("/api/chat/conversations")
-async def create_conversation(request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def create_conversation(profile_id: str = Depends(require_profile)):
     async with AsyncSessionLocal() as db:
         conv = ChatConversation(profile_id=profile_id, title="New chat")
         db.add(conv)
@@ -335,10 +356,7 @@ async def create_conversation(request: Request):
 
 
 @router.get("/api/chat/conversations/{conv_id}/messages")
-async def get_conversation_messages(request: Request, conv_id: str):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_conversation_messages(conv_id: str, profile_id: str = Depends(require_profile)):
     async with AsyncSessionLocal() as db:
         conv = (await db.execute(
             select(ChatConversation)
@@ -364,11 +382,8 @@ class AskRequest(BaseModel):
 
 
 @router.post("/api/chat/conversations/{conv_id}/ask/stream")
-async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRequest):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def ask_in_conversation_stream(conv_id: str, body: AskRequest,
+                                     profile_id: str = Depends(require_profile)):
     raw_question = body.question.strip()
     if not raw_question:
         return JSONResponse({"error": "question_required"}, status_code=400)
@@ -432,6 +447,8 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         if assigned:
             jira_live = _format_jira_live(assigned)
 
+    token_cmp = await _token_comparison_block(profile_id, tz_name, question)
+
     activity_text = _format_events(events) if events else "No activity data found for that period."
     period_label  = _period_label(parsed, body.scope)
     system_content = (
@@ -444,6 +461,8 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
         system_content += f"\n\nDESKTOP/LOCAL ACTIVITY:\n{my_activity}"
     if jira_live:
         system_content += f"\n\n{jira_live}"
+    if token_cmp:
+        system_content += f"\n\n{token_cmp}"
     chat_history = [
         {"role": m.role, "content": m.content}
         for m in list(history)[-_MAX_HISTORY_MSGS:]
@@ -479,10 +498,7 @@ async def ask_in_conversation_stream(request: Request, conv_id: str, body: AskRe
 
 
 @router.delete("/api/chat/conversations/{conv_id}")
-async def delete_conversation(request: Request, conv_id: str):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def delete_conversation(conv_id: str, profile_id: str = Depends(require_profile)):
     async with AsyncSessionLocal() as db:
         conv = (await db.execute(
             select(ChatConversation)
@@ -493,3 +509,206 @@ async def delete_conversation(request: Request, conv_id: str):
         await db.delete(conv)
         await db.commit()
     return JSONResponse({"ok": True})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TOOL-CALLING PROTOTYPE (isolated) — POST /api/chat/ask/tools
+# The streaming chat above pre-fetches a fixed context + keyword gates. This path
+# instead hands the model a few parameterized tools and lets it choose and COMPOSE
+# them (call the same tool twice with different periods to compare). Non-streaming,
+# no conversation persistence — a sandbox to A/B against the pipeline.
+# ════════════════════════════════════════════════════════════════════════════
+
+_PERIOD_ENUM = ["today", "this_week", "last_week", "this_month", "last_month", "last_7_days"]
+
+
+def _resolve_period(period: str, tz_name: str, today: date | None = None) -> tuple[str, str]:
+    """Period token → (from, to) local date strings. Pure when `today` is supplied
+    (that path is what tests/test_ai_tools_period.py exercises)."""
+    if today is None:
+        today = now_local(resolve(tz_name)).date()
+    if period == "today":
+        return (today.isoformat(), today.isoformat())
+    if period == "last_7_days":
+        return ((today - timedelta(days=6)).isoformat(), today.isoformat())
+    for gran in ("week", "month"):
+        r = _period_ranges(gran, today)
+        if period == f"this_{gran}":
+            return r["this"]
+        if period == f"last_{gran}":
+            return r["last"]
+    return _period_ranges("week", today)["this"]        # unknown → this week
+
+
+def _period_ts_filter(frm: str, to: str, tz_name: str) -> dict:
+    """(from, to) local date strings → a Mongo timestamp range on local-midnight bounds."""
+    tz = resolve(tz_name)
+    start, _ = day_bounds(frm, tz)
+    _, end   = day_bounds(to, tz)
+    return {"$gte": start, "$lte": end}
+
+
+# ── Tool bodies — each a thin wrapper over a fetch we already have ──────────────
+
+async def _tool_get_activity(profile_id, tz_name, args) -> dict:
+    frm, to = _resolve_period(args.get("period", "this_week"), tz_name)
+    flt = {"profile_id": profile_id, "occurred_at": _period_ts_filter(frm, to, tz_name)}
+    source = args.get("source")
+    if source and source != "null":
+        flt["source"] = source
+    events = await activity_events().find(flt).to_list(100)
+    by_source: dict[str, int] = {}
+    for e in events:
+        s = e.get("source", "?")
+        by_source[s] = by_source.get(s, 0) + 1
+    return {"period": f"{frm} to {to}", "total_events": len(events),
+            "by_source": by_source, "sample": _format_events(events[:40])}
+
+
+async def _tool_get_token_usage(profile_id, tz_name, args) -> dict:
+    frm, to = _resolve_period(args.get("period", "this_week"), tz_name)
+    docs = await claude_usage().find(
+        {"profile_id": profile_id, "date": {"$gte": frm, "$lte": to}}
+    ).to_list(500)
+    tin  = sum(d.get("input_tokens", 0) for d in docs)
+    tout = sum(d.get("output_tokens", 0) for d in docs)
+    out = {"period": f"{frm} to {to}", "total_tokens": tin + tout,
+           "input_tokens": tin, "output_tokens": tout}
+    group_by = args.get("group_by")
+    if group_by == "repo":
+        repos: dict[str, int] = {}
+        for d in docs:
+            r = d.get("repo") or "unknown"
+            repos[r] = repos.get(r, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
+        out["by_repo"] = repos
+    elif group_by == "day":
+        days: dict[str, int] = {}
+        for d in docs:
+            dk = d.get("date", "")
+            days[dk] = days.get(dk, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
+        out["by_day"] = days
+    return out
+
+
+async def _tool_get_ai_tools(profile_id, tz_name, args) -> dict:
+    frm, to = _resolve_period(args.get("period", "this_week"), tz_name)
+    ts = _period_ts_filter(frm, to, tz_name)
+    hbs = await device_heartbeats().find(
+        {"profile_id": profile_id, "timestamp": ts, "idle": False},
+        projection={"timestamp": 1, "_id": 0},
+    ).sort("timestamp", 1).to_list(35_000)
+    focus_blocks = compute_focus_blocks(hbs)
+    ai_docs = await ai_tool_events().find(
+        {"profile_id": profile_id, "timestamp": ts},
+        projection={"tools": 1, "timestamp": 1, "_id": 0},
+    ).to_list(2000)
+    active_min = _tool_active_minutes(ai_docs, focus_blocks)
+    all_tools: set[str] = set()
+    for d in ai_docs:
+        all_tools.update(d.get("tools", []))
+    return {"period": f"{frm} to {to}",
+            "active_minutes_by_tool": {t: active_min.get(t, 0) for t in sorted(all_tools)},
+            "note": "minutes = active (non-idle) time; token counts exist only for claude-code"}
+
+
+async def _tool_get_focus_time(profile_id, tz_name, args) -> dict:
+    frm, to = _resolve_period(args.get("period", "this_week"), tz_name)
+    ts = _period_ts_filter(frm, to, tz_name)
+    hbs = await device_heartbeats().find(
+        {"profile_id": profile_id, "timestamp": ts, "idle": False},
+        projection={"timestamp": 1, "_id": 0},
+    ).sort("timestamp", 1).to_list(35_000)
+    focus_min = sum(b["duration_min"] for b in compute_focus_blocks(hbs))
+    commits = await local_commits().count_documents({"profile_id": profile_id, "timestamp": ts})
+    return {"period": f"{frm} to {to}", "focus_minutes": focus_min, "local_commits": commits}
+
+
+_TOOL_FNS = {
+    "get_activity":    _tool_get_activity,
+    "get_token_usage": _tool_get_token_usage,
+    "get_ai_tools":    _tool_get_ai_tools,
+    "get_focus_time":  _tool_get_focus_time,
+}
+
+_period_param = {"type": "string", "enum": _PERIOD_ENUM}
+
+_TOOLS = [
+    {"type": "function", "function": {
+        "name": "get_activity",
+        "description": "GitHub/GitLab/Jira/Teams activity events for a period. "
+                       "Call twice with different periods to compare.",
+        "parameters": {"type": "object", "additionalProperties": False,
+            "properties": {"period": _period_param,
+                           "source": {"type": ["string", "null"],
+                                      "enum": ["github", "gitlab", "jira", "teams", None]}},
+            "required": ["period", "source"]}}},
+    {"type": "function", "function": {
+        "name": "get_token_usage",
+        "description": "Claude Code token totals for a period (claude-code only). Call twice "
+                       "to compare periods; group_by='repo' or 'day' for a breakdown.",
+        "parameters": {"type": "object", "additionalProperties": False,
+            "properties": {"period": _period_param,
+                           "group_by": {"type": ["string", "null"], "enum": ["repo", "day", None]}},
+            "required": ["period", "group_by"]}}},
+    {"type": "function", "function": {
+        "name": "get_ai_tools",
+        "description": "Which AI coding apps ran and their active minutes for a period "
+                       "(claude-code, github-copilot, cursor-ai, ...). Use to compare apps by usage time.",
+        "parameters": {"type": "object", "additionalProperties": False,
+            "properties": {"period": _period_param}, "required": ["period"]}}},
+    {"type": "function", "function": {
+        "name": "get_focus_time",
+        "description": "Focus/coding minutes and local commit count for a period.",
+        "parameters": {"type": "object", "additionalProperties": False,
+            "properties": {"period": _period_param}, "required": ["period"]}}},
+]
+
+_TOOLS_PREAMBLE = (
+    "You answer questions about the user's developer activity by calling tools. "
+    "To compare two periods, call the SAME tool twice with different `period` values and "
+    "compute the difference yourself. Token counts exist only for claude-code; other apps "
+    "have active-time only, so never report token counts for them.\n\n"
+)
+
+
+async def _run_tool(name: str, args: dict, profile_id: str, tz_name: str) -> dict:
+    fn = _TOOL_FNS.get(name)
+    if not fn:
+        return {"error": f"unknown tool: {name}"}
+    try:
+        return await fn(profile_id, tz_name, args)
+    except Exception as exc:                            # a tool failure shouldn't kill the turn
+        logger.warning("tool %s failed: %s", name, exc)
+        return {"error": str(exc)}
+
+
+class AskToolsRequest(BaseModel):
+    question: str
+    tz: str | None = None
+
+
+@router.post("/api/chat/ask/tools")
+async def ask_with_tools(body: AskToolsRequest, profile_id: str = Depends(require_profile)):
+    """Isolated tool-calling prototype — the model picks and combines tools instead of
+    receiving a pre-fetched context. Non-streaming; no conversation persistence."""
+    question = _sanitize_question((body.question or "").strip())
+    if not question:
+        return JSONResponse({"error": "question_required"}, status_code=400)
+
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+        profile_tz = (profile.timezone or "UTC") if profile else "UTC"
+    tz_name = resolve(profile_tz, body.tz).key
+
+    async def dispatch(name, args):
+        return await _run_tool(name, args, profile_id, tz_name)
+
+    try:
+        answer = await llm.answer_with_tools(
+            _TOOLS_PREAMBLE + _load_instructions(), question, _TOOLS, dispatch,
+            max_tokens=500, temperature=0.3,
+        )
+    except Exception as exc:
+        logger.error("ask_with_tools failed: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return JSONResponse({"answer": answer})

@@ -1,6 +1,6 @@
 # Developer Activity Tracker — Project Overview
 
-**Last updated:** June 23, 2026  
+**Last updated:** July 20, 2026  
 **Status:** Active development  
 **Author:** Sailender Reddy Lanka
 
@@ -119,6 +119,17 @@ Two distinct AI uses:
 - `_intent_to_filter()` — converts that JSON into a MongoDB time range filter
 - `_map_event_type()` — normalises event type strings to internal names
 - Full chat: history stored per-conversation in PostgreSQL, full history sent with each message for context
+- **Period comparison** — "this week vs last week" / "this month vs last month" trigger `_token_comparison_block()`, which fetches **both** periods' Claude token totals (the single-window pipeline can't compare on its own) and injects a comparison block with the delta. The answer points users to the My Activity chart for the visual.
+
+**AI data flow — two hardcoded layers.** The pipeline hardcodes both *what* to fetch (one date window + keyword gates for jira/standup/comparison) and *how* to answer (`instructions.txt` scripts each question type). Every new capability = a fetch branch **+** an instruction paragraph. The tool-calling path below is the experiment to remove that.
+
+**3. Ask AI — tool-calling (experimental)** (`app/ai/query.py`, `app/ai/llm.py`)
+- Isolated path at `POST /api/chat/ask/tools` — non-streaming, no conversation persistence — added to A/B against the pre-fetched pipeline without touching the live streaming chat. Instead of Python pre-deciding what to fetch, the model is handed parameterized tools and chooses/composes them.
+- `llm.answer_with_tools()` runs the **ask → model calls tool → run it → feed result back → ask again** loop, capped at 4 rounds.
+- Four tools, each a thin wrapper over an existing fetch: `get_activity` (activity_events), `get_token_usage` (claude_usage, `group_by=repo|day`), `get_ai_tools` (active minutes per app), `get_focus_time` (heartbeats + local commits). All share one `period` param: `today` / `this_week` / `last_week` / `this_month` / `last_month` / `last_7_days`.
+- **Comparison is composition, not a tool** — the model calls the same tool twice with different `period` values and diffs the results itself. This is how a ~4-tool set answers an unbounded set of "compare X to Y" questions.
+- **Security:** `profile_id` and `tz` are injected server-side from the session (`Depends(require_profile)`), never from the model's tool args — the per-user boundary the pipeline relies on is preserved.
+- **Data caveat:** token counts exist only for claude-code; cross-app comparison (`get_ai_tools`) is by active *time*, not tokens.
 
 **Token costs (Azure OpenAI GPT-4o):**
 - Input: $2.50 / 1M tokens
@@ -375,6 +386,8 @@ app/
 10. **Token / cost logging** — All AI calls log `prompt_tokens`, `completion_tokens`, `total_tokens`, and `$cost`.
 11. **Ask AI GPT intent parsing** — Replaced keyword-based parser with `_gpt_parse_intent()`. Understands natural language time references.
 12. **Help page** — Built from scratch: master-detail layout, FAQ accordion, all four connector setup guides, page explanations with SVG mockups.
+13. **Token usage comparison (this vs last period)** — Ask AI now answers "this week vs last week" / "this month vs last month" for Claude tokens: `_token_comparison_block()` fetches both periods and reports the delta. New endpoint `GET /api/agent/token-comparison?granularity=week|month` backs a comparison card (two bars + ▲/▼ % delta) on the My Activity Week tab. Shared date math (`_period_ranges`, `_token_total` in `routes/agent/analytics.py`) is covered by `tests/test_token_comparison.py`.
+14. **Ask AI tool-calling prototype** — Isolated `POST /api/chat/ask/tools` where the model chooses and composes 4 parameterized tools instead of receiving a pre-fetched context. `llm.answer_with_tools()` runs the tool loop; `profile_id`/`tz` injected server-side; comparison handled by calling a tool twice. Non-streaming, no persistence — a sandbox to measure latency/cost vs the pipeline before deciding whether to migrate. Period resolver covered by `tests/test_ai_tools_period.py`.
 
 ---
 
@@ -389,5 +402,7 @@ app/
 - [ ] Redis session fallback (cookie-based fallback if Redis is unavailable)
 - [ ] Integration tests for the connector pipelines (especially normalizer + period bounds)
 - [ ] Multi-user isolation smoke test before onboarding second user
+- [ ] Decide on Ask AI tool-calling: measure latency/cost of `/api/chat/ask/tools` vs the pipeline; if it wins, port to SSE streaming + conversation persistence and retire the keyword gates
+- [ ] Capture per-app token counts (only claude-code has them today) if cross-app token comparison is wanted
 - [x] Export activity to CSV / PDF for performance review use — PDF export done (`/api/export/daily-pdf`, `/api/export/weekly-pdf`)
 - [ ] Export to CSV

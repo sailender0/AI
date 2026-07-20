@@ -1,13 +1,13 @@
 """My Activity analytics — focus blocks, AI usage, local commits."""
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends
 
 log = logging.getLogger(__name__)
 
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.services.activity_query import compute_focus_blocks
 from app.services.timezone import day_bounds, local_date, now_local, resolve, today_str
 from app.storage.mongodb import (
@@ -200,17 +200,39 @@ def _isoZ(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _period_ranges(granularity: str, today: date) -> dict:
+    """Current- and previous-period (from, to) local date strings, inclusive.
+    Compared against claude_usage.date, itself a local YYYY-MM-DD string. Pure
+    (takes `today`) so the date math is testable — see tests/test_token_comparison.py.
+    Week is Monday-anchored to match build_activity_week."""
+    if granularity == "month":
+        this_start = today.replace(day=1)
+        last_end   = this_start - timedelta(days=1)
+        last_start = last_end.replace(day=1)
+    else:
+        this_start = today - timedelta(days=today.weekday())
+        last_start = this_start - timedelta(days=7)
+        last_end   = this_start - timedelta(days=1)
+    return {"this": (this_start.isoformat(), today.isoformat()),
+            "last": (last_start.isoformat(), last_end.isoformat())}
+
+
+async def _token_total(profile_id: str, date_from: str, date_to: str) -> int:
+    """Sum input+output Claude tokens over an inclusive local-date range."""
+    docs = await claude_usage().find(
+        {"profile_id": profile_id, "date": {"$gte": date_from, "$lte": date_to}},
+        projection={"input_tokens": 1, "output_tokens": 1, "_id": 0},
+    ).to_list(500)
+    return sum(d.get("input_tokens", 0) + d.get("output_tokens", 0) for d in docs)
+
+
 @router.get("/today")
 async def activity_today(
-    request: Request,
     date: str = "",
     tz: str = "",
     device_id: str = "",
+    profile_id: str = Depends(require_profile),
 ):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        raise HTTPException(401, "Sign in required")
-
     tzinfo   = resolve(request_tz=tz)
     the_date = date if (date and re.match(r"^\d{4}-\d{2}-\d{2}$", date)) else today_str(tzinfo)
     return await build_activity_today(profile_id, tzinfo, the_date, device_id)
@@ -311,11 +333,8 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
 
 
 @router.get("/week")
-async def activity_week(request: Request, tz: str = "", week_start: str = ""):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        raise HTTPException(401, "Sign in required")
-
+async def activity_week(tz: str = "", week_start: str = "",
+                        profile_id: str = Depends(require_profile)):
     tzinfo = resolve(request_tz=tz)
 
     if week_start and re.match(r"^\d{4}-\d{2}-\d{2}$", week_start):
@@ -450,3 +469,19 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         )
 
     return result
+
+
+@router.get("/token-comparison")
+async def token_comparison(granularity: str = "week", tz: str = "",
+                           profile_id: str = Depends(require_profile)):
+    """Claude token totals for the current vs. previous week/month — powers the
+    My Activity comparison chart and the chat 'this week vs last week' answer."""
+    tzinfo = resolve(request_tz=tz)
+    gran   = "month" if granularity == "month" else "week"
+    rng    = _period_ranges(gran, now_local(tzinfo).date())
+    (tf, tt), (lf, lt) = rng["this"], rng["last"]
+    return {
+        "granularity": gran,
+        "this": {"from": tf, "to": tt, "total": await _token_total(profile_id, tf, tt)},
+        "last": {"from": lf, "to": lt, "total": await _token_total(profile_id, lf, lt)},
+    }
