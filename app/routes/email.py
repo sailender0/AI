@@ -17,7 +17,7 @@ from pymongo.errors import DuplicateKeyError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.delivery.email_delivery import send_mail
 from app.middleware.rate_limit import limiter
 from app.services.email_report import render
@@ -141,12 +141,11 @@ async def _run(kind: str, profile_id: str, to: str, date: str | None = None) -> 
 
 @router.post("/api/email/preview")
 @limiter.limit("20/minute")
-async def preview_email(request: Request, body: EmailRequest, db: AsyncSession = Depends(get_db)):
+async def preview_email(request: Request, body: EmailRequest,
+                        profile_id: str = Depends(require_profile),
+                        db: AsyncSession = Depends(get_db)):
     """Generate the report for {kind, date} and return {subject, html} WITHOUT
     sending, so the /email page can show it before the user sends."""
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
     if body.kind not in _SUPPORTED:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
     try:
@@ -164,11 +163,9 @@ async def send_email_report(
     request: Request,
     body: EmailRequest,
     background_tasks: BackgroundTasks,
+    profile_id: str = Depends(require_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
     if body.kind not in _SUPPORTED:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
 
@@ -192,10 +189,8 @@ class PreferenceBody(BaseModel):
 
 
 @router.get("/api/email/preferences")
-async def list_preferences(request: Request, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def list_preferences(profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(
         select(EmailPreference).where(EmailPreference.profile_id == profile_id)
     )).scalars().all()
@@ -207,10 +202,8 @@ async def list_preferences(request: Request, db: AsyncSession = Depends(get_db))
 
 
 @router.put("/api/email/preferences")
-async def set_preference(request: Request, body: PreferenceBody, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def set_preference(body: PreferenceBody, profile_id: str = Depends(require_profile),
+                         db: AsyncSession = Depends(get_db)):
     if body.kind not in _SUPPORTED:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
     if not (0 <= body.hour <= 23) or not (0 <= body.weekday <= 6):

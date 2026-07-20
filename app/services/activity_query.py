@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -57,6 +58,67 @@ def pct(current: int, previous: int) -> int:
     if previous == 0:
         return 100 if current > 0 else 0
     return round((current - previous) / previous * 100)
+
+
+def jira_extras(raw: dict) -> dict:
+    """Read-time enrichment from the stored payload — webhook payloads nest the
+    issue under 'issue'; backfill raw_payload IS the issue. Backfilled docs from
+    before the fields widening simply yield Nones (no status in their payload)."""
+    issue = raw.get("issue") or raw
+    f = issue.get("fields") or {}
+    return {
+        "issue_key": issue.get("key"),
+        "status":    (f.get("status") or {}).get("name"),
+        "priority":  (f.get("priority") or {}).get("name"),
+        "assignee":  (f.get("assignee") or {}).get("displayName"),
+    }
+
+
+def event_extras(src: str, e: dict, raw: dict) -> dict:
+    """Per-source display extras — sha/files for git pushes, issue fields for
+    Jira. One implementation shared by the event-serialization endpoints and
+    the PDF export."""
+    if src == "github":
+        sha = (e.get("source_event_id") or raw.get("after") or "")[:7] or None
+        head = raw.get("head_commit") or {}
+        files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
+        return {"sha": sha, "files": files}
+    if src == "gitlab":
+        commits = raw.get("commits") or []
+        if not commits:
+            return {"sha": None, "files": []}
+        last = commits[-1]
+        sha = (last.get("id") or "")[:7] or None
+        files = ((last.get("modified") or []) + (last.get("added") or []) + (last.get("removed") or []))[:6]
+        return {"sha": sha, "files": files}
+    if src == "jira":
+        return {"sha": None, "files": [], **jira_extras(raw)}
+    return {"sha": None, "files": []}
+
+
+async def week_source_stats(profile_id: str, start: datetime, end: datetime) -> dict:
+    """Per-integration counts for one UTC [start, end) window — the Analytics
+    week-stats block. Shared by /api/week-stats, the weekly PDF, and email."""
+    (gh_commits, gh_prs, gh_issues,
+     jira_created, jira_updated, jira_comments,
+     teams_msgs, gl_commits, gl_mrs, gl_issues) = await asyncio.gather(
+        count(profile_id, "github",             r"^commit",        start, end),
+        count(profile_id, "github",             r"^pr_",           start, end),
+        count(profile_id, "github",             r"^issue",         start, end),
+        count(profile_id, "jira",               "issue_created",   start, end),
+        count(profile_id, "jira",               "issue_updated",   start, end),
+        count(profile_id, "jira",               "comment",         start, end),
+        count(profile_id, "teams_subscription",  None,             start, end),
+        count(profile_id, "gitlab",             r"^commit",        start, end),
+        count(profile_id, "gitlab",             r"^merge_request", start, end),
+        count(profile_id, "gitlab",             r"^issue",         start, end),
+    )
+    return {
+        "github": {"commits": gh_commits,   "pull_requests": gh_prs,   "issues": gh_issues},
+        "jira":   {"created": jira_created, "updated": jira_updated,   "comments": jira_comments},
+        "teams":  {"messages": teams_msgs},
+        "gitlab": {"commits": gl_commits,   "merge_requests": gl_mrs,  "issues": gl_issues},
+    }
 
 
 async def count(profile_id, source=None, event_type_regex=None, start=None, end=None):

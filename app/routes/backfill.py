@@ -1,9 +1,9 @@
 """On-demand event backfill. Self-only: always runs for the caller's own
 profile, never a client-supplied one. See docs/adr-0003-backfill.md §5."""
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.backfill.runner import SUPPORTED, run_backfill
 from app.middleware.rate_limit import limiter
 
@@ -17,10 +17,8 @@ async def trigger_backfill(
     request: Request,
     background_tasks: BackgroundTasks,
     days: int = 30,
+    profile_id: str = Depends(require_profile),
 ):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
     if source not in SUPPORTED:
         return JSONResponse({"error": "unsupported_source"}, status_code=400)
 

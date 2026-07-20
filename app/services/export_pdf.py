@@ -10,6 +10,8 @@ from typing import Any
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
+from app.services.activity_query import event_extras
+
 _SOURCE_LABELS = {
     "github": "GitHub",
     "gitlab": "GitLab",
@@ -186,30 +188,6 @@ def _fmt_time(ts: Any) -> str:
     return str(ts)[:5] if ts else ""
 
 
-def _extract_sha_and_files(e: dict) -> tuple:
-    """Extract sha and changed file list from raw_payload."""
-    src = e.get("source", "")
-    raw = e.get("raw_payload") or {}
-    sha = ""
-    files: list = []
-    if src == "github":
-        raw_sha = e.get("source_event_id") or raw.get("after") or ""
-        sha = raw_sha[:7] if raw_sha else ""
-        head = raw.get("head_commit") or {}
-        files = ((head.get("modified") or []) +
-                 (head.get("added") or []) +
-                 (head.get("removed") or []))[:6]
-    elif src == "gitlab":
-        commits = raw.get("commits") or []
-        if commits:
-            raw_sha = commits[-1].get("id") or ""
-            sha = raw_sha[:7] if raw_sha else ""
-            files = ((commits[-1].get("modified") or []) +
-                     (commits[-1].get("added") or []) +
-                     (commits[-1].get("removed") or []))[:6]
-    return sha, files
-
-
 def _event_lines(events: list) -> list:
     order = ["github", "gitlab", "jira", "teams"]
     grouped: dict = {}
@@ -234,7 +212,8 @@ def _write_events(pdf: _ActivityPDF, events: list):
             type_label = _EVENT_TYPE_LABELS.get(event_type, event_type.replace("_", " ").title())
             title      = _safe(e.get("title") or "")
             workspace  = _safe(e.get("workspace") or "")
-            sha, files = _extract_sha_and_files(e)
+            extras     = event_extras(e.get("source", ""), e, e.get("raw_payload") or {})
+            sha, files = extras["sha"], extras["files"]
             sha_str    = f"  [{sha}]" if sha else ""
 
             pdf.set_font("Helvetica", "", 9)

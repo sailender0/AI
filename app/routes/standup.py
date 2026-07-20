@@ -3,16 +3,16 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import llm
 from app.ai.summarizer import _is_scheduled_time
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.services.activity_query import compute_focus_blocks, get_profile_tz
-from app.services.timezone import day_bounds, resolve
+from app.services.timezone import day_bounds, now_local, resolve
 from app.storage.models import Profile
 from app.storage.mongodb import (
     activity_events, ai_tool_events, claude_usage,
@@ -31,8 +31,7 @@ def _load_instructions() -> str:
 
 def _yesterday_date(tz_name: str) -> str:
     """Return the local date string for yesterday (Friday if today is Monday)."""
-    tz    = ZoneInfo(tz_name or "UTC")
-    today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = now_local(resolve(tz_name))
     days_back = 3 if today.weekday() == 0 else 1
     return (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
@@ -159,10 +158,8 @@ async def _generate(profile_id: str, db: AsyncSession, target_date: str | None =
 
 
 @router.get("/api/standup/today")
-async def get_standup(request: Request, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_standup(profile_id: str = Depends(require_profile),
+                      db: AsyncSession = Depends(get_db)):
     try:
         return JSONResponse(await _generate(profile_id, db))
     except Exception as exc:
@@ -170,10 +167,8 @@ async def get_standup(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/standup/regenerate")
-async def regenerate_standup(request: Request, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def regenerate_standup(profile_id: str = Depends(require_profile),
+                             db: AsyncSession = Depends(get_db)):
     tz_name  = await get_profile_tz(profile_id, db)
     date_str = _yesterday_date(tz_name)
     await standups().delete_one({"profile_id": profile_id, "date": date_str})
@@ -184,10 +179,8 @@ async def regenerate_standup(request: Request, db: AsyncSession = Depends(get_db
 
 
 @router.get("/api/standup/date/{date_str}")
-async def get_standup_by_date(date_str: str, request: Request, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_standup_by_date(date_str: str, profile_id: str = Depends(require_profile),
+                              db: AsyncSession = Depends(get_db)):
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
@@ -199,10 +192,7 @@ async def get_standup_by_date(date_str: str, request: Request, db: AsyncSession 
 
 
 @router.get("/api/standup/history")
-async def get_standup_history(request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_standup_history(profile_id: str = Depends(require_profile)):
     docs = await standups().find(
         {"profile_id": profile_id},
         projection={"date": 1, "text": 1, "generated_at": 1, "_id": 0},

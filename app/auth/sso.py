@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import msal
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
@@ -229,3 +229,13 @@ async def get_profile_from_session(request: Request) -> str | None:
     if val is None:
         return None
     return val.decode() if isinstance(val, bytes) else val
+
+
+async def require_profile(request: Request) -> str:
+    """Dependency form of get_profile_from_session: 401s instead of returning None.
+    API routes take `profile_id: str = Depends(require_profile)`; only routes with
+    a non-401 unauthenticated path (e.g. /api/me, HTML pages) call the raw getter."""
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        raise HTTPException(401, "not_authenticated")
+    return profile_id

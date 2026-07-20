@@ -1,17 +1,16 @@
 import asyncio
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.oauth import get_valid_token, mark_integration_error
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.services.activity_query import (
     count, daily_counts, get_profile_tz, pct, top_items, week_bounds, workspace_breakdown,
 )
+from app.services.timezone import day_bounds, resolve, today_str
 from app.storage.postgres import get_db
 
 router = APIRouter()
@@ -93,271 +92,121 @@ async def fetch_assigned(profile_id: str) -> dict | None:
 
 
 @router.get("/api/jira/assigned")
-async def get_jira_assigned(request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_jira_assigned(profile_id: str = Depends(require_profile)):
     data = await fetch_assigned(profile_id)
     if data is None:
         return JSONResponse({"error": "jira_unavailable"}, status_code=502)
     return JSONResponse(data)
 
 
+# ── Per-source stats ──────────────────────────────────────────────────────────
+# The four /api/<source>/stats endpoints are one query shape with different
+# labels/regexes; this table + _source_stats replaces the hand-rolled copies.
+# "metrics": KPI tiles (None = source has no tile block — Jira's KPIs come live
+# from /api/jira/assigned). "series": chart datasets + per-repo breakdowns.
+
+_STATS = {
+    "github": {
+        "metrics": [("Pull Requests", r"^pr_"), ("Commits", r"^commit"),
+                    ("Reviews", r"^pr_reviewed"), ("Issues", r"^issue")],
+        "series":  [("commits", r"^commit"), ("pull_requests", r"^pr_"),
+                    ("issues", r"^issue"), ("reviews", r"^pr_reviewed")],
+        "top_label": "Top Repositories", "has_top": True,
+    },
+    "gitlab": {
+        "metrics": [("Commits", r"^commit"), ("Merge Requests", r"^merge_request"),
+                    ("Issues", r"^issue"), ("Comments", r"^note"),
+                    ("Pipelines", r"^pipeline"), ("Tags", r"^tag_push")],
+        "series":  [("commits", r"^commit"), ("merge_requests", r"^merge_request"),
+                    ("issues", r"^issue"), ("notes", r"^note"), ("pipelines", r"^pipeline")],
+        "top_label": "Top Projects", "has_top": True,
+    },
+    "jira": {
+        "metrics": None,
+        "series":  [("created", "issue_created"), ("updated", "issue_updated"),
+                    ("comments", "comment")],
+        "top_label": "Top Projects", "has_top": True,
+    },
+    "teams_subscription": {
+        "metrics": [("Messages", None)],
+        "series":  [("messages", None)],
+        "top_label": "Top Channels", "has_top": False,
+    },
+}
+
+
+async def _metric_tiles(profile_id: str, source: str, specs: list, period: str,
+                        tz_name: str) -> list[dict]:
+    if period == "today":
+        tz = resolve(tz_name)
+        tw_s, tw_e = day_bounds(today_str(tz), tz)
+        vals = await asyncio.gather(
+            *(count(profile_id, source, rx, tw_s, tw_e) for _, rx in specs))
+        return [{"label": lbl, "value": v} for (lbl, _), v in zip(specs, vals)]
+
+    tw_s, tw_e = week_bounds(0, tz_name)
+    lw_s, lw_e = week_bounds(1, tz_name)
+    vals = await asyncio.gather(
+        *(count(profile_id, source, rx, tw_s, tw_e) for _, rx in specs),
+        *(count(profile_id, source, rx, lw_s, lw_e) for _, rx in specs),
+    )
+    cur, prev = vals[:len(specs)], vals[len(specs):]
+    return [{"label": lbl, "value": c, "change": pct(c, p)}
+            for (lbl, _), c, p in zip(specs, cur, prev)]
+
+
+async def _source_stats(profile_id: str, db: AsyncSession, source: str,
+                        period: str, start_date: str | None) -> JSONResponse:
+    tz_name = await get_profile_tz(profile_id, db)
+    cfg     = _STATS[source]
+    series  = cfg["series"]
+
+    daily, repos, top = await asyncio.gather(
+        asyncio.gather(*(daily_counts(profile_id, source, rx, days=7,
+                                      tz_name=tz_name, start_date=start_date)
+                         for _, rx in series)),
+        asyncio.gather(*(workspace_breakdown(profile_id, source, rx,
+                                             tz_name=tz_name, start_date=start_date)
+                         for _, rx in series)),
+        top_items(profile_id, source) if cfg["has_top"] else asyncio.sleep(0, result=[]),
+    )
+    out = {
+        "chart": {
+            "labels":   daily[0][0],
+            "datasets": {key: counts for (key, _), (_, counts) in zip(series, daily)},
+            "repos":    {key: ws for (key, _), ws in zip(series, repos)},
+        },
+        "top_items": top,
+        "top_label": cfg["top_label"],
+    }
+    if cfg["metrics"] is not None:
+        out["metrics"] = await _metric_tiles(profile_id, source, cfg["metrics"], period, tz_name)
+    return JSONResponse(out)
+
+
 @router.get("/api/github/stats")
-async def get_github_stats(request: Request, period: str = "week", start_date: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    tz_name = await get_profile_tz(profile_id, db)
-
-    if period == "today":
-        now_local = datetime.now(ZoneInfo(tz_name))
-        tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        tw_e = datetime.now(timezone.utc)
-        commits, prs, reviews, issues = await asyncio.gather(
-            count(profile_id, "github", "^commit",      tw_s, tw_e),
-            count(profile_id, "github", "^pr_",         tw_s, tw_e),
-            count(profile_id, "github", "^pr_reviewed", tw_s, tw_e),
-            count(profile_id, "github", "^issue",       tw_s, tw_e),
-        )
-        metrics = [
-            {"label": "Pull Requests", "value": prs},
-            {"label": "Commits",       "value": commits},
-            {"label": "Reviews",       "value": reviews},
-            {"label": "Issues",        "value": issues},
-        ]
-    else:
-        tw_s, tw_e = week_bounds(0, tz_name)
-        lw_s, lw_e = week_bounds(1, tz_name)
-        (commits, prs, reviews, issues,
-         commits_p, prs_p, reviews_p, issues_p) = await asyncio.gather(
-            count(profile_id, "github", "^commit",      tw_s, tw_e),
-            count(profile_id, "github", "^pr_",         tw_s, tw_e),
-            count(profile_id, "github", "^pr_reviewed", tw_s, tw_e),
-            count(profile_id, "github", "^issue",       tw_s, tw_e),
-            count(profile_id, "github", "^commit",      lw_s, lw_e),
-            count(profile_id, "github", "^pr_",         lw_s, lw_e),
-            count(profile_id, "github", "^pr_reviewed", lw_s, lw_e),
-            count(profile_id, "github", "^issue",       lw_s, lw_e),
-        )
-        metrics = [
-            {"label": "Pull Requests", "value": prs,     "change": pct(prs,     prs_p)},
-            {"label": "Commits",       "value": commits, "change": pct(commits, commits_p)},
-            {"label": "Reviews",       "value": reviews, "change": pct(reviews, reviews_p)},
-            {"label": "Issues",        "value": issues,  "change": pct(issues,  issues_p)},
-        ]
-
-    (
-        (labels, commits_daily),
-        (_, pr_daily),
-        (_, issue_daily),
-        (_, review_daily),
-        top_repos,
-        repos_commits,
-        repos_prs,
-        repos_issues,
-        repos_reviews,
-    ) = await asyncio.gather(
-        daily_counts(profile_id, "github", r"^commit",      days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "github", r"^pr_",         days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "github", r"^issue",       days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "github", r"^pr_reviewed", days=7, tz_name=tz_name, start_date=start_date),
-        top_items(profile_id, "github"),
-        workspace_breakdown(profile_id, "github", r"^commit",      tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "github", r"^pr_",         tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "github", r"^issue",       tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "github", r"^pr_reviewed", tz_name=tz_name, start_date=start_date),
-    )
-    return JSONResponse({
-        "metrics": metrics,
-        "chart": {
-            "labels": labels,
-            "datasets": {
-                "commits": commits_daily, "pull_requests": pr_daily,
-                "issues":  issue_daily,   "reviews":       review_daily,
-            },
-            "repos": {
-                "commits": repos_commits, "pull_requests": repos_prs,
-                "issues":  repos_issues,  "reviews":       repos_reviews,
-            },
-        },
-        "top_items": top_repos,
-        "top_label": "Top Repositories",
-    })
-
-
-@router.get("/api/jira/stats")
-async def get_jira_stats(request: Request, start_date: str = None, db: AsyncSession = Depends(get_db)):
-    """Trend chart + top projects. The old KPI metrics block was removed with
-    the page redesign — work KPIs now come live from /api/jira/assigned."""
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    tz_name = await get_profile_tz(profile_id, db)
-
-    (
-        (labels, created_daily),
-        (_, updated_daily),
-        (_, comment_daily),
-        top_projects,
-        repos_created,
-        repos_updated,
-        repos_comments,
-    ) = await asyncio.gather(
-        daily_counts(profile_id, "jira", "issue_created", days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "jira", "issue_updated", days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "jira", "comment",       days=7, tz_name=tz_name, start_date=start_date),
-        top_items(profile_id, "jira"),
-        workspace_breakdown(profile_id, "jira", "issue_created", tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "jira", "issue_updated", tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "jira", "comment",       tz_name=tz_name, start_date=start_date),
-    )
-    return JSONResponse({
-        "chart": {
-            "labels": labels,
-            "datasets": {
-                "created": created_daily, "updated": updated_daily, "comments": comment_daily,
-            },
-            "repos": {
-                "created": repos_created, "updated": repos_updated, "comments": repos_comments,
-            },
-        },
-        "top_items": top_projects,
-        "top_label": "Top Projects",
-    })
-
-
-@router.get("/api/teams/stats")
-async def get_teams_stats(request: Request, period: str = "week", start_date: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    tz_name = await get_profile_tz(profile_id, db)
-
-    if period == "today":
-        now_local = datetime.now(ZoneInfo(tz_name))
-        tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        tw_e = datetime.now(timezone.utc)
-        msgs = await count(profile_id, "teams_subscription", None, tw_s, tw_e)
-        metrics = [{"label": "Messages", "value": msgs}]
-    else:
-        tw_s, tw_e = week_bounds(0, tz_name)
-        lw_s, lw_e = week_bounds(1, tz_name)
-        msgs_now  = await count(profile_id, "teams_subscription", None, tw_s, tw_e)
-        msgs_prev = await count(profile_id, "teams_subscription", None, lw_s, lw_e)
-        metrics = [{"label": "Messages", "value": msgs_now, "change": pct(msgs_now, msgs_prev)}]
-
-    labels, messages_daily = await daily_counts(profile_id, "teams_subscription", days=7, tz_name=tz_name, start_date=start_date)
-    return JSONResponse({
-        "metrics": metrics,
-        "chart": {
-            "labels": labels,
-            "datasets": {"messages": messages_daily},
-            "repos": {"messages": await workspace_breakdown(profile_id, "teams_subscription", tz_name=tz_name, start_date=start_date)},
-        },
-        "top_items": [],
-        "top_label": "Top Channels",
-    })
+async def get_github_stats(period: str = "week", start_date: str = None,
+                           profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
+    return await _source_stats(profile_id, db, "github", period, start_date)
 
 
 @router.get("/api/gitlab/stats")
-async def get_gitlab_stats(request: Request, period: str = "week", start_date: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def get_gitlab_stats(period: str = "week", start_date: str = None,
+                           profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
+    return await _source_stats(profile_id, db, "gitlab", period, start_date)
 
-    tz_name = await get_profile_tz(profile_id, db)
 
-    if period == "today":
-        now_local = datetime.now(ZoneInfo(tz_name))
-        tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        tw_e = datetime.now(timezone.utc)
-        commits_n, mrs_n, issues_n, notes_n, pipelines_n, tags_n = await asyncio.gather(
-            count(profile_id, "gitlab", "^commit",        tw_s, tw_e),
-            count(profile_id, "gitlab", "^merge_request", tw_s, tw_e),
-            count(profile_id, "gitlab", "^issue",         tw_s, tw_e),
-            count(profile_id, "gitlab", "^note",          tw_s, tw_e),
-            count(profile_id, "gitlab", "^pipeline",      tw_s, tw_e),
-            count(profile_id, "gitlab", "^tag_push",      tw_s, tw_e),
-        )
-        metrics = [
-            {"label": "Commits",        "value": commits_n},
-            {"label": "Merge Requests", "value": mrs_n},
-            {"label": "Issues",         "value": issues_n},
-            {"label": "Comments",       "value": notes_n},
-            {"label": "Pipelines",      "value": pipelines_n},
-            {"label": "Tags",           "value": tags_n},
-        ]
-    else:
-        tw_s, tw_e = week_bounds(0, tz_name)
-        lw_s, lw_e = week_bounds(1, tz_name)
-        (commits_n, mrs_n, issues_n, notes_n, pipelines_n, tags_n,
-         commits_p, mrs_p, issues_p, notes_p, pipelines_p, tags_p) = await asyncio.gather(
-            count(profile_id, "gitlab", "^commit",        tw_s, tw_e),
-            count(profile_id, "gitlab", "^merge_request", tw_s, tw_e),
-            count(profile_id, "gitlab", "^issue",         tw_s, tw_e),
-            count(profile_id, "gitlab", "^note",          tw_s, tw_e),
-            count(profile_id, "gitlab", "^pipeline",      tw_s, tw_e),
-            count(profile_id, "gitlab", "^tag_push",      tw_s, tw_e),
-            count(profile_id, "gitlab", "^commit",        lw_s, lw_e),
-            count(profile_id, "gitlab", "^merge_request", lw_s, lw_e),
-            count(profile_id, "gitlab", "^issue",         lw_s, lw_e),
-            count(profile_id, "gitlab", "^note",          lw_s, lw_e),
-            count(profile_id, "gitlab", "^pipeline",      lw_s, lw_e),
-            count(profile_id, "gitlab", "^tag_push",      lw_s, lw_e),
-        )
-        metrics = [
-            {"label": "Commits",        "value": commits_n,   "change": pct(commits_n,   commits_p)},
-            {"label": "Merge Requests", "value": mrs_n,       "change": pct(mrs_n,       mrs_p)},
-            {"label": "Issues",         "value": issues_n,    "change": pct(issues_n,    issues_p)},
-            {"label": "Comments",       "value": notes_n,     "change": pct(notes_n,     notes_p)},
-            {"label": "Pipelines",      "value": pipelines_n, "change": pct(pipelines_n, pipelines_p)},
-            {"label": "Tags",           "value": tags_n,      "change": pct(tags_n,      tags_p)},
-        ]
+@router.get("/api/jira/stats")
+async def get_jira_stats(start_date: str = None,
+                         profile_id: str = Depends(require_profile),
+                         db: AsyncSession = Depends(get_db)):
+    return await _source_stats(profile_id, db, "jira", "week", start_date)
 
-    (
-        (labels, commits_daily),
-        (_, mr_daily),
-        (_, issue_daily),
-        (_, notes_daily),
-        (_, pipeline_daily),
-        top_repos,
-        repos_commits,
-        repos_mrs,
-        repos_issues,
-        repos_notes,
-        repos_pipelines,
-    ) = await asyncio.gather(
-        daily_counts(profile_id, "gitlab", r"^commit",        days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "gitlab", r"^merge_request", days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "gitlab", r"^issue",         days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "gitlab", r"^note",          days=7, tz_name=tz_name, start_date=start_date),
-        daily_counts(profile_id, "gitlab", r"^pipeline",      days=7, tz_name=tz_name, start_date=start_date),
-        top_items(profile_id, "gitlab"),
-        workspace_breakdown(profile_id, "gitlab", r"^commit",        tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "gitlab", r"^merge_request", tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "gitlab", r"^issue",         tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "gitlab", r"^note",          tz_name=tz_name, start_date=start_date),
-        workspace_breakdown(profile_id, "gitlab", r"^pipeline",      tz_name=tz_name, start_date=start_date),
-    )
-    return JSONResponse({
-        "metrics": metrics,
-        "chart": {
-            "labels": labels,
-            "datasets": {
-                "commits": commits_daily, "merge_requests": mr_daily,
-                "issues":  issue_daily,   "notes":          notes_daily,
-                "pipelines": pipeline_daily,
-            },
-            "repos": {
-                "commits": repos_commits, "merge_requests": repos_mrs,
-                "issues":  repos_issues,  "notes":          repos_notes,
-                "pipelines": repos_pipelines,
-            },
-        },
-        "top_items": top_repos,
-        "top_label": "Top Projects",
-    })
+
+@router.get("/api/teams/stats")
+async def get_teams_stats(period: str = "week", start_date: str = None,
+                          profile_id: str = Depends(require_profile),
+                          db: AsyncSession = Depends(get_db)):
+    return await _source_stats(profile_id, db, "teams_subscription", period, start_date)

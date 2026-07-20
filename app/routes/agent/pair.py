@@ -4,11 +4,11 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.middleware.rate_limit import limiter
 from app.storage.models import Device, DeviceToken
 from app.storage.postgres import AsyncSessionLocal
@@ -25,12 +25,9 @@ class RegisterBody(BaseModel):
 
 @router.post("/register")
 @limiter.limit("5/minute")
-async def register_device(body: RegisterBody, request: Request):
+async def register_device(body: RegisterBody, request: Request,
+                          profile_id: str = Depends(require_profile)):
     """Called by desktop app after SSO callback — creates device + token."""
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        raise HTTPException(401, "Sign in required")
-
     raw_token  = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
@@ -58,10 +55,7 @@ async def register_device(body: RegisterBody, request: Request):
 
 
 @router.get("/devices")
-async def list_devices(request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        raise HTTPException(401, "Sign in required")
+async def list_devices(profile_id: str = Depends(require_profile)):
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(
             select(Device).where(Device.profile_id == profile_id)
@@ -78,10 +72,7 @@ async def list_devices(request: Request):
 
 
 @router.delete("/devices/{device_id}")
-async def revoke_device(device_id: str, request: Request):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        raise HTTPException(401, "Sign in required")
+async def revoke_device(device_id: str, profile_id: str = Depends(require_profile)):
     try:
         did = uuid.UUID(device_id)
     except ValueError:

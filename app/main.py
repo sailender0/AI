@@ -16,7 +16,7 @@ from app.storage.mongodb import init_indexes
 from app.storage.postgres import get_db
 from app.storage.redis_client import close_redis
 
-from app.auth.sso import router as sso_router, get_profile_from_session
+from app.auth.sso import router as sso_router, require_profile
 from app.auth.oauth import router as oauth_router
 from app.auth.github_app import router as github_app_router
 from app.routes.pages import router as pages_router
@@ -124,14 +124,11 @@ async def health():
 
 
 @app.post("/setup/github-app")
-async def setup_github_app(request: Request, db: AsyncSession = Depends(get_db)):
+async def setup_github_app(profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
     """One-time: maps your GitHub App installation ID to your logged-in profile."""
     from app.config import settings
     from app.storage.models import LinkedIdentity
-
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
 
     if not settings.GITHUB_APP_INSTALLATION_ID:
         return JSONResponse({"error": "GITHUB_APP_INSTALLATION_ID not set in .env"}, status_code=400)

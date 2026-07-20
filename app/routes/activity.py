@@ -1,14 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.services.activity_query import (
-    count, daily_counts, get_profile_tz, pct, week_bounds,
+    count, daily_counts, event_extras, get_profile_tz, week_bounds, week_source_stats,
 )
+from app.services.timezone import day_bounds, resolve, today_str
 from app.storage.models import Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import get_db
@@ -20,54 +21,15 @@ router = APIRouter()
 _VALID_SOURCES = {"github", "gitlab", "jira", "teams_subscription"}
 
 
-def _jira_extras(raw: dict) -> dict:
-    """Read-time enrichment from the stored payload — webhook payloads nest the
-    issue under 'issue'; backfill raw_payload IS the issue. Backfilled docs from
-    before the fields widening simply yield Nones (no status in their payload)."""
-    issue = raw.get("issue") or raw
-    f = issue.get("fields") or {}
-    return {
-        "issue_key": issue.get("key"),
-        "status":    (f.get("status") or {}).get("name"),
-        "priority":  (f.get("priority") or {}).get("name"),
-        "assignee":  (f.get("assignee") or {}).get("displayName"),
-    }
-
-
-def _event_extras(src: str, e: dict, raw: dict) -> dict:
-    """Per-source display extras — sha/files for git pushes, issue fields for
-    Jira. One implementation shared by all three event-serialization endpoints."""
-    if src == "github":
-        sha = (e.get("source_event_id") or raw.get("after") or "")[:7] or None
-        head = raw.get("head_commit") or {}
-        files = ((head.get("modified") or []) + (head.get("added") or []) + (head.get("removed") or []))[:6]
-        return {"sha": sha, "files": files}
-    if src == "gitlab":
-        commits = raw.get("commits") or []
-        if not commits:
-            return {"sha": None, "files": []}
-        last = commits[-1]
-        sha = (last.get("id") or "")[:7] or None
-        files = ((last.get("modified") or []) + (last.get("added") or []) + (last.get("removed") or []))[:6]
-        return {"sha": sha, "files": files}
-    if src == "jira":
-        return {"sha": None, "files": [], **_jira_extras(raw)}
-    return {"sha": None, "files": []}
-
-
 @router.get("/api/events/recent")
 async def get_recent_events(
-    request: Request,
     limit: int = Query(default=20, ge=1, le=200),
     source: str = None,
     start_date: str = None,
     end_date: str = None,
+    profile_id: str = Depends(require_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
     if source and source not in _VALID_SOURCES:
         return JSONResponse({"error": "invalid_source"}, status_code=400)
 
@@ -98,23 +60,19 @@ async def get_recent_events(
             "title": e.get("title", ""),
             "workspace": e.get("workspace", ""),
             "occurred_at": (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat() if isinstance(ts, datetime) else str(ts),
-            **_event_extras(src, e, raw),
+            **event_extras(src, e, raw),
         })
     return JSONResponse({"events": result})
 
 
 @router.get("/api/stats")
-async def get_stats(request: Request, period: str = "week", db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def get_stats(period: str = "week", profile_id: str = Depends(require_profile),
+                    db: AsyncSession = Depends(get_db)):
     tz_name = await get_profile_tz(profile_id, db)
 
     if period == "today":
-        now_local = datetime.now(ZoneInfo(tz_name))
-        tw_s = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        tw_e = datetime.now(timezone.utc)
+        tz = resolve(tz_name)
+        tw_s, tw_e = day_bounds(today_str(tz), tz)
     else:
         tw_s, tw_e = week_bounds(0, tz_name)
 
@@ -143,53 +101,29 @@ async def get_stats(request: Request, period: str = "week", db: AsyncSession = D
 
 
 @router.get("/api/week-stats")
-async def get_week_stats(request: Request, start: str = None, end: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    tz_name = await get_profile_tz(profile_id, db)
-    tz = ZoneInfo(tz_name)
+async def get_week_stats(start: str = None, end: str = None,
+                         profile_id: str = Depends(require_profile),
+                         db: AsyncSession = Depends(get_db)):
+    tz = resolve(await get_profile_tz(profile_id, db))
     try:
-        start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
-        end_dt   = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=tz).astimezone(timezone.utc)
+        start_dt, _ = day_bounds(start, tz)
+        _, end_dt   = day_bounds(end, tz)
     except (ValueError, TypeError):
         return JSONResponse({"error": "invalid date"}, status_code=400)
 
-    gh_commits    = await count(profile_id, "github",             r"^commit",       start_dt, end_dt)
-    gh_prs        = await count(profile_id, "github",             r"^pr_",          start_dt, end_dt)
-    gh_issues     = await count(profile_id, "github",             r"^issue",        start_dt, end_dt)
-    jira_created  = await count(profile_id, "jira",               "issue_created",  start_dt, end_dt)
-    jira_updated  = await count(profile_id, "jira",               "issue_updated",  start_dt, end_dt)
-    jira_comments = await count(profile_id, "jira",               "comment",        start_dt, end_dt)
-    teams_msgs    = await count(profile_id, "teams_subscription",  None,             start_dt, end_dt)
-    gl_commits    = await count(profile_id, "gitlab",             r"^commit",       start_dt, end_dt)
-    gl_mrs        = await count(profile_id, "gitlab",             r"^merge_request", start_dt, end_dt)
-    gl_issues     = await count(profile_id, "gitlab",             r"^issue",        start_dt, end_dt)
-
-    return JSONResponse({
-        "github": {"commits": gh_commits, "pull_requests": gh_prs,     "issues": gh_issues},
-        "jira":   {"created": jira_created, "updated": jira_updated,   "comments": jira_comments},
-        "teams":  {"messages": teams_msgs},
-        "gitlab": {"commits": gl_commits,   "merge_requests": gl_mrs,  "issues": gl_issues},
-    })
+    return JSONResponse(await week_source_stats(profile_id, start_dt, end_dt))
 
 
 @router.get("/api/day-data")
-async def get_day_data(request: Request, date: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
-    tz_name = await get_profile_tz(profile_id, db)
-    tz = ZoneInfo(tz_name)
+async def get_day_data(date: str = None, profile_id: str = Depends(require_profile),
+                       db: AsyncSession = Depends(get_db)):
+    tz = resolve(await get_profile_tz(profile_id, db))
     if not date:
-        date = datetime.now(tz).strftime("%Y-%m-%d")
+        date = today_str(tz)
     try:
-        day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        day_start, day_end = day_bounds(date, tz)
     except ValueError:
         return JSONResponse({"error": "invalid date"}, status_code=400)
-    day_end = day_start + timedelta(days=1)
 
     raw_events = await activity_events().find(
         {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_end}},
@@ -212,7 +146,7 @@ async def get_day_data(request: Request, date: str = None, db: AsyncSession = De
                 (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat()
                 if isinstance(ts, datetime) else str(ts)
             ),
-            **_event_extras(src, e, raw),
+            **event_extras(src, e, raw),
         })
 
     summary_row = (await db.execute(
@@ -234,11 +168,9 @@ async def get_day_data(request: Request, date: str = None, db: AsyncSession = De
 
 
 @router.get("/api/week-breakdown")
-async def get_week_breakdown(request: Request, start: str = None, end: str = None, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def get_week_breakdown(start: str = None, end: str = None,
+                             profile_id: str = Depends(require_profile),
+                             db: AsyncSession = Depends(get_db)):
     tz_name = await get_profile_tz(profile_id, db)
     tz = ZoneInfo(tz_name)
 
@@ -292,7 +224,7 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
                     "title":       e.get("title", "") or e.get("event_type", ""),
                     "workspace":   e.get("workspace", ""),
                     "occurred_at": e["occurred_at"].isoformat(),
-                    **_event_extras(src, e, raw),
+                    **event_extras(src, e, raw),
                 })
             connectors[src] = {"count": len(src_events), "items": items}
         result_days.append({"date": day.strftime("%Y-%m-%d"), "connectors": connectors})
@@ -302,16 +234,12 @@ async def get_week_breakdown(request: Request, start: str = None, end: str = Non
 
 @router.get("/api/analytics/trend")
 async def get_analytics_trend(
-    request: Request,
     days: int = 28,
     group_by: str = "day",
     start_date: str = None,
+    profile_id: str = Depends(require_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
     tz_name = await get_profile_tz(profile_id, db)
     tz = ZoneInfo(tz_name)
     now = datetime.now(tz)

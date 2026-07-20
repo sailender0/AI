@@ -69,7 +69,11 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
     # ── Window ────────────────────────────────────────────────────────────────
 
     # Start hidden; show after auth check in on_start()
-    initial_url = f"{backend}/my-activity?_dt=1" if is_authenticated() else f"{backend}/"
+    # _r cache-busts so WebView2 can never serve a stale cached copy of the page
+    # (_dt=1 is the desktop-mode flag — value must stay "1")
+    import time
+    initial_url = (f"{backend}/my-activity?_dt=1&_r={int(time.time())}"
+                   if is_authenticated() else f"{backend}/")
     window = webview.create_window(
         title="Developer Activity",
         url=initial_url,

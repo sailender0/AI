@@ -33,4 +33,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             _request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        # Server-rendered pages carry auth-coupled JS — never let a client cache
+        # them. A cached page outlives its session and template: the agent webview
+        # resurrected a months-old page that polled dead endpoints 401/403 forever.
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-store"
         return response

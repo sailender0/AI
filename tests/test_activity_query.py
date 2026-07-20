@@ -60,3 +60,22 @@ def test_pct():
     assert aq.pct(0, 0) == 0         # nothing either period
     assert aq.pct(0, 10) == -100     # dropped to nothing
     assert aq.pct(3, 7) == -57       # rounds (-57.14 → -57)
+
+
+# ── weekly_totals (AI-chat chart + MCP get_weekly_totals) ───────────────────────
+
+async def test_weekly_totals_shape_and_week_alignment(monkeypatch):
+    _freeze(monkeypatch, datetime(2026, 7, 15, 12, 0, tzinfo=UTC))  # Wed 2026-07-15
+
+    async def _fake_count(profile_id, source=None, event_type_regex=None, start=None, end=None):
+        assert (end - start) == timedelta(weeks=1)
+        return 2
+
+    monkeypatch.setattr(aq, "count", _fake_count)
+    weeks = await aq.weekly_totals("p1", "UTC", weeks=4)
+    assert [w["week_start"] for w in weeks] == [
+        "2026-07-13", "2026-07-06", "2026-06-29", "2026-06-22"]  # Mondays, newest first
+    assert all(w["github_commits"] == 2 and w["jira_issues"] == 2 for w in weeks)
+    # clamp: silly week counts stay within 1..12
+    assert len(await aq.weekly_totals("p1", "UTC", weeks=0)) == 1
+    assert len(await aq.weekly_totals("p1", "UTC", weeks=99)) == 12

@@ -2,15 +2,15 @@ import csv
 import io
 import logging
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.sso import get_profile_from_session
-from app.services.activity_query import get_profile_tz
+from app.auth.sso import require_profile
+from app.services.activity_query import get_profile_tz, week_source_stats
+from app.services.timezone import day_bounds, resolve, today_str
 from app.storage.models import Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import get_db
@@ -25,63 +25,53 @@ def _fmt_day(dt) -> str:
     return "Unknown"
 
 
+async def _week_bounds_utc(profile_id: str, week_start: str, db: AsyncSession):
+    """UTC [start, end) for the local week beginning week_start (YYYY-MM-DD)."""
+    tz = resolve(await get_profile_tz(profile_id, db))
+    ws, _ = day_bounds(week_start, tz)
+    last_day = datetime.strptime(week_start, "%Y-%m-%d") + timedelta(days=6)
+    _, we = day_bounds(last_day.strftime("%Y-%m-%d"), tz)
+    return ws, we
+
+
 async def _fetch_day_events(profile_id: str, date_str: str, db: AsyncSession):
-    tz = ZoneInfo(await get_profile_tz(profile_id, db))
+    tz = resolve(await get_profile_tz(profile_id, db))
     try:
-        day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        day_start, day_end = day_bounds(date_str, tz)
     except ValueError:
         return [], date_str
     events = await activity_events().find(
-        {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_start + timedelta(days=1)}}
+        {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_end}}
     ).sort("occurred_at", 1).to_list(length=500)
     d = datetime.strptime(date_str, "%Y-%m-%d")
     return events, f"{d.strftime('%A, %B')} {d.day} {d.strftime('%Y')}"
 
 
 async def _fetch_week_events(profile_id: str, week_start: str, db: AsyncSession):
-    tz = ZoneInfo(await get_profile_tz(profile_id, db))
     try:
-        ws = datetime.strptime(week_start, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        ws, we = await _week_bounds_utc(profile_id, week_start, db)
     except ValueError:
         return [], week_start
-    we = ws + timedelta(days=7)
     events = await activity_events().find(
         {"profile_id": profile_id, "occurred_at": {"$gte": ws, "$lt": we}}
     ).sort("occurred_at", 1).to_list(length=1000)
-    ws_end = ws + timedelta(days=6)
-    return events, f"{ws.strftime('%b')} {ws.day} - {ws_end.strftime('%b')} {ws_end.day}, {ws_end.strftime('%Y')}"
+    d = datetime.strptime(week_start, "%Y-%m-%d")
+    d_end = d + timedelta(days=6)
+    return events, f"{d.strftime('%b')} {d.day} - {d_end.strftime('%b')} {d_end.day}, {d_end.year}"
 
 
 async def _fetch_week_stats(profile_id: str, week_start: str, db: AsyncSession) -> dict:
-    from app.services.activity_query import count
-    tz = ZoneInfo(await get_profile_tz(profile_id, db))
     try:
-        ws = datetime.strptime(week_start, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        ws, we = await _week_bounds_utc(profile_id, week_start, db)
     except ValueError:
         return {}
-    we = ws + timedelta(days=7)
-    gh_commits = await count(profile_id, "github",             r"^commit",      ws, we)
-    gh_prs     = await count(profile_id, "github",             r"^pr_",         ws, we)
-    gh_issues  = await count(profile_id, "github",             r"^issue",       ws, we)
-    jira_c     = await count(profile_id, "jira",               "issue_created", ws, we)
-    jira_u     = await count(profile_id, "jira",               "issue_updated", ws, we)
-    jira_cmt   = await count(profile_id, "jira",               "comment",       ws, we)
-    teams_msg  = await count(profile_id, "teams_subscription",  None,           ws, we)
-    gl_commits = await count(profile_id, "gitlab",             r"^commit",      ws, we)
-    gl_mrs     = await count(profile_id, "gitlab",             r"^merge_request", ws, we)
-    gl_issues  = await count(profile_id, "gitlab",             r"^issue",       ws, we)
-    return {
-        "github": {"commits": gh_commits, "pull_requests": gh_prs,  "issues": gh_issues},
-        "jira":   {"created": jira_c,     "updated": jira_u,        "comments": jira_cmt},
-        "teams":  {"messages": teams_msg},
-        "gitlab": {"commits": gl_commits, "merge_requests": gl_mrs, "issues": gl_issues},
-    }
+    return await week_source_stats(profile_id, ws, we)
 
 
 async def _get_summary(profile_id: str, period_type: str, date_str: str, db: AsyncSession) -> str:
-    tz = ZoneInfo(await get_profile_tz(profile_id, db))
+    tz = resolve(await get_profile_tz(profile_id, db))
     try:
-        ref = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=tz).astimezone(timezone.utc)
+        ref, _ = day_bounds(date_str, tz)
     except ValueError:
         return ""
     window = timedelta(days=7 if period_type == "weekly" else 1)
@@ -95,13 +85,11 @@ async def _get_summary(profile_id: str, period_type: str, date_str: str, db: Asy
 
 
 @router.get("/api/export/daily-pdf")
-async def export_daily_pdf(request: Request, date: str = "", db: AsyncSession = Depends(get_db)):
+async def export_daily_pdf(date: str = "", profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
     try:
-        profile_id = await get_profile_from_session(request)
-        if not profile_id:
-            return JSONResponse({"error": "not_authenticated"}, status_code=401)
         if not date:
-            date = datetime.now(ZoneInfo(await get_profile_tz(profile_id, db))).strftime("%Y-%m-%d")
+            date = today_str(resolve(await get_profile_tz(profile_id, db)))
         events, label = await _fetch_day_events(profile_id, date, db)
         summary_text  = await _get_summary(profile_id, "daily", date, db)
         from app.services.export_pdf import generate_daily_pdf
@@ -114,13 +102,11 @@ async def export_daily_pdf(request: Request, date: str = "", db: AsyncSession = 
 
 
 @router.get("/api/export/weekly-pdf")
-async def export_weekly_pdf(request: Request, week_start: str = "", db: AsyncSession = Depends(get_db)):
+async def export_weekly_pdf(week_start: str = "", profile_id: str = Depends(require_profile),
+                            db: AsyncSession = Depends(get_db)):
     try:
-        profile_id = await get_profile_from_session(request)
-        if not profile_id:
-            return JSONResponse({"error": "not_authenticated"}, status_code=401)
         if not week_start:
-            now = datetime.now(ZoneInfo(await get_profile_tz(profile_id, db)))
+            now = datetime.now(resolve(await get_profile_tz(profile_id, db)))
             week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
         events, label = await _fetch_week_events(profile_id, week_start, db)
         day_map: dict = {}
@@ -164,12 +150,10 @@ def _events_to_csv(events: list) -> str:
 
 
 @router.get("/api/export/daily-csv")
-async def export_daily_csv(request: Request, date: str = "", db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def export_daily_csv(date: str = "", profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
     if not date:
-        date = datetime.now(ZoneInfo(await get_profile_tz(profile_id, db))).strftime("%Y-%m-%d")
+        date = today_str(resolve(await get_profile_tz(profile_id, db)))
     events, _ = await _fetch_day_events(profile_id, date, db)
     return Response(
         content=_events_to_csv(events),
@@ -179,12 +163,10 @@ async def export_daily_csv(request: Request, date: str = "", db: AsyncSession = 
 
 
 @router.get("/api/export/weekly-csv")
-async def export_weekly_csv(request: Request, week_start: str = "", db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
+async def export_weekly_csv(week_start: str = "", profile_id: str = Depends(require_profile),
+                            db: AsyncSession = Depends(get_db)):
     if not week_start:
-        now = datetime.now(ZoneInfo(await get_profile_tz(profile_id, db)))
+        now = datetime.now(resolve(await get_profile_tz(profile_id, db)))
         week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
     events, _ = await _fetch_week_events(profile_id, week_start, db)
     return Response(

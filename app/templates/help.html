@@ -598,19 +598,72 @@
 <!-- ═══════════ PAGE — JIRA ═══════════ -->
 <div id="panel-page-jira" class="help-panel hidden">
   <h2 class="panel-title">Jira Page</h2>
-  <p class="panel-desc">All your Jira activity by week — ticket updates, comments, and new tickets. Tabs filter the chart by event type; the right panel lists the actual tickets you touched.</p>
+  <p class="panel-desc">Your Jira work at a glance. The top half is a <strong>live pull from Jira</strong> — what's assigned to you right now, with deadline and workload charts. The lower half is your own recorded activity by week: the ticket-event chart and feed.</p>
 
-  <p class="sub-title">① Today / This Week toggle + KPI Cards</p>
-  <div style="display:flex;gap:8px;margin-bottom:10px"><span class="mock-btn">● Today</span><span class="mock-btn-active">This Week</span></div>
-  <div class="mock-kpi-row">
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">CREATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">UPDATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">COMMENTS</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">TOTAL</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  <p class="sub-title">① My Work KPIs</p>
+  <div class="mock-kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="mock-kpi"><span class="mock-kpi-label">Overdue</span><span class="mock-kpi-val" style="color:#ef4444">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Due this week</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">In progress</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Done this week</span><span class="mock-kpi-val" style="color:#22c55e">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Open total</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
   </div>
-  <p class="body-text"><strong>Created</strong> = new tickets you opened. <strong>Updated</strong> = status/field changes. <strong>Comments</strong> = comments you added. <strong>Total</strong> = all Jira events combined.</p>
+  <p class="body-text">Counts across every issue currently <strong>assigned to you</strong> in Jira — the live picture, not this week's events. <strong>Overdue</strong> turns red when anything is past due; <strong>Done this week</strong> turns green and counts issues you completed in the last 7 days.</p>
 
-  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <p class="sub-title">② My Open Issues <span style="font-size:9px;font-weight:700;background:#06b6d418;color:#06b6d4;padding:2px 7px;border-radius:5px;vertical-align:middle;letter-spacing:.03em">LIVE</span></p>
+  <div style="display:grid;grid-template-columns:1fr 210px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="border-left:2px solid #ef4444;padding-left:10px;margin-bottom:12px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:#06b6d4">PROJ-142</span>
+          <span style="font-size:9px;background:#f59e0b18;color:#f59e0b;padding:1px 6px;border-radius:10px;font-weight:600">In Progress</span>
+          <span style="font-size:9px;background:#ef444418;color:#ef4444;padding:1px 6px;border-radius:10px;font-weight:600">High</span>
+          <span style="font-size:10px;font-weight:600;color:#ef4444">2 days overdue</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-1);margin-top:3px">Fix token refresh on the Jira webhook</div>
+        <div style="font-size:10px;color:var(--text-3);margin-top:1px">Story · Sprint 7 · 3 pts</div>
+      </div>
+      <div style="border-left:2px solid #22c55e;padding-left:10px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:#06b6d4">PROJ-155</span>
+          <span style="font-size:9px;background:#64748b18;color:#64748b;padding:1px 6px;border-radius:10px;font-weight:600">To Do</span>
+          <span style="font-size:9px;background:#22c55e18;color:#22c55e;padding:1px 6px;border-radius:10px;font-weight:600">Low</span>
+          <span style="font-size:10px;font-weight:600;color:var(--text-3)">Due Fri</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-1);margin-top:3px">Add pagination to the activity export</div>
+      </div>
+    </div>
+    <div class="mock-card" style="display:flex;flex-direction:column;gap:14px;justify-content:center">
+      <div>
+        <p style="font-size:9px;font-weight:600;color:var(--text-3);margin-bottom:6px">BY STATUS</p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="height:8px;width:80%;background:#f59e0b;border-radius:3px"></div>
+          <div style="height:8px;width:55%;background:#64748b;border-radius:3px"></div>
+          <div style="height:8px;width:30%;background:#22c55e;border-radius:3px"></div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:9px;font-weight:600;color:var(--text-3);margin-bottom:6px">BY PRIORITY</p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="height:8px;width:70%;background:#ef4444;border-radius:3px"></div>
+          <div style="height:8px;width:45%;background:#f59e0b;border-radius:3px"></div>
+          <div style="height:8px;width:25%;background:#22c55e;border-radius:3px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="body-text">A live list of every open issue assigned to you, <strong>overdue first</strong> then soonest due. Each row shows the <strong>key</strong> (click to open it in Jira), status, priority, due date, summary, and — when set — issue type, sprint, and story points. The left-border colour is the issue's priority. The mini bars on the right break your open issues down <strong>by status</strong> and <strong>by priority</strong>. <strong>Refresh</strong> re-pulls on demand; it also refreshes on its own whenever a new Jira event arrives.</p>
+
+  <p class="sub-title">③ Due Outlook &amp; Issue Age</p>
+  <div class="two-col" style="gap:1rem">
+    <div class="info-box"><strong style="color:var(--text-1)">Due outlook</strong><p style="margin-top:5px;font-size:12px">One bar per day for the next 7 days plus an <strong style="color:#ef4444">Overdue</strong> bucket — see what's landing when, and what's already late.</p></div>
+    <div class="info-box"><strong style="color:var(--text-1)">Age of open issues</strong><p style="margin-top:5px;font-size:12px">How long your open issues have sat since they were created: under 1 week, 1–2, 2–4, or over a month. Darker cyan = older (spot aging WIP).</p></div>
+  </div>
+
+  <p class="sub-title">④ Backfill 30 Days</p>
+  <p class="body-text"><strong>Backfill 30d</strong> (top-right of the activity section) imports the last 30 days of your Jira history into the activity chart and feed below. Handy right after connecting, since webhooks only capture actions taken <em>after</em> setup.</p>
+
+  <p class="sub-title">⑤ Activity Chart + Week Activity Panel</p>
   <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
     <div class="mock-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -645,11 +698,11 @@
     <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists tickets you touched — key, title, event type, time. "No created this week" just means zero new tickets opened; other tabs may have activity.</span></li>
     <li class="ci" style="border:none"><span class="cn">C</span><span><strong>Top Repos</strong> tab ranks Jira projects by event count for the selected week.</span></li>
   </ul>
-  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <p class="sub-title" style="margin-top:20px">⑥ Recent Activity</p>
   <p class="body-text"><strong>Today</strong> groups Jira events by type (Comment Created, Issue Updated) with a cyan left border. <strong>History</strong> shows all Jira events for the selected week chronologically. Each row shows ticket key, title, and event type.</p>
   <div class="tips-box" style="margin-top:12px">
-    <p>→ No events arriving? If an <strong>orange banner</strong> is visible, the webhook wasn't registered — click the reconnect link to re-run the OAuth flow and re-register.</p>
-    <p>→ Events only arrive for Jira actions taken after connecting. Historical tickets are not backfilled.</p>
+    <p>→ If <strong>My Open Issues</strong> says the connection expired, or a <strong>"Jira connection problem"</strong> banner appears at the top, the token lapsed — click <strong>Reconnect Jira</strong>. Both the live panel and new events stop until you do.</p>
+    <p>→ New events only arrive for Jira actions taken after connecting. Use <strong>Backfill 30d</strong> to pull recent history in.</p>
   </div>
 </div>
 
