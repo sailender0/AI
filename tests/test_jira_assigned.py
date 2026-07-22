@@ -2,8 +2,8 @@
 the read-time Jira field extraction (_jira_extras) — both payload shapes
 (webhook-nested vs backfill-flat), offline, no fixtures.
 """
-from app.routes.activity import _jira_extras
 from app.routes.stats import _issue_row
+from app.services.activity_query import jira_extras as _jira_extras
 
 
 def test_issue_row_maps_fields():

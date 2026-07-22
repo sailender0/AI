@@ -40,7 +40,7 @@ async def _get(app, path, **kw):
 
 def _patches(hbs=(), last_hb=None, claude=(), ai=(), commits=()):
     return [
-        patch(P + "get_profile_from_session", new=AsyncMock(return_value=PROFILE)),
+        patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE)),
         patch(P + "device_heartbeats", return_value=_coll(hbs, find_one=last_hb)),
         patch(P + "ai_tool_events", return_value=_coll(ai)),
         patch(P + "claude_usage", return_value=_coll(claude)),
@@ -51,7 +51,7 @@ def _patches(hbs=(), last_hb=None, claude=(), ai=(), commits=()):
 
 async def test_today_unauthenticated_returns_401():
     app = _app()
-    with patch(P + "get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/today")
     assert r.status_code == 401
 

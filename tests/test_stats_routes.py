@@ -47,7 +47,7 @@ async def _get(app, path, **kwargs):
 # Patch context for an authenticated, fully-mocked stats request.
 def _auth_patches(module: str):
     return [
-        patch(f"app.routes.stats.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)),
+        patch(f"app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)),
         patch(f"app.routes.stats.get_profile_tz", new=AsyncMock(return_value="UTC")),
         patch(f"app.routes.stats.count", new=AsyncMock(return_value=10)),
         patch(f"app.routes.stats.daily_counts", new=AsyncMock(return_value=(_LABELS, _DAILY))),
@@ -61,28 +61,28 @@ def _auth_patches(module: str):
 
 async def test_github_stats_unauthenticated_returns_401():
     app = _mini_stats_app()
-    with patch("app.routes.stats.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/github/stats")
     assert r.status_code == 401
 
 
 async def test_jira_stats_unauthenticated_returns_401():
     app = _mini_stats_app()
-    with patch("app.routes.stats.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/jira/stats")
     assert r.status_code == 401
 
 
 async def test_teams_stats_unauthenticated_returns_401():
     app = _mini_stats_app()
-    with patch("app.routes.stats.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/teams/stats")
     assert r.status_code == 401
 
 
 async def test_gitlab_stats_unauthenticated_returns_401():
     app = _mini_stats_app()
-    with patch("app.routes.stats.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/gitlab/stats")
     assert r.status_code == 401
 

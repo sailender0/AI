@@ -90,7 +90,9 @@ def test_scope_to_range_windows_are_ordered():
         allt  = q._scope_to_range("all", "UTC")["$gte"]
     assert today == datetime(2026, 7, 8, 0, 0, tzinfo=UTC)         # local midnight today
     assert week  == datetime(2026, 7, 6, 0, 0, tzinfo=UTC)         # Monday
-    assert allt < month < week <= today                           # widening windows
+    assert month < week <= today                                  # widening windows
+    # "all"/unknown scopes are vestigial — they default to today (see _scope_to_range)
+    assert allt == today
 
 
 # ── _claude_date_range: end steps back a second to the last real local day ──────
