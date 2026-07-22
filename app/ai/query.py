@@ -70,6 +70,33 @@ def _sanitize_question(text: str) -> str:
     return cleaned.strip()[:1000]
 
 
+# The AI answers in text; charts already exist as Chart.js dashboards. When a
+# question is trend/visual-shaped, point the user at the matching page instead
+# of rendering pixels in chat. ponytail: keyword heuristic — refine if it misfires.
+_CHART_INTENT = ("trend", "chart", "graph", "over time", "breakdown", "visuali",
+                 "distribution", "by hour", "by day", "compare", "history", "most")
+_CHART_PAGES = (  # (topic keywords, label, href) — first match wins; order matters
+    (("jira", "sprint", "issue", "ticket", "priority", "overdue", "backlog"),
+     "Jira charts", "/jira"),
+    (("claude", "token", "copilot", "cursor", "ai tool", "ai-tool"),
+     "AI tools breakdown", "/my-activity/ai-tools"),
+    (("focus", "coding time", "heartbeat"),
+     "My Activity", "/my-activity"),
+)
+
+
+def _chart_link(question: str) -> dict | None:
+    """{"label","href"} of a dashboard chart to offer, or None. Only fires when the
+    question reads as trend/visual; picks the page by topic, defaults to Analytics."""
+    q = question.lower()
+    if not any(w in q for w in _CHART_INTENT):
+        return None
+    for words, label, href in _CHART_PAGES:
+        if any(w in q for w in words):
+            return {"label": label, "href": href}
+    return {"label": "Analytics", "href": "/analytics"}
+
+
 # The single-window activity pipeline can't compare two periods, so a token
 # comparison ("this week vs last week") gets its own fetch of both periods.
 _COMPARE_WORDS = ("last week", "last month", "previous week", "previous month",
@@ -492,7 +519,7 @@ async def ask_in_conversation_stream(conv_id: str, body: AskRequest,
             ))
             await db.commit()
 
-        yield f"data: {_json.dumps({'done': True, 'ai_message': {'id': str(ai_msg_id), 'role': 'assistant', 'content': answer, 'created_at': ai_created.isoformat()}, 'conversation_title': conv_title})}\n\n"
+        yield f"data: {_json.dumps({'done': True, 'ai_message': {'id': str(ai_msg_id), 'role': 'assistant', 'content': answer, 'created_at': ai_created.isoformat()}, 'conversation_title': conv_title, 'chart_link': _chart_link(question)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

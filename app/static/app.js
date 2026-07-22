@@ -523,7 +523,7 @@ function chatWidget() {
       if (!q || this.streaming) return;
       this.input = '';
       this.messages.push({ role: 'user', content: q });
-      const aiMsg = { role: 'assistant', content: '' };
+      const aiMsg = { role: 'assistant', content: '', chart_link: null };
       this.messages.push(aiMsg);
       this.streaming = true;
       this._scrollBottom();
@@ -555,6 +555,7 @@ function chatWidget() {
               const p = JSON.parse(line.slice(6));
               if (p.token) { aiMsg.content += p.token; this._scrollBottom(); }
               if (p.error) { aiMsg.content = 'Sorry, something went wrong.'; }
+              if (p.done && p.chart_link) aiMsg.chart_link = p.chart_link;
               if (p.done || p.error) this.streaming = false;
             } catch {}
           }

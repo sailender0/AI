@@ -266,12 +266,16 @@
 
         <!-- Message bubbles -->
         <template x-for="(msg, i) in messages" :key="i">
-          <div :style="msg.role === 'user' ? 'display:flex;justify-content:flex-end' : 'display:flex;justify-content:flex-start'">
+          <div :style="'display:flex;flex-direction:column;gap:5px;' + (msg.role === 'user' ? 'align-items:flex-end' : 'align-items:flex-start')">
             <div :style="msg.role === 'user'
               ? 'max-width:80%;padding:9px 13px;border-radius:14px 14px 4px 14px;background:var(--chrome);color:var(--chrome-text);font-size:13px;line-height:1.5;white-space:pre-wrap'
               : 'max-width:88%;padding:9px 13px;border-radius:14px 14px 14px 4px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-1);font-size:13px;line-height:1.5;white-space:pre-wrap'"
               x-text="msg.content || ''">
             </div>
+            <a x-show="msg.chart_link" :href="msg.chart_link && msg.chart_link.href"
+              style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--chrome);text-decoration:none">
+              📊 <span x-text="msg.chart_link && msg.chart_link.label"></span> →
+            </a>
           </div>
         </template>
 

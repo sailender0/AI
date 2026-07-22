@@ -277,6 +277,7 @@
             bubbleEl.textContent += msg.token;
             scrollBottom();
           } else if (msg.done) {
+            if (msg.chart_link && bubbleEl) _appendChartChip(bubbleEl, msg.chart_link);
             const conv = conversations.find(c => c.id === currentConvId);
             if (conv && msg.conversation_title) {
               conv.title      = msg.conversation_title;
@@ -312,6 +313,18 @@
     el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble"></div>`;
     area.appendChild(el);
     return el.querySelector('.msg-ai-bubble');
+  }
+
+  // Related-chart chip appended below an AI answer when the question was trend-shaped.
+  function _appendChartChip(bubbleEl, link) {
+    const a = document.createElement('a');
+    a.href = link.href;
+    a.textContent = `📊 ${link.label} →`;
+    a.style.cssText = 'display:flex;width:fit-content;align-items:center;gap:4px;'
+      + 'margin-top:8px;font-size:11px;padding:3px 9px;border-radius:999px;'
+      + 'background:var(--surface);border:1px solid var(--border);'
+      + 'color:var(--chrome);text-decoration:none';
+    bubbleEl.appendChild(a);
   }
 
   function appendBubble(role, content) {
