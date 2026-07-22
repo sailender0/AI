@@ -174,6 +174,39 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
                     await db.commit()
                     _log.getLogger(__name__).info("Saved Jira LinkedIdentity: %s -> %s", account_id, profile_id)
 
+    # For GitHub, store the user's numeric id as a LinkedIdentity so incoming
+    # webhooks resolve to THIS profile by actor (sender.id). Without it, the
+    # actor-filter in the webhook receiver drops every event for this user.
+    if app == "github" and access_token:
+        async with httpx.AsyncClient() as client:
+            me_resp = await client.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"token {access_token}", "Accept": "application/vnd.github+json"},
+            )
+        if me_resp.status_code == 200:
+            gh = me_resp.json()
+            gh_id, gh_login = str(gh.get("id", "")), gh.get("login", "")
+            if gh_id:
+                from app.storage.models import LinkedIdentity
+                async with AsyncSessionLocal() as db:
+                    existing = (
+                        await db.execute(
+                            select(LinkedIdentity).where(
+                                LinkedIdentity.profile_id == profile_id,
+                                LinkedIdentity.provider == "github",
+                                LinkedIdentity.workspace_label == gh_login,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if existing:
+                        existing.tenant_id = gh_id
+                    else:
+                        db.add(LinkedIdentity(
+                            profile_id=profile_id, provider="github",
+                            tenant_id=gh_id, workspace_label=gh_login,
+                        ))
+                    await db.commit()
+
     from app.webhooks.registration import auto_register_webhook
     import asyncio
     asyncio.create_task(auto_register_webhook(app, profile_id))

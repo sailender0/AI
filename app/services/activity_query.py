@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.storage.models import Integration, LinkedIdentity, Profile
+from app.storage.models import Integration, Profile
 from app.storage.mongodb import activity_events
 
 
@@ -221,16 +221,15 @@ async def workspace_breakdown(profile_id, source, event_type_regex=None, days=7,
 
 async def get_integrations(profile_id: str, db: AsyncSession):
     rows = (await db.execute(select(Integration).where(Integration.profile_id == profile_id))).scalars().all()
-    linked = (await db.execute(select(LinkedIdentity).where(LinkedIdentity.profile_id == profile_id))).scalars().all()
     status_map = {r.source: r.sync_status for r in rows}
-    linked_providers = {l.provider for l in linked}
     connected = {}
     errors = {}
     for source in ["github", "gitlab", "jira", "teams_subscription"]:
-        is_conn = (
-            status_map.get(source) in ("active", "error")
-            or (source == "github" and "github" in linked_providers)
-        )
+        # A live Integration row (with a token) is the source of truth. A bare
+        # LinkedIdentity from App-install alone (OAuth not yet finished) used to
+        # count github as connected, which hid the "Install" button and left the
+        # user silently broken after an incomplete reinstall.
+        is_conn = status_map.get(source) in ("active", "error")
         connected[source] = is_conn
         errors[source] = status_map.get(source) == "error"
     return connected, errors
