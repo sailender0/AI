@@ -17,16 +17,17 @@ async def test_github_push_calls_ingest_once():
     from app.webhooks.receivers.github import _process
 
     body = {
-        "installation": {"id": "install-1"},
+        "sender": {"id": 4242},
         "head_commit": {"message": "Fix auth bug"},
         "repository": {"full_name": "org/repo"},
         "created_at": "2026-06-23T10:00:00Z",
     }
 
-    with patch("app.webhooks.receivers.github._resolve_profile", new=AsyncMock(return_value=PROFILE)), \
+    with patch("app.webhooks.receivers.github._resolve_profile", new=AsyncMock(return_value=PROFILE)) as mock_resolve, \
          patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
         await _process(body, "push")
 
+    mock_resolve.assert_awaited_once_with("4242")   # resolves by actor, not installation
     mock_ingest.assert_called_once()
     event = mock_ingest.call_args[0][0]
     assert event["source"] == "github"
@@ -39,8 +40,20 @@ async def test_github_unresolved_profile_skips_ingest():
 
     with patch("app.webhooks.receivers.github._resolve_profile", new=AsyncMock(return_value=None)), \
          patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
-        await _process({"installation": {"id": "x"}}, "push")
+        await _process({"sender": {"id": 999}}, "push")
 
+    mock_ingest.assert_not_called()
+
+
+async def test_github_missing_sender_skips_ingest():
+    """No actor in the payload → nothing to attribute to → drop (org-noise guard)."""
+    from app.webhooks.receivers.github import _process
+
+    with patch("app.webhooks.receivers.github._resolve_profile", new=AsyncMock(return_value=None)) as mock_resolve, \
+         patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
+        await _process({"repository": {"full_name": "org/repo"}}, "push")
+
+    mock_resolve.assert_awaited_once_with(None)
     mock_ingest.assert_not_called()
 
 
@@ -48,7 +61,7 @@ async def test_github_pr_merged_event_type():
     from app.webhooks.receivers.github import _process
 
     body = {
-        "installation": {"id": "install-1"},
+        "sender": {"id": 4242},
         "action": "closed",
         "pull_request": {"id": 1, "title": "Merge feature", "merged": True},
         "repository": {"full_name": "org/repo"},
@@ -62,6 +75,51 @@ async def test_github_pr_merged_event_type():
     assert event["event_type"] == "pr_merged"
 
 
+async def test_github_uninstall_disconnects_and_skips_ingest():
+    """installation/deleted (org-page uninstall) must disconnect, not be ingested
+    as activity."""
+    from app.webhooks.receivers.github import _process
+
+    body = {"action": "deleted", "installation": {"id": 555}, "sender": {"id": 4242}}
+
+    with patch("app.webhooks.receivers.github.disconnect_installation", new=AsyncMock()) as mock_disc, \
+         patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
+        await _process(body, "installation")
+
+    mock_disc.assert_awaited_once_with("555")
+    mock_ingest.assert_not_called()
+
+
+async def test_github_two_actors_route_to_their_own_profiles():
+    """Two people push to the SAME repo → each event is attributed to its own
+    pusher (sender.id), never cross-contaminated onto the other profile."""
+    from app.webhooks.receivers.github import _process
+
+    p1, p2 = "profile-p1", "profile-p2"
+    actor_to_profile = {"111": p1, "222": p2}
+
+    def push(sender_id, msg):
+        return {
+            "sender": {"id": sender_id},
+            "head_commit": {"message": msg},
+            "repository": {"full_name": "acme/webapp"},
+            "created_at": "2026-06-23T10:00:00Z",
+        }
+
+    with patch("app.webhooks.receivers.github._resolve_profile",
+               new=AsyncMock(side_effect=lambda actor_id: actor_to_profile.get(actor_id))), \
+         patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
+        await _process(push(111, "P1 change"), "push")
+        await _process(push(222, "P2 change"), "push")
+
+    assert mock_ingest.call_count == 2
+    events = [c[0][0] for c in mock_ingest.call_args_list]
+    # Same repo, but each event carries its OWN pusher's profile.
+    assert events[0]["profile_id"] == p1
+    assert events[1]["profile_id"] == p2
+    assert events[0]["workspace"] == events[1]["workspace"] == "acme/webapp"
+
+
 # ── GitLab ────────────────────────────────────────────────────────────────────
 
 async def test_gitlab_push_one_ingest_per_commit():
@@ -70,6 +128,7 @@ async def test_gitlab_push_one_ingest_per_commit():
     body = {
         "object_kind": "push",
         "project": {"path_with_namespace": "group/project"},
+        "user_id": 77,
         "user_username": "sailender",
         "commits": [
             {"id": "c1", "message": "First", "timestamp": "2026-06-23T10:00:00Z"},
@@ -78,10 +137,11 @@ async def test_gitlab_push_one_ingest_per_commit():
         ],
     }
 
-    with patch("app.webhooks.receivers.gitlab._resolve_profile", new=AsyncMock(return_value=PROFILE)), \
+    with patch("app.webhooks.receivers.gitlab._resolve_profile", new=AsyncMock(return_value=PROFILE)) as mock_resolve, \
          patch("app.webhooks.receivers.gitlab.ingest", new=AsyncMock()) as mock_ingest:
         await _process(body)
 
+    mock_resolve.assert_awaited_once_with("77")   # by actor (pusher), not project
     assert mock_ingest.call_count == 3
     events = [c[0][0] for c in mock_ingest.call_args_list]
     assert all(e["event_type"] == "commit" for e in events)
@@ -96,7 +156,7 @@ async def test_gitlab_push_empty_commits_skips_ingest():
     body = {
         "object_kind": "push",
         "project": {"path_with_namespace": "group/project"},
-        "user_username": "sailender",
+        "user_id": 77,
         "commits": [],
     }
 
@@ -113,19 +173,38 @@ async def test_gitlab_mr_single_ingest():
     body = {
         "object_kind": "merge_request",
         "project": {"path_with_namespace": "group/project"},
-        "user_username": "sailender",
+        "user": {"id": 88, "username": "sailender"},   # MR/issue/note nest the actor under "user"
         "object_attributes": {"id": 55, "title": "Add feature"},
         "created_at": "2026-06-23T11:00:00Z",
     }
 
-    with patch("app.webhooks.receivers.gitlab._resolve_profile", new=AsyncMock(return_value=PROFILE)), \
+    with patch("app.webhooks.receivers.gitlab._resolve_profile", new=AsyncMock(return_value=PROFILE)) as mock_resolve, \
          patch("app.webhooks.receivers.gitlab.ingest", new=AsyncMock()) as mock_ingest:
         await _process(body)
 
+    mock_resolve.assert_awaited_once_with("88")
     mock_ingest.assert_called_once()
     event = mock_ingest.call_args[0][0]
     assert event["event_type"] == "merge_request"
     assert event["source"] == "gitlab"
+
+
+async def test_gitlab_unresolved_actor_skips_ingest():
+    """Actor isn't one of our connected users → drop (mirrors github/jira)."""
+    from app.webhooks.receivers.gitlab import _process
+
+    body = {
+        "object_kind": "push",
+        "project": {"path_with_namespace": "group/project"},
+        "user_id": 999,
+        "commits": [{"id": "c1", "message": "x", "timestamp": "2026-06-23T10:00:00Z"}],
+    }
+
+    with patch("app.webhooks.receivers.gitlab._resolve_profile", new=AsyncMock(return_value=None)), \
+         patch("app.webhooks.receivers.gitlab.ingest", new=AsyncMock()) as mock_ingest:
+        await _process(body)
+
+    mock_ingest.assert_not_called()
 
 
 # ── Teams ─────────────────────────────────────────────────────────────────────

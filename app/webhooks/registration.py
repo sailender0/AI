@@ -120,6 +120,31 @@ async def _register_github(token: str, profile_id: str):
             await db.commit()
 
 
+async def save_gitlab_identity(profile_id: str, user_id: str, username: str):
+    """One identity row per user, keyed on the GitLab numeric user id. This is
+    what the receiver resolves incoming events against (attribute-by-person), so
+    a shared project attributes each event to whoever actually did it."""
+    if not user_id:
+        return
+    from app.storage.models import LinkedIdentity
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(
+            select(LinkedIdentity).where(
+                LinkedIdentity.profile_id == profile_id,
+                LinkedIdentity.provider == "gitlab",
+                LinkedIdentity.workspace_label == username,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            existing.tenant_id = user_id
+        else:
+            db.add(LinkedIdentity(
+                profile_id=profile_id, provider="gitlab",
+                tenant_id=user_id, workspace_label=username,
+            ))
+        await db.commit()
+
+
 async def _register_gitlab(token: str, profile_id: str):
     import logging as _log
     logger = _log.getLogger(__name__)
@@ -139,7 +164,9 @@ async def _register_gitlab(token: str, profile_id: str):
 
     async with httpx.AsyncClient() as client:
         me_resp = await client.get("https://gitlab.com/api/v4/user", headers=headers)
-        username = me_resp.json().get("username", "") if me_resp.status_code == 200 else ""
+        me       = me_resp.json() if me_resp.status_code == 200 else {}
+        username = me.get("username", "")
+        user_id  = str(me.get("id", ""))
 
         projects_resp = await client.get(
             "https://gitlab.com/api/v4/projects",
@@ -156,7 +183,8 @@ async def _register_gitlab(token: str, profile_id: str):
         logger.warning("GitLab: no projects found for profile %s", profile_id)
         return
 
-    from app.storage.models import LinkedIdentity
+    # One identity for the whole account — events resolve by actor, not project.
+    await save_gitlab_identity(profile_id, user_id, username)
 
     registered = 0
     async with httpx.AsyncClient() as client:
@@ -173,7 +201,6 @@ async def _register_gitlab(token: str, profile_id: str):
                 if any(h.get("url") == target_url for h in existing_hooks_resp.json()):
                     logger.info("GitLab webhook already exists for %s, skipping", namespace)
                     registered += 1
-                    # still ensure LinkedIdentity exists (fall through to upsert below)
                 else:
                     resp = await client.post(
                         f"https://gitlab.com/api/v4/projects/{project_id}/hooks",
@@ -185,23 +212,6 @@ async def _register_gitlab(token: str, profile_id: str):
                         logger.info("GitLab webhook registered for %s (profile=%s)", namespace, profile_id)
                     else:
                         logger.warning("GitLab webhook failed for %s: %s %s", namespace, resp.status_code, resp.text)
-
-            async with AsyncSessionLocal() as db:
-                existing = (await db.execute(
-                    select(LinkedIdentity).where(
-                        LinkedIdentity.profile_id == profile_id,
-                        LinkedIdentity.provider == "gitlab",
-                        LinkedIdentity.workspace_label == namespace,
-                    )
-                )).scalar_one_or_none()
-                if not existing:
-                    db.add(LinkedIdentity(
-                        profile_id=profile_id,
-                        provider="gitlab",
-                        workspace_label=namespace,
-                        tenant_id=username,
-                    ))
-                    await db.commit()
 
     logger.info("GitLab: %d/%d webhooks active for profile %s", registered, len(projects), profile_id)
 
