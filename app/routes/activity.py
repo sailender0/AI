@@ -1,24 +1,44 @@
+"""Activity endpoints — HTTP only.
+
+Event reads, per-day aggregations and the wire shape of an event live in
+app/services/activity_query.py; these handlers parse the request, call it, and
+shape the response.
+"""
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.sso import require_profile
 from app.services.activity_query import (
-    count, daily_counts, event_extras, get_profile_tz, week_bounds, week_source_stats,
+    count, daily_counts, find_events, get_profile_tz, serialize_event, trend_rows,
+    week_bounds, week_source_stats,
 )
 from app.services.timezone import day_bounds, resolve, today_str
 from app.storage.models import Summary
-from app.storage.mongodb import activity_events
 from app.storage.postgres import get_db
-from sqlalchemy import select
 
 router = APIRouter()
 
 
 _VALID_SOURCES = {"github", "gitlab", "jira", "teams_subscription"}
+_CHART_SOURCES = ["github", "jira", "teams_subscription", "gitlab"]
+
+
+def _local_midnight_utc(date_str: str, tz: ZoneInfo) -> datetime:
+    """Local midnight of a YYYY-MM-DD date, as UTC.
+
+    Same instant as `services.timezone.day_bounds(date_str, tz)[0]` — kept separate
+    only because this one parses with fromisoformat and so tolerates a trailing time
+    ("2026-07-02T10:00" reads as the 2nd), which day_bounds' strptime rejects. Nothing
+    in the app sends that today; if you ever need one fewer date helper, switching to
+    day_bounds is safe as long as you're happy for such input to 400 instead.
+    """
+    d = datetime.fromisoformat(date_str)
+    return datetime(d.year, d.month, d.day, tzinfo=tz).astimezone(timezone.utc)
 
 
 @router.get("/api/events/recent")
@@ -33,36 +53,16 @@ async def get_recent_events(
     if source and source not in _VALID_SOURCES:
         return JSONResponse({"error": "invalid_source"}, status_code=400)
 
-    q: dict = {"profile_id": profile_id}
-    if source:
-        q["source"] = source
+    start = end = None
     if start_date or end_date:
-        tz_name = await get_profile_tz(profile_id, db)
-        tz = ZoneInfo(tz_name or "UTC")
-        time_q: dict = {}
-        if start_date:
-            s = datetime.fromisoformat(start_date)
-            time_q["$gte"] = datetime(s.year, s.month, s.day, tzinfo=tz).astimezone(timezone.utc)
-        if end_date:
-            e = datetime.fromisoformat(end_date)
-            time_q["$lt"] = datetime(e.year, e.month, e.day, tzinfo=tz).astimezone(timezone.utc)
-        q["occurred_at"] = time_q
+        tz = ZoneInfo(await get_profile_tz(profile_id, db) or "UTC")
+        start = _local_midnight_utc(start_date, tz) if start_date else None
+        end   = _local_midnight_utc(end_date, tz) if end_date else None
 
-    events = await activity_events().find(q).sort("occurred_at", -1).to_list(length=limit)
-    result = []
-    for e in events:
-        ts  = e.get("occurred_at")
-        raw = e.get("raw_payload") or {}
-        src = e.get("source", "")
-        result.append({
-            "source": src,
-            "event_type": e.get("event_type", ""),
-            "title": e.get("title", ""),
-            "workspace": e.get("workspace", ""),
-            "occurred_at": (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat() if isinstance(ts, datetime) else str(ts),
-            **event_extras(src, e, raw),
-        })
-    return JSONResponse({"events": result})
+    events = await find_events(profile_id, start=start, end=end, source=source, limit=limit)
+    return JSONResponse({"events": [
+        {"source": e.get("source", ""), **serialize_event(e)} for e in events
+    ]})
 
 
 @router.get("/api/stats")
@@ -125,29 +125,15 @@ async def get_day_data(date: str = None, profile_id: str = Depends(require_profi
     except ValueError:
         return JSONResponse({"error": "invalid date"}, status_code=400)
 
-    raw_events = await activity_events().find(
-        {"profile_id": profile_id, "occurred_at": {"$gte": day_start, "$lt": day_end}},
-    ).sort("occurred_at", -1).to_list(length=500)
+    raw_events = await find_events(profile_id, start=day_start, end=day_end, limit=500)
 
     source_counts = {"github": 0, "jira": 0, "teams_subscription": 0, "gitlab": 0}
     result_events = []
     for e in raw_events:
-        ts  = e.get("occurred_at")
         src = e.get("source", "")
-        raw = e.get("raw_payload") or {}
         if src in source_counts:
             source_counts[src] += 1
-        result_events.append({
-            "source": src,
-            "event_type": e.get("event_type", ""),
-            "title": e.get("title", ""),
-            "workspace": e.get("workspace", ""),
-            "occurred_at": (
-                (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat()
-                if isinstance(ts, datetime) else str(ts)
-            ),
-            **event_extras(src, e, raw),
-        })
+        result_events.append({"source": src, **serialize_event(e)})
 
     summary_row = (await db.execute(
         select(Summary)
@@ -195,38 +181,32 @@ async def get_week_breakdown(start: str = None, end: str = None,
     if not days_list:
         return JSONResponse({"days": []})
 
-    range_start = days_list[0].astimezone(timezone.utc)
-    range_end   = (days_list[-1] + timedelta(days=1)).astimezone(timezone.utc)
-
-    all_events = await activity_events().find(
-        {"profile_id": profile_id, "occurred_at": {"$gte": range_start, "$lt": range_end}},
-    ).to_list(length=2000)
+    # Natural order (sort=None): the per-source "first 15" slice below is defined
+    # by insertion order, so imposing a sort here would change which items show.
+    all_events = await find_events(
+        profile_id,
+        start=days_list[0].astimezone(timezone.utc),
+        end=(days_list[-1] + timedelta(days=1)).astimezone(timezone.utc),
+        limit=2000, sort=None,
+    )
 
     for e in all_events:
         ts = e.get("occurred_at")
         if isinstance(ts, datetime) and ts.tzinfo is None:
             e["occurred_at"] = ts.replace(tzinfo=timezone.utc)
 
-    sources = ["github", "jira", "teams_subscription", "gitlab"]
     result_days = []
     for day in days_list:
         day_start_utc = day.astimezone(timezone.utc)
         day_end_utc   = (day + timedelta(days=1)).astimezone(timezone.utc)
         day_events = [e for e in all_events if day_start_utc <= e["occurred_at"] < day_end_utc]
         connectors = {}
-        for src in sources:
+        for src in _CHART_SOURCES:
             src_events = [e for e in day_events if e.get("source") == src]
-            items = []
-            for e in src_events[:15]:
-                raw = e.get("raw_payload") or {}
-                items.append({
-                    "event_type":  e.get("event_type", ""),
-                    "title":       e.get("title", "") or e.get("event_type", ""),
-                    "workspace":   e.get("workspace", ""),
-                    "occurred_at": e["occurred_at"].isoformat(),
-                    **event_extras(src, e, raw),
-                })
-            connectors[src] = {"count": len(src_events), "items": items}
+            connectors[src] = {
+                "count": len(src_events),
+                "items": [serialize_event(e, title_fallback=True) for e in src_events[:15]],
+            }
         result_days.append({"date": day.strftime("%Y-%m-%d"), "connectors": connectors})
 
     return JSONResponse({"days": result_days})
@@ -247,34 +227,14 @@ async def get_analytics_trend(
     if start_date:
         sd = datetime.strptime(start_date, "%Y-%m-%d").date()
         start = datetime(sd.year, sd.month, sd.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
+        labels = [(sd + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
     else:
         start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        labels = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
 
-    sources = ["github", "jira", "teams_subscription", "gitlab"]
-    pipeline = [
-        {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
-        {"$group": {
-            "_id": {
-                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
-                "source": "$source",
-            },
-            "count": {"$sum": 1},
-        }},
-        {"$sort": {"_id.day": 1}},
-    ]
-    results = await activity_events().aggregate(pipeline).to_list(length=None)
+    results = await trend_rows(profile_id, start, tz_name)
 
-    labels = []
-    if start_date:
-        sd = datetime.strptime(start_date, "%Y-%m-%d").date()
-        for i in range(days):
-            labels.append((sd + timedelta(days=i)).strftime("%Y-%m-%d"))
-    else:
-        for i in range(days - 1, -1, -1):
-            d = now - timedelta(days=i)
-            labels.append(d.strftime("%Y-%m-%d"))
-
-    pivot = {s: {day: 0 for day in labels} for s in sources}
+    pivot = {s: {day: 0 for day in labels} for s in _CHART_SOURCES}
     for r in results:
         src = r["_id"]["source"]
         day = r["_id"]["day"]
@@ -285,43 +245,29 @@ async def get_analytics_trend(
         week_data: dict = {}
         for day_str in labels:
             d = datetime.strptime(day_str, "%Y-%m-%d").date()
-            monday = d - timedelta(days=d.weekday())
-            monday_str = monday.strftime("%Y-%m-%d")
+            monday_str = (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
             if monday_str not in week_data:
-                week_data[monday_str] = {s: 0 for s in sources}
-            for src in sources:
+                week_data[monday_str] = {s: 0 for s in _CHART_SOURCES}
+            for src in _CHART_SOURCES:
                 week_data[monday_str][src] += pivot[src].get(day_str, 0)
         sorted_weeks = sorted(week_data.keys())
         return JSONResponse({
             "labels":     [datetime.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in sorted_weeks],
             "raw_labels": sorted_weeks,
-            "sources":    {s: [week_data[w][s] for w in sorted_weeks] for s in sources},
+            "sources":    {s: [week_data[w][s] for w in sorted_weeks] for s in _CHART_SOURCES},
             "group_by":   "week",
         })
 
-    et_pipeline = [
-        {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
-        {"$group": {
-            "_id": {
-                "day":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
-                "src":  "$source",
-                "type": "$event_type",
-            },
-            "count": {"$sum": 1},
-        }},
-    ]
-    et_results = await activity_events().aggregate(et_pipeline).to_list(length=None)
     event_types: dict = {}
-    for r in et_results:
+    for r in await trend_rows(profile_id, start, tz_name, by_event_type=True):
         s, d, t = r["_id"]["src"], r["_id"]["day"], r["_id"]["type"]
         if d in labels:
             event_types.setdefault(s, {}).setdefault(d, {})[t] = r["count"]
 
-    display_labels = [datetime.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels]
     return JSONResponse({
-        "labels":      display_labels,
+        "labels":      [datetime.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in labels],
         "raw_labels":  labels,
-        "sources":     {s: list(pivot[s].values()) for s in sources},
+        "sources":     {s: list(pivot[s].values()) for s in _CHART_SOURCES},
         "event_types": event_types,
         "group_by":    "day",
     })

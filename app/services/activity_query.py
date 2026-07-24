@@ -96,6 +96,69 @@ def event_extras(src: str, e: dict, raw: dict) -> dict:
     return {"sha": None, "files": []}
 
 
+def iso_utc(ts) -> str:
+    """An activity timestamp as an ISO string. Mongo may hand back naive datetimes;
+    those are UTC by storage convention, so tag them rather than let them read local."""
+    if not isinstance(ts, datetime):
+        return str(ts)
+    return (ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts).isoformat()
+
+
+def serialize_event(e: dict, *, title_fallback: bool = False) -> dict:
+    """Wire shape for one activity event, WITHOUT `source` — callers that expose it
+    prepend it themselves, because the week-breakdown payload is already grouped by
+    source and must not repeat it. `title_fallback` fills an empty title with the
+    event type (the week-breakdown list needs something to render)."""
+    src   = e.get("source", "")
+    title = e.get("title", "")
+    return {
+        "event_type":  e.get("event_type", ""),
+        "title":       (title or e.get("event_type", "")) if title_fallback else title,
+        "workspace":   e.get("workspace", ""),
+        "occurred_at": iso_utc(e.get("occurred_at")),
+        **event_extras(src, e, e.get("raw_payload") or {}),
+    }
+
+
+async def find_events(profile_id: str, *, start: datetime | None = None,
+                      end: datetime | None = None, source: str | None = None,
+                      limit: int, sort: int | None = -1) -> list[dict]:
+    """Activity events for one profile in an optional UTC [start, end) window.
+    `sort=None` leaves natural order — the week breakdown relies on it."""
+    q: dict = {"profile_id": profile_id}
+    if source:
+        q["source"] = source
+    if start or end:
+        window: dict = {}
+        if start:
+            window["$gte"] = start
+        if end:
+            window["$lt"] = end
+        q["occurred_at"] = window
+    cursor = activity_events().find(q)
+    if sort is not None:
+        cursor = cursor.sort("occurred_at", sort)
+    return await cursor.to_list(length=limit)
+
+
+async def trend_rows(profile_id: str, start: datetime, tz_name: str,
+                     by_event_type: bool = False) -> list[dict]:
+    """Per-local-day event counts since `start`, grouped by source (and by event
+    type when `by_event_type`). Returns the raw aggregation rows; the caller
+    pivots them into chart series."""
+    group_id: dict = {
+        "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$occurred_at", "timezone": tz_name}},
+    }
+    group_id.update({"src": "$source", "type": "$event_type"} if by_event_type
+                    else {"source": "$source"})
+    # Deliberately unsorted: the caller pivots these into dicts keyed by a
+    # precomputed label list, so any order Mongo returns them in is fine.
+    return await activity_events().aggregate([
+        {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
+        {"$group": {"_id": group_id, "count": {"$sum": 1}}},
+    ]).to_list(length=None)
+
+
 async def week_source_stats(profile_id: str, start: datetime, end: datetime) -> dict:
     """Per-integration counts for one UTC [start, end) window — the Analytics
     week-stats block. Shared by /api/week-stats, the weekly PDF, and email."""
