@@ -113,9 +113,9 @@
 
   const _ET_FILTER = {
     commits:       e => /^commit/i.test(e.event_type),
-    pull_requests: e => /^pr_/i.test(e.event_type),
+    pull_requests: e => /^pr_(?!review$)/i.test(e.event_type),
     issues:        e => /^issue/i.test(e.event_type),
-    reviews:       e => /^pr_reviewed/i.test(e.event_type),
+    reviews:       e => /^pr_review$/i.test(e.event_type),
   };
 
   async function loadPanelEvents() {
@@ -206,6 +206,7 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 mb-0.5">
               <span class="text-xs font-semibold truncate" style="color:var(--text-1)">${it.workspace||'—'}</span>
+              ${/^pr_/i.test(it.event_type)?`<span style="font-size:10px;font-weight:600;background:var(--surface-2);color:var(--text-2);padding:1px 6px;border-radius:4px">${_prLabel(it.event_type)}</span>`:''}
               ${it.sha?`<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${it.sha}</code>`:''}
             </div>
             <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.title||'—'}</span>
@@ -362,6 +363,9 @@
   const _GH_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _GH_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const _ghFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  // pr_opened → "Opened", pr_merged → "Merged", etc. Only PR rows are ambiguous
+  // in the feed (Commits/Issues tabs are already single-type).
+  const _prLabel = et => (et||'').replace(/^pr_/i,'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) || 'PR';
 
   function _ghCommitExtra(it) {
     const shaHtml = it.sha

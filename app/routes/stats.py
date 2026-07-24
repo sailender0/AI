@@ -107,10 +107,10 @@ async def get_jira_assigned(profile_id: str = Depends(require_profile)):
 
 _STATS = {
     "github": {
-        "metrics": [("Pull Requests", r"^pr_"), ("Commits", r"^commit"),
-                    ("Reviews", r"^pr_reviewed"), ("Issues", r"^issue")],
-        "series":  [("commits", r"^commit"), ("pull_requests", r"^pr_"),
-                    ("issues", r"^issue"), ("reviews", r"^pr_reviewed")],
+        "metrics": [("Pull Requests", r"^pr_(?!review$)"), ("Commits", r"^commit"),
+                    ("Reviews", r"^pr_review$"), ("Issues", r"^issue")],
+        "series":  [("commits", r"^commit"), ("pull_requests", r"^pr_(?!review$)"),
+                    ("issues", r"^issue"), ("reviews", r"^pr_review$")],
         "top_label": "Top Repositories", "has_top": True,
     },
     "gitlab": {
