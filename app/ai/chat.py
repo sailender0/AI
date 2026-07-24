@@ -25,7 +25,7 @@ from app.auth.rbac import require_permission
 from app.auth.sso import require_profile
 from app.delivery.email_delivery import send_mail
 from app.services.email_report import render_chat
-from app.routes.stats import fetch_assigned
+from app.services.jira_board import fetch_assigned
 from app.services.timezone import is_valid_tz, resolve
 from app.storage.models import ChatConversation, ChatMessage, Profile
 from app.storage.mongodb import activity_events

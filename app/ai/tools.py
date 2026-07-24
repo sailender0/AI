@@ -17,8 +17,8 @@ from app.ai import llm
 from app.ai.context import _load_instructions, _sanitize_question
 from app.ai.summarizer import _format_events
 from app.auth.sso import require_profile
-from app.routes.agent.analytics import _tool_active_minutes, _period_ranges
 from app.services.activity_query import compute_focus_blocks
+from app.services.device_analytics import period_ranges, tool_active_minutes
 from app.services.timezone import day_bounds, now_local, resolve
 from app.storage.models import Profile
 from app.storage.mongodb import (
@@ -42,12 +42,12 @@ def _resolve_period(period: str, tz_name: str, today: date | None = None) -> tup
     if period == "last_7_days":
         return ((today - timedelta(days=6)).isoformat(), today.isoformat())
     for gran in ("week", "month"):
-        r = _period_ranges(gran, today)
+        r = period_ranges(gran, today)
         if period == f"this_{gran}":
             return r["this"]
         if period == f"last_{gran}":
             return r["last"]
-    return _period_ranges("week", today)["this"]        # unknown → this week
+    return period_ranges("week", today)["this"]        # unknown → this week
 
 
 def _period_ts_filter(frm: str, to: str, tz_name: str) -> dict:
@@ -112,7 +112,7 @@ async def _tool_get_ai_tools(profile_id, tz_name, args) -> dict:
         {"profile_id": profile_id, "timestamp": ts},
         projection={"tools": 1, "timestamp": 1, "_id": 0},
     ).to_list(2000)
-    active_min = _tool_active_minutes(ai_docs, focus_blocks)
+    active_min = tool_active_minutes(ai_docs, focus_blocks)
     all_tools: set[str] = set()
     for d in ai_docs:
         all_tools.update(d.get("tools", []))

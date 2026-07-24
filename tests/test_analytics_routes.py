@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from app.routes.agent.analytics import router
 
 PROFILE = "00000000-0000-0000-0000-000000000009"
-P = "app.routes.agent.analytics."
+P = "app.services.device_analytics."
 
 
 def _coll(items=(), find_one=None):

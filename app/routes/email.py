@@ -6,9 +6,8 @@ fetch → render → send pipeline. Delegated Graph Mail.Send — recipient is a
 the user's own mailbox; `kind` selects the artifact and `date` its day/week.
 """
 import logging
-import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -23,6 +22,7 @@ from app.auth.sso import require_profile
 from app.delivery.email_delivery import send_mail
 from app.middleware.rate_limit import limiter
 from app.services.email_report import render
+from app.services.report_data import SUPPORTED_KINDS, fetch_report
 from app.storage.models import EmailPreference, Profile
 from app.storage.mongodb import access_log, email_sends
 from app.storage.postgres import AsyncSessionLocal, get_db
@@ -30,7 +30,6 @@ from app.storage.postgres import AsyncSessionLocal, get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_SUPPORTED = {"standup", "device_activity", "device_activity_week", "analytics", "my_day"}
 # Kinds a supervisor/admin may pull for ANOTHER user (privacy-reviewed subset).
 _CROSS_USER_KINDS = {"my_day", "analytics"}
 _FREQUENCIES = {"daily", "weekdays", "weekly"}
@@ -43,94 +42,6 @@ class EmailRequest(BaseModel):
     to_user_id: str | None = None # elevated only: recipient app user. None = the actor (self)
 
 
-def _clamp_date(date: str | None, today: str) -> str:
-    """A valid past-or-today YYYY-MM-DD, else today. Future dates clamp to today
-    (string min works: ISO dates sort chronologically)."""
-    if date and re.match(r"^\d{4}-\d{2}-\d{2}$", date):
-        return min(date, today)
-    return today
-
-
-def _week_start_of(date_str: str) -> str:
-    """Monday (YYYY-MM-DD) of the week containing date_str — the app's week def."""
-    d = datetime.strptime(date_str, "%Y-%m-%d")
-    return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
-
-
-async def _resolve_date(profile_id: str, db: AsyncSession, date: str | None):
-    """(tzinfo, effective_local_date) — defaults to today, clamps future to today."""
-    from app.services.activity_query import get_profile_tz
-    from app.services.timezone import resolve, today_str
-    tzinfo = resolve(await get_profile_tz(profile_id, db))
-    return tzinfo, _clamp_date(date, today_str(tzinfo))
-
-
-async def _fetch(kind: str, profile_id: str, db: AsyncSession, date: str | None = None) -> dict:
-    # Lazy imports keep this route free of import cycles with the source routes.
-    tzinfo, the_date = await _resolve_date(profile_id, db, date)
-
-    if kind == "standup":
-        from app.routes.standup import _generate
-        return await _generate(profile_id, db, target_date=the_date)
-
-    if kind == "device_activity":
-        from app.routes.agent.analytics import build_activity_today
-        data = await build_activity_today(profile_id, tzinfo, the_date)
-        data["_date"] = the_date
-        return data
-
-    if kind == "device_activity_week":
-        from app.routes.agent.analytics import build_activity_week
-        from app.services.timezone import day_bounds, local_date
-        from app.storage.mongodb import local_commits
-        week_start = _week_start_of(the_date)
-        week = await build_activity_week(profile_id, tzinfo, week_start)
-        # per-day commit counts (the week payload only carries a total)
-        w_start, _ = day_bounds(week_start, tzinfo)
-        cdocs = await local_commits().find(
-            {"profile_id": profile_id,
-             "timestamp": {"$gte": w_start, "$lt": w_start + timedelta(days=7)}},
-            projection={"timestamp": 1, "_id": 0},
-        ).to_list(2000)
-        by_day: dict[str, int] = {}
-        for c in cdocs:
-            ts = c.get("timestamp")
-            if ts:
-                dk = local_date(ts, tzinfo)
-                by_day[dk] = by_day.get(dk, 0) + 1
-        week["commits_by_day"] = by_day
-        return week
-
-    if kind == "analytics":
-        from app.routes.exports import _fetch_week_stats, _fetch_week_events, _get_summary
-        week_start = _week_start_of(the_date)
-        events, _ = await _fetch_week_events(profile_id, week_start, db)
-        return {
-            "week_start": week_start,
-            "stats": await _fetch_week_stats(profile_id, week_start, db),
-            "summary": await _get_summary(profile_id, "weekly", week_start, db),
-            "events": events,
-        }
-
-    if kind == "my_day":
-        from app.routes.exports import _fetch_day_events, _get_summary
-        events, _ = await _fetch_day_events(profile_id, the_date, db)
-        counts: dict[str, int] = {}
-        for e in events:
-            s = e.get("source", "other")
-            if s == "teams_subscription":
-                s = "teams"
-            counts[s] = counts.get(s, 0) + 1
-        return {
-            "date": the_date,
-            "summary": await _get_summary(profile_id, "daily", the_date, db),
-            "events": events,
-            "counts": counts,
-        }
-
-    raise ValueError(f"unsupported kind: {kind}")
-
-
 async def _run(kind: str, profile_id: str, to: str, date: str | None = None,
                sender_id: str | None = None) -> bool:
     """Fetch → render → send, in its own DB session. Returns True on a sent (202).
@@ -138,7 +49,7 @@ async def _run(kind: str, profile_id: str, to: str, date: str | None = None,
     mailbox it's sent FROM (defaults to profile_id for self-service)."""
     try:
         async with AsyncSessionLocal() as db:
-            data = await _fetch(kind, profile_id, db, date)
+            data = await fetch_report(kind, profile_id, db, date)
         subject, html_body = render(kind, data)
         if await send_mail(sender_id or profile_id, to, subject, html_body):
             return True
@@ -198,11 +109,11 @@ async def preview_email(request: Request, body: EmailRequest,
                         db: AsyncSession = Depends(get_db)):
     """Generate the report for {kind, date} and return {subject, html} WITHOUT
     sending, so the /email page (and admin per-user panel) can show it first."""
-    if body.kind not in _SUPPORTED:
+    if body.kind not in SUPPORTED_KINDS:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
     profile_id = await _resolve_report_access(body, actor, db, action="preview")
     try:
-        data = await _fetch(body.kind, profile_id, db, body.date)
+        data = await fetch_report(body.kind, profile_id, db, body.date)
         subject, html_body = render(body.kind, data)
     except Exception as exc:
         logger.error("preview '%s' failed for %s: %s", body.kind, profile_id, exc)
@@ -219,7 +130,7 @@ async def send_email_report(
     actor: Profile = Depends(load_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.kind not in _SUPPORTED:
+    if body.kind not in SUPPORTED_KINDS:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
     target_id = await _resolve_report_access(body, actor, db, action="email")
 
@@ -261,7 +172,7 @@ async def list_preferences(profile_id: str = Depends(require_profile),
 @router.put("/api/email/preferences")
 async def set_preference(body: PreferenceBody, profile_id: str = Depends(require_profile),
                          db: AsyncSession = Depends(get_db)):
-    if body.kind not in _SUPPORTED:
+    if body.kind not in SUPPORTED_KINDS:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
     if not (0 <= body.hour <= 23) or not (0 <= body.weekday <= 6):
         return JSONResponse({"error": "hour must be 0-23, weekday 0-6"}, status_code=400)

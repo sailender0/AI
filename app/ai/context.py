@@ -8,11 +8,10 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.ai import llm
-from app.routes.agent.analytics import (
-    _tool_active_minutes, _tool_active_periods, _merge_hourly,
-    _period_ranges, _token_total,
-)
 from app.services.activity_query import compute_focus_blocks
+from app.services.device_analytics import (
+    merge_hourly, period_ranges, token_total, tool_active_minutes, tool_active_periods,
+)
 from app.services.timezone import day_bounds, local_date, now_local, resolve
 from app.storage.mongodb import (
     device_heartbeats, claude_usage, local_commits, ai_tool_events, standups,
@@ -99,10 +98,10 @@ async def _token_comparison_block(profile_id: str, tz_name: str, question: str) 
     if not any(w in ql for w in _COMPARE_WORDS):
         return ""
     gran = "month" if "month" in ql else "week"
-    rng = _period_ranges(gran, now_local(resolve(tz_name)).date())
+    rng = period_ranges(gran, now_local(resolve(tz_name)).date())
     (tf, tt), (lf, lt) = rng["this"], rng["last"]
-    this_total = await _token_total(profile_id, tf, tt)
-    last_total = await _token_total(profile_id, lf, lt)
+    this_total = await token_total(profile_id, tf, tt)
+    last_total = await token_total(profile_id, lf, lt)
     if not (this_total or last_total):
         return ""
     delta = this_total - last_total
@@ -272,7 +271,7 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
                 repos[repo] = repos.get(repo, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
             for repo, toks in sorted(repos.items(), key=lambda x: -x[1]):
                 lines.append(f"  {repo}: {toks:,} tokens")
-            hourly = _merge_hourly(claude_docs)                  # when tokens were spent
+            hourly = merge_hourly(claude_docs)                  # when tokens were spent
             if hourly:
                 lines.append("  tokens by hour of day (local):")
                 for hb in hourly:
@@ -300,8 +299,8 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
         projection={"tools": 1, "timestamp": 1, "_id": 0},
     ).to_list(2000)
     if ai_docs:
-        active_min = _tool_active_minutes(ai_docs, focus_blocks)
-        periods    = _tool_active_periods(ai_docs, focus_blocks)
+        active_min = tool_active_minutes(ai_docs, focus_blocks)
+        periods    = tool_active_periods(ai_docs, focus_blocks)
         tz = resolve(tz_name)
         all_tools: set[str] = set()
         for doc in ai_docs:

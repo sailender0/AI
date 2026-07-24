@@ -1,8 +1,8 @@
-"""Pure-mapper checks for the live 'assigned to me' endpoint (_issue_row) and
+"""Pure-mapper checks for the live 'assigned to me' endpoint (issue_row) and
 the read-time Jira field extraction (_jira_extras) — both payload shapes
 (webhook-nested vs backfill-flat), offline, no fixtures.
 """
-from app.routes.stats import _issue_row
+from app.services.jira_board import issue_row
 from app.services.activity_query import jira_extras as _jira_extras
 
 
@@ -16,7 +16,7 @@ def test_issue_row_maps_fields():
         "customfield_10020": [{"name": "Sprint 1", "state": "closed"},
                               {"name": "Sprint 2", "state": "active"}],
     }}
-    assert _issue_row(issue) == {
+    assert issue_row(issue) == {
         "key": "PROJ-7", "summary": "Fix login",
         "status": "In Progress", "status_category": "indeterminate",
         "priority": "High", "issue_type": "Bug", "due_date": "2026-07-20",
@@ -26,7 +26,7 @@ def test_issue_row_maps_fields():
 
 
 def test_issue_row_tolerates_missing_fields():
-    row = _issue_row({"key": "PROJ-8", "fields": {"summary": "Bare"}})
+    row = issue_row({"key": "PROJ-8", "fields": {"summary": "Bare"}})
     assert row["status"] == "" and row["sprint"] is None and row["story_points"] is None
 
 

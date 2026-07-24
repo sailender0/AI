@@ -1,5 +1,5 @@
-"""Pins _aggregate_claude — the claude_usage roll-up used by /today and /week."""
-from app.routes.agent.analytics import _aggregate_claude
+"""Pins aggregate_claude — the claude_usage roll-up used by /today and /week."""
+from app.services.device_analytics import aggregate_claude
 
 
 def test_merges_same_repo_and_model():
@@ -7,7 +7,7 @@ def test_merges_same_repo_and_model():
         {"repo": "a", "model": "sonnet", "input_tokens": 10, "output_tokens": 5, "message_count": 1, "files": ["x"]},
         {"repo": "a", "model": "sonnet", "input_tokens": 20, "output_tokens": 5, "message_count": 2, "files": ["y"]},
     ]
-    summary, total = _aggregate_claude(docs)
+    summary, total = aggregate_claude(docs)
     assert len(summary) == 1
     r = summary[0]
     assert r["repo"] == "a"
@@ -23,7 +23,7 @@ def test_splits_repos_and_models():
         {"repo": "a", "model": "opus",   "input_tokens": 2, "output_tokens": 2, "message_count": 1, "files": []},
         {"repo": "b", "model": "sonnet", "input_tokens": 3, "output_tokens": 3, "message_count": 1, "files": []},
     ]
-    summary, total = _aggregate_claude(docs)
+    summary, total = aggregate_claude(docs)
     assert {r["repo"] for r in summary} == {"a", "b"}
     a = next(r for r in summary if r["repo"] == "a")
     assert len(a["models"]) == 2
@@ -31,7 +31,7 @@ def test_splits_repos_and_models():
 
 
 def test_empty():
-    assert _aggregate_claude([]) == ([], 0)
+    assert aggregate_claude([]) == ([], 0)
 
 
 if __name__ == "__main__":

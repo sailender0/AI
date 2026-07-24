@@ -17,8 +17,8 @@ from app.ai.context import _fetch_my_activity_context
 from app.ai.summarizer import _format_events
 from app.ai.tools import _tool_get_focus_time
 from app.auth.sso import require_profile
-from app.routes.agent.analytics import _period_ranges, _token_total
-from app.routes.stats import fetch_assigned
+from app.services.device_analytics import period_ranges, token_total
+from app.services.jira_board import fetch_assigned
 from app.services.timezone import day_bounds, now_local, resolve
 from app.storage.models import Profile
 from app.storage.mongodb import activity_events
@@ -125,10 +125,10 @@ async def _build_insights(profile_id: str, tz_name: str) -> dict:
                           "text": f"Jira due within 3 days ({len(due_soon)}): {_keys_phrase(due_soon)}"})
 
     # 2. Claude token spike vs last week (±30%)
-    rng = _period_ranges("week", today)
+    rng = period_ranges("week", today)
     (tf, tt), (lf, lt) = rng["this"], rng["last"]
-    this_tok = await _token_total(profile_id, tf, tt)
-    last_tok = await _token_total(profile_id, lf, lt)
+    this_tok = await token_total(profile_id, tf, tt)
+    last_tok = await token_total(profile_id, lf, lt)
     if last_tok and this_tok:
         pct = (this_tok - last_tok) / last_tok * 100
         if abs(pct) >= 30:
