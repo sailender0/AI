@@ -22,10 +22,13 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
     if not profile:
         return JSONResponse({"authenticated": False})
     integrations, integration_errors = await get_integrations(profile_id, db)
+    from app.auth.rbac import granted
     return JSONResponse({
         "authenticated": True,
         "email": profile.email,
         "profile_id": str(profile.id),
+        "role": profile.role,
+        "permissions": granted(profile),
         "integrations": integrations,
         "integration_errors": integration_errors,
         "connect_urls": {

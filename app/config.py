@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "http://localhost:8000"
     WEBHOOK_BASE_URL: str = ""   # ngrok/public URL for webhook registration; falls back to APP_BASE_URL
     SECRET_KEY: str = ""
+    # Comma-separated emails promoted to role=admin at every login (bootstrap +
+    # lockout recovery). Promote-only — see app/auth/sso.py:auth_callback.
+    ADMIN_EMAILS: str = ""
 
     # Entra ID / Azure AD
     AZURE_TENANT_ID: str = ""

@@ -12,6 +12,12 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+# Feature keys an admin can grant/revoke per user. Granted by default (see
+# Profile.permissions) so existing users keep what they already had.
+# Authorization logic lives in app/auth/rbac.py.
+ALL_PERMISSIONS = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -24,6 +30,8 @@ class Profile(Base):
     email = Column(String, unique=True, nullable=False)
     timezone = Column(String, default="UTC")
     teams_user_id = Column(String)
+    role = Column(String, nullable=False, default="user")   # user | supervisor | admin
+    permissions = Column(JSON, nullable=False, default=lambda: list(ALL_PERMISSIONS))
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     linked_identities = relationship("LinkedIdentity", back_populates="profile", cascade="all, delete-orphan")

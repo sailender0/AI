@@ -66,6 +66,12 @@ async def acquire_delegated_token(profile_id: str) -> str | None:
     return None
 
 
+def _admin_emails() -> set[str]:
+    """Lowercased ADMIN_EMAILS allowlist. Empty entries dropped so a stray comma
+    can't grant admin to the empty-string email."""
+    return {e.strip().lower() for e in settings.ADMIN_EMAILS.split(",") if e.strip()}
+
+
 def _is_local_callback(url: str) -> bool:
     """True only for a real http(s)://localhost or 127.0.0.1 callback (any port/path).
     startswith() is bypassable via userinfo (http://localhost:@evil.com) or a bogus
@@ -146,10 +152,13 @@ async def auth_callback(request: Request, code: str, state: str):
     tenant_id = claims.get("tid", "")
     teams_user_id = claims.get("oid", "")
 
+    is_seeded_admin = email.strip().lower() in _admin_emails()
+
     async with AsyncSessionLocal() as db:
         profile = (await db.execute(select(Profile).where(Profile.entra_id == entra_id))).scalar_one_or_none()
         if not profile:
-            profile = Profile(entra_id=entra_id, email=email, teams_user_id=teams_user_id)
+            profile = Profile(entra_id=entra_id, email=email, teams_user_id=teams_user_id,
+                              role="admin" if is_seeded_admin else "user")
             db.add(profile)
             await db.flush()
 
@@ -161,6 +170,12 @@ async def auth_callback(request: Request, code: str, state: str):
             db.add(identity)
         else:
             profile.teams_user_id = teams_user_id
+            # Re-apply on every login so a seeded admin can't be locked out.
+            # ponytail: promote-only — demoting on removal would clobber admins
+            # promoted in-app. To remove a seeded admin: drop the env entry AND
+            # demote them on /admin.
+            if is_seeded_admin:
+                profile.role = "admin"
         await db.commit()
         await db.refresh(profile)
 

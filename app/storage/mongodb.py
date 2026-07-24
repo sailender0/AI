@@ -56,6 +56,31 @@ def email_sends():
     return get_db()["email_sends"]
 
 
+def access_log():
+    """Audit trail for cross-user report access (supervisor/admin)."""
+    return get_db()["access_log"]
+
+
+async def purge_profile(profile_id: str) -> dict[str, int]:
+    """Delete every per-profile document for a removed user. Postgres rows go via
+    the ORM cascade; this is the Mongo half, which has no foreign keys.
+
+    access_log is deliberately NOT purged — it is the audit trail of who accessed
+    what, and must outlive the account it refers to.
+    """
+    collections = [
+        activity_events(), device_heartbeats(), local_commits(), ai_tool_events(),
+        claude_usage(), vscode_extensions(), tool_preferences(), week_summaries(),
+        standups(), email_sends(),
+    ]
+    deleted = {}
+    for col in collections:
+        result = await col.delete_many({"profile_id": profile_id})
+        if result.deleted_count:
+            deleted[col.name] = result.deleted_count
+    return deleted
+
+
 async def init_indexes():
     col = activity_events()
     await col.create_index([("profile_id", 1), ("occurred_at", -1)])
@@ -85,3 +110,7 @@ async def init_indexes():
     await email_sends().create_index(
         [("profile_id", 1), ("kind", 1), ("date", 1)], unique=True
     )
+
+    # Cross-user access audit: query by target ("who viewed me") and by actor.
+    await access_log().create_index([("target_profile_id", 1), ("at", -1)])
+    await access_log().create_index([("actor_profile_id", 1), ("at", -1)])
