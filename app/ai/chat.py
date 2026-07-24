@@ -21,6 +21,7 @@ from app.ai.context import (
     _period_label, _sanitize_question, _token_comparison_block,
 )
 from app.ai.summarizer import _format_events
+from app.auth.rbac import require_permission
 from app.auth.sso import require_profile
 from app.delivery.email_delivery import send_mail
 from app.services.email_report import render_chat
@@ -251,7 +252,7 @@ async def _assistant_message(db, conv_id: str, profile_id: str, message_id: str 
 
 @router.post("/api/chat/conversations/{conv_id}/email/preview")
 async def preview_email_answer(conv_id: str, body: EmailMsgRequest,
-                              profile_id: str = Depends(require_profile)):
+                              profile_id: str = Depends(require_permission("email_ai_answer"))):
     """Report-styled HTML for a chosen (or latest) AI answer — no send."""
     async with AsyncSessionLocal() as db:
         conv, msg = await _assistant_message(db, conv_id, profile_id, body.message_id)
@@ -265,7 +266,7 @@ async def preview_email_answer(conv_id: str, body: EmailMsgRequest,
 
 @router.post("/api/chat/conversations/{conv_id}/email")
 async def email_answer(conv_id: str, body: EmailMsgRequest,
-                       profile_id: str = Depends(require_profile)):
+                       profile_id: str = Depends(require_permission("email_ai_answer"))):
     """Email a chosen (or latest) AI answer to the user (self-only). Re-renders from
     the stored message — no client-supplied HTML."""
     async with AsyncSessionLocal() as db:

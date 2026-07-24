@@ -8,10 +8,10 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.sso import require_profile
+from app.auth.rbac import load_profile, report_target
 from app.services.activity_query import get_profile_tz, week_source_stats
 from app.services.timezone import day_bounds, resolve, today_str
-from app.storage.models import Summary
+from app.storage.models import Profile, Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import get_db
 
@@ -85,8 +85,10 @@ async def _get_summary(profile_id: str, period_type: str, date_str: str, db: Asy
 
 
 @router.get("/api/export/daily-pdf")
-async def export_daily_pdf(date: str = "", profile_id: str = Depends(require_profile),
+async def export_daily_pdf(date: str = "", user_id: str = "",
+                           actor: Profile = Depends(load_profile),
                            db: AsyncSession = Depends(get_db)):
+    profile_id = await report_target("export_my_day", "my_day", user_id, actor, db)
     try:
         if not date:
             date = today_str(resolve(await get_profile_tz(profile_id, db)))
@@ -102,8 +104,10 @@ async def export_daily_pdf(date: str = "", profile_id: str = Depends(require_pro
 
 
 @router.get("/api/export/weekly-pdf")
-async def export_weekly_pdf(week_start: str = "", profile_id: str = Depends(require_profile),
+async def export_weekly_pdf(week_start: str = "", user_id: str = "",
+                            actor: Profile = Depends(load_profile),
                             db: AsyncSession = Depends(get_db)):
+    profile_id = await report_target("export_analytics", "analytics", user_id, actor, db)
     try:
         if not week_start:
             now = datetime.now(resolve(await get_profile_tz(profile_id, db)))
@@ -150,8 +154,10 @@ def _events_to_csv(events: list) -> str:
 
 
 @router.get("/api/export/daily-csv")
-async def export_daily_csv(date: str = "", profile_id: str = Depends(require_profile),
+async def export_daily_csv(date: str = "", user_id: str = "",
+                           actor: Profile = Depends(load_profile),
                            db: AsyncSession = Depends(get_db)):
+    profile_id = await report_target("export_my_day", "my_day", user_id, actor, db)
     if not date:
         date = today_str(resolve(await get_profile_tz(profile_id, db)))
     events, _ = await _fetch_day_events(profile_id, date, db)
@@ -163,8 +169,10 @@ async def export_daily_csv(date: str = "", profile_id: str = Depends(require_pro
 
 
 @router.get("/api/export/weekly-csv")
-async def export_weekly_csv(week_start: str = "", profile_id: str = Depends(require_profile),
+async def export_weekly_csv(week_start: str = "", user_id: str = "",
+                            actor: Profile = Depends(load_profile),
                             db: AsyncSession = Depends(get_db)):
+    profile_id = await report_target("export_analytics", "analytics", user_id, actor, db)
     if not week_start:
         now = datetime.now(resolve(await get_profile_tz(profile_id, db)))
         week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
