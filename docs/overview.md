@@ -302,17 +302,31 @@ app/
 ├── config.py                  — Settings (env vars, Azure endpoints)
 ├── middleware/
 │   └── rate_limit.py          — slowapi Limiter (200 req/min per IP, shared across all webhook routes)
-├── routes/
+├── routes/                    — HTTP ONLY: parse the request, authorize, call a service,
+│   │                            shape the response. Nothing outside main.py may import
+│   │                            from here (enforced by tests/test_layering.py).
 │   ├── pages.py               — HTML page routes + WebSocket (/ws) — 10 routes, no DB dependency
 │   ├── profile.py             — /api/me, /api/profile/timezone
 │   ├── activity.py            — /api/events/recent, /api/stats, /api/week-stats, /api/day-data, /api/week-breakdown, /api/analytics/trend
 │   ├── stats.py               — /api/github/stats, /api/jira/stats, /api/teams/stats, /api/gitlab/stats
 │   ├── summaries.py           — GET/DELETE /api/summaries, POST /api/summaries/generate
-│   └── exports.py             — /api/export/daily-pdf, /api/export/weekly-pdf
-├── services/
-│   └── activity_query.py      — Shared async query helpers used across route modules:
-│                                 get_profile_tz(), week_bounds(), pct(), count(),
-│                                 daily_counts(), top_items(), workspace_breakdown(), get_integrations()
+│   ├── exports.py             — /api/export/daily-pdf, /api/export/weekly-pdf (+ CSV)
+│   ├── standup.py             — /api/standup/* + run_standup_job() scheduler entry
+│   ├── email.py               — /api/email/* + run_email_digest_job() scheduler entry
+│   └── agent/analytics.py     — /agent/activity/today, /week, /token-comparison
+├── services/                  — Business logic. The only layer that talks to storage for
+│                                feature data; imported by routes, ai/, and the schedulers.
+│   ├── activity_query.py      — Shared async query helpers:
+│   │                             get_profile_tz(), week_bounds(), pct(), count(), daily_counts(),
+│   │                             top_items(), workspace_breakdown(), get_integrations(),
+│   │                             find_events(), serialize_event(), trend_rows(), week_source_stats()
+│   ├── device_analytics.py    — Focus blocks, AI-tool active time, Claude tokens:
+│   │                             build_activity_today/week(), tool_active_minutes/periods(),
+│   │                             aggregate_claude(), period_ranges(), token_total()
+│   ├── standup.py             — generate(): the standup for a date, cached in `standups`
+│   ├── report_data.py         — fetch_report(kind, ...): the data behind every emailed/exported
+│   │                             report; one dispatch table shared by exports.py and email.py
+│   └── jira_board.py          — fetch_assigned(): live "assigned to me" + connection health probe
 ├── ai/
 │   ├── summarizer.py          — _summarise_profile(), daily/weekly logic, run_startup_catchup()
 │   └── query.py               — Ask AI endpoints, _gpt_parse_intent(), chat conversations, /ask/stream SSE
@@ -386,8 +400,9 @@ app/
 10. **Token / cost logging** — All AI calls log `prompt_tokens`, `completion_tokens`, `total_tokens`, and `$cost`.
 11. **Ask AI GPT intent parsing** — Replaced keyword-based parser with `_gpt_parse_intent()`. Understands natural language time references.
 12. **Help page** — Built from scratch: master-detail layout, FAQ accordion, all four connector setup guides, page explanations with SVG mockups.
-13. **Token usage comparison (this vs last period)** — Ask AI now answers "this week vs last week" / "this month vs last month" for Claude tokens: `_token_comparison_block()` fetches both periods and reports the delta. New endpoint `GET /api/agent/token-comparison?granularity=week|month` backs a comparison card (two bars + ▲/▼ % delta) on the My Activity Week tab. Shared date math (`_period_ranges`, `_token_total` in `routes/agent/analytics.py`) is covered by `tests/test_token_comparison.py`.
+13. **Token usage comparison (this vs last period)** — Ask AI now answers "this week vs last week" / "this month vs last month" for Claude tokens: `_token_comparison_block()` fetches both periods and reports the delta. New endpoint `GET /api/agent/token-comparison?granularity=week|month` backs a comparison card (two bars + ▲/▼ % delta) on the My Activity Week tab. Shared date math (`period_ranges`, `token_total` in `services/device_analytics.py`) is covered by `tests/test_token_comparison.py`.
 14. **Ask AI tool-calling prototype** — Isolated `POST /api/chat/ask/tools` where the model chooses and composes 4 parameterized tools instead of receiving a pre-fetched context. `llm.answer_with_tools()` runs the tool loop; `profile_id`/`tz` injected server-side; comparison handled by calling a tool twice. Non-streaming, no persistence — a sandbox to measure latency/cost vs the pipeline before deciding whether to migrate. Period resolver covered by `tests/test_ai_tools_period.py`.
+15. **Service layer extracted; routes are HTTP-only** — `app/ai/*` and `routes/email.py` used to import private helpers out of sibling route modules (`routes.agent.analytics._period_ranges`, `routes.exports._fetch_week_stats`, `routes.standup._generate`, `routes.stats.fetch_assigned`), which made route modules the de-facto service layer and forced five lazy imports in `email.py` to dodge an import cycle. That logic moved down into `services/device_analytics.py`, `services/standup.py`, `services/report_data.py` and `services/jira_board.py`; the triplicated event-serialization block in `routes/activity.py` became `activity_query.serialize_event()`. Dependencies now run routes -> services -> storage in one direction only, pinned by `tests/test_layering.py` (no module but `main.py` may import `app.routes`; no new import cycles). No behaviour change — same endpoints, same payloads.
 
 ---
 
