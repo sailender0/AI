@@ -10,12 +10,14 @@
  * another as a border (--border), which a single `colors` entry can't express.
  */
 module.exports = {
-  // app.js MUST be here: the sidebar-connector markup is built in JS and
-  // contains bg-indigo-600 / bg-green-400 / bg-gray-600 / text-gray-400.
-  // Leave it out and the purge silently strips the connector styling.
+  // The JS MUST be here: page markup is built in JS and contains classes that
+  // appear nowhere in the templates (bg-indigo-600 / bg-green-400 / bg-gray-600
+  // / text-gray-400 for the sidebar connectors, and the per-page renderers in
+  // static/pages/). Leave a file out and the purge silently strips its styling.
   content: [
     './app/templates/**/*.html',
     './app/static/app.js',
+    './app/static/pages/*.js',
   ],
   theme: {
     extend: {

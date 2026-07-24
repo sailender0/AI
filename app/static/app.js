@@ -382,6 +382,13 @@ function getGreeting(email) {
   return `Good evening, ${capitalized}`;
 }
 
+/* ══ RBAC ═════════════════════════════════════════════════════ */
+function hasPerm(key) {
+  const role = window._role;
+  if (role === 'supervisor' || role === 'admin') return true;  // elevated hold all
+  return (window._perms || []).includes(key);
+}
+
 /* ══ Boot ═════════════════════════════════════════════════════ */
 async function initBase() {
   const res = await fetch('/api/me', { credentials: 'include' });
@@ -395,6 +402,19 @@ async function initBase() {
 
   document.getElementById('sidebar-logout').classList.remove('hidden');
   document.getElementById('sidebar-email').textContent = data.email;
+
+  // RBAC: expose role/permissions for per-page gating (hasPerm) and reveal
+  // role-gated nav. Server still enforces — this is just to hide dead controls.
+  window._role  = data.role || 'user';
+  window._perms = data.permissions || [];
+  window._email = data.email || '';
+  window._profileId = data.profile_id || '';
+  if (window._role === 'supervisor' || window._role === 'admin') {
+    const adminNav = document.getElementById('nav-admin');
+    if (adminNav) adminNav.classList.remove('hidden');
+  }
+  const emailNav = document.getElementById('nav-email');
+  if (emailNav && !hasPerm('email_report')) emailNav.classList.add('hidden');
   document.getElementById('page-greeting').textContent = getGreeting(data.email);
   // Feed avatar identity, shared by every page's onBaseReady
   const _emailUser = (data.email || '').split('@')[0];
