@@ -489,89 +489,43 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 });
 
 /* ══ Chat widget (Alpine) ═════════════════════════════════════ */
-function chatWidget() {
+// Proactive agent bubble (base.html). No longer a chat — it fetches what needs
+// the user's attention. Full chat lives at /ai. Loads once on init so the bubble
+// badge shows a count without being opened; the server caches the payload 10 min.
+function agentWidget() {
   return {
     open: false,
-    convId: null,
-    messages: [],
-    input: '',
-    streaming: false,
-    quickPrompts: [
-      'What did I work on today?',
-      'How many commits did I make this week?',
-      'How much time did I spend coding today?',
-    ],
+    loading: false,
+    loaded: false,
+    digest: '',
+    cards: [],
 
-    init() {},
+    init() { this.load(); },
 
-    async toggle() {
+    toggle() {
       this.open = !this.open;
-      if (this.open && !this.convId) await this._createConv();
-      if (this.open) this._scrollBottom();
+      if (this.open && !this.loaded) this.load();
     },
 
-    async _createConv() {
-      const r = await fetch('/api/chat/conversations', { method: 'POST', credentials: 'include' });
-      const d = await r.json();
-      this.convId = d.id;
-    },
-
-    sendQuick(q) { this.input = q; this.send(); },
-
-    async send() {
-      const q = this.input.trim();
-      if (!q || this.streaming) return;
-      this.input = '';
-      this.messages.push({ role: 'user', content: q });
-      const aiMsg = { role: 'assistant', content: '', chart_link: null };
-      this.messages.push(aiMsg);
-      this.streaming = true;
-      this._scrollBottom();
-
-      const path  = location.pathname;
-      const scope = path.includes('week') ? 'week' : path.includes('month') ? 'month' : 'today';
-      const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;  // IANA tz (ADR-0001)
-
+    async load(fresh = false) {
+      if (this.loading) return;
+      this.loading = true;
       try {
-        const resp = await fetch(`/api/chat/conversations/${this.convId}/ask/stream`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ question: q, scope, tz }),
-        });
-
-        const reader  = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop();
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const p = JSON.parse(line.slice(6));
-              if (p.token) { aiMsg.content += p.token; this._scrollBottom(); }
-              if (p.error) { aiMsg.content = 'Sorry, something went wrong.'; }
-              if (p.done && p.chart_link) aiMsg.chart_link = p.chart_link;
-              if (p.done || p.error) this.streaming = false;
-            } catch {}
-          }
-        }
+        const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;  // IANA tz (ADR-0001)
+        const qs  = `tz=${encodeURIComponent(tz)}${fresh ? '&fresh=1' : ''}`;  // fresh bypasses the server cache
+        const r   = await fetch(`/api/agent/insights?${qs}`, { credentials: 'include' });
+        const d   = await r.json();
+        this.digest = d.digest || '';
+        this.cards  = Array.isArray(d.cards) ? d.cards : [];
+        this.loaded = true;
       } catch {
-        aiMsg.content = 'Could not reach the server.';
+        this.digest = '';
+        this.cards  = [];
       }
-      this.streaming = false;
+      this.loading = false;
     },
 
-    _scrollBottom() {
-      this.$nextTick(() => {
-        const el = this.$refs.msgs;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    },
+    refresh() { this.loaded = false; this.load(true); },
   };
 }
 

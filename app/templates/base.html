@@ -18,6 +18,9 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <!-- Tailwind is compiled ahead of time into app.css (npm run css) — no CDN compiler. -->
   <link rel="stylesheet" href="/static/app.css"/>
+  <!-- Keep x-show/x-cloak elements hidden until Alpine binds, so a JS/load error
+       can't strand an open, un-closable panel. -->
+  <style>[x-cloak]{display:none!important}</style>
 </head>
 <body class="bg-gray-950 text-gray-100 font-sans" style="display:flex;height:100vh;overflow:hidden">
 
@@ -206,11 +209,11 @@
   </div>
 
   {% if active_page != 'ai' %}
-  <!-- ── Floating chat widget ──────────────────────────────────── -->
-  <div x-data="chatWidget()" x-init="init()" style="position:fixed;bottom:24px;right:24px;z-index:9999;font-family:'Inter',system-ui,sans-serif">
+  <!-- ── Floating agent widget ─────────────────────────────────── -->
+  <div x-data="agentWidget()" x-init="init()" style="position:fixed;bottom:24px;right:24px;z-index:9999;font-family:'Inter',system-ui,sans-serif">
 
     <!-- Panel -->
-    <div x-show="open" x-transition:enter="transition ease-out duration-200"
+    <div x-show="open" x-cloak x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0 translate-y-4 scale-95"
          x-transition:enter-end="opacity-100 translate-y-0 scale-100"
          x-transition:leave="transition ease-in duration-150"
@@ -228,9 +231,14 @@
           </svg>
         </div>
         <div style="flex:1">
-          <p style="font-size:13px;font-weight:600;color:var(--text-1);margin:0">Ask AI</p>
-          <p style="font-size:11px;color:var(--text-3);margin:0">Ask about your activity</p>
+          <p style="font-size:13px;font-weight:600;color:var(--text-1);margin:0">Agent</p>
+          <p style="font-size:11px;color:var(--text-3);margin:0">What needs your attention</p>
         </div>
+        <button @click="refresh()" :style="loading ? 'opacity:0.4;cursor:default' : ''" style="width:24px;height:24px;border-radius:6px;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-3)" title="Refresh">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
         <button @click="open=false" style="width:24px;height:24px;border-radius:6px;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-3)" title="Close">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -238,93 +246,79 @@
         </button>
       </div>
 
-      <!-- Messages -->
-      <div x-ref="msgs" style="flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px">
-        <!-- Empty state -->
-        <template x-if="messages.length === 0">
-          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px">
-            <div style="width:40px;height:40px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
-              <svg width="20" height="20" fill="none" stroke="var(--text-3)" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
-              </svg>
-            </div>
-            <p style="font-size:12px;color:var(--text-3);text-align:center;margin:0;line-height:1.6">
-              Ask anything about your activity.<br>
-              <span style="color:var(--text-3);opacity:0.7">Commits · focus time · AI usage</span>
-            </p>
-            <!-- Quick prompts -->
-            <div style="display:flex;flex-direction:column;gap:6px;width:100%">
-              <template x-for="q in quickPrompts" :key="q">
-                <button @click="sendQuick(q)"
-                  style="text-align:left;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-2);font-size:12px;cursor:pointer;transition:background 0.12s"
-                  onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'"
-                  x-text="q"></button>
-              </template>
-            </div>
+      <!-- Feed -->
+      <div style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px">
+
+        <!-- Loading -->
+        <template x-if="loading">
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;gap:4px">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0s"></span>
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0.2s"></span>
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0.4s"></span>
           </div>
         </template>
 
-        <!-- Message bubbles -->
-        <template x-for="(msg, i) in messages" :key="i">
-          <div :style="'display:flex;flex-direction:column;gap:5px;' + (msg.role === 'user' ? 'align-items:flex-end' : 'align-items:flex-start')">
-            <div :style="msg.role === 'user'
-              ? 'max-width:80%;padding:9px 13px;border-radius:14px 14px 4px 14px;background:var(--chrome);color:var(--chrome-text);font-size:13px;line-height:1.5;white-space:pre-wrap'
-              : 'max-width:88%;padding:9px 13px;border-radius:14px 14px 14px 4px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-1);font-size:13px;line-height:1.5;white-space:pre-wrap'"
-              x-text="msg.content || ''">
-            </div>
-            <a x-show="msg.chart_link" :href="msg.chart_link && msg.chart_link.href"
-              style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--chrome);text-decoration:none">
-              📊 <span x-text="msg.chart_link && msg.chart_link.label"></span> →
-            </a>
-          </div>
-        </template>
+        <!-- Loaded -->
+        <template x-if="!loading">
+          <div style="display:flex;flex-direction:column;gap:10px">
 
-        <!-- Typing indicator -->
-        <template x-if="streaming && messages.length && messages[messages.length-1].content === ''">
-          <div style="display:flex;justify-content:flex-start">
-            <div style="padding:10px 14px;border-radius:14px;background:var(--surface-2);border:1px solid var(--border);display:flex;gap:4px;align-items:center">
-              <span style="width:5px;height:5px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0s"></span>
-              <span style="width:5px;height:5px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0.2s"></span>
-              <span style="width:5px;height:5px;border-radius:50%;background:var(--text-3);animation:dot-bounce 1.2s infinite 0.4s"></span>
+            <!-- Daily digest (LLM) -->
+            <div x-show="digest" style="display:flex;gap:8px;padding:11px 13px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border-strong)">
+              <span style="font-size:14px;line-height:1.4">✨</span>
+              <span style="font-size:13px;color:var(--text-1);line-height:1.5" x-text="digest"></span>
             </div>
+
+            <!-- Attention cards -->
+            <template x-for="(c, i) in cards" :key="i">
+              <a :href="c.href"
+                style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;text-decoration:none;background:var(--surface-2);border:1px solid var(--border);transition:border-color 0.12s"
+                onmouseover="this.style.borderColor='var(--border-strong)'" onmouseout="this.style.borderColor='var(--border)'">
+                <span style="font-size:15px" x-text="c.icon"></span>
+                <span style="flex:1;font-size:13px;color:var(--text-1);line-height:1.4" x-text="c.text"></span>
+                <span style="color:var(--text-3);font-size:13px">→</span>
+              </a>
+            </template>
+
+            <!-- All clear -->
+            <template x-if="!cards.length">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px 16px;text-align:center">
+                <span style="font-size:26px">✅</span>
+                <p style="font-size:12px;color:var(--text-3);margin:0;line-height:1.6">All clear — nothing needs<br>your attention right now.</p>
+              </div>
+            </template>
           </div>
         </template>
       </div>
 
-      <!-- Input -->
-      <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0;background:var(--surface)">
-        <textarea x-model="input" @keydown.enter.prevent="!$event.shiftKey && send()"
-          placeholder="Ask about your activity…"
-          rows="1"
-          :disabled="streaming"
-          style="flex:1;resize:none;border:1px solid var(--border);border-radius:10px;padding:9px 12px;
-                 background:var(--surface-2);color:var(--text-1);font-size:13px;font-family:inherit;
-                 outline:none;line-height:1.4;max-height:100px;overflow-y:auto;transition:border-color 0.12s"
-          onfocus="this.style.borderColor='var(--border-strong)'" onblur="this.style.borderColor='var(--border)'"></textarea>
-        <button @click="send" :disabled="!input.trim() || streaming"
-          style="width:34px;height:34px;border-radius:10px;border:none;background:var(--chrome);color:var(--chrome-text);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.12s"
-          :style="(!input.trim() || streaming) ? 'opacity:0.4;cursor:not-allowed' : 'opacity:1'">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/>
+      <!-- Footer -->
+      <div style="padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:var(--surface)">
+        <a href="/ai" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--chrome);text-decoration:none">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
           </svg>
-        </button>
+          Open full chat →
+        </a>
       </div>
     </div>
 
     <!-- Bubble trigger -->
     <button @click="toggle"
-      style="width:48px;height:48px;border-radius:50%;border:none;background:var(--chrome);color:var(--chrome-text);
+      style="position:relative;width:48px;height:48px;border-radius:50%;border:none;background:var(--chrome);color:var(--chrome-text);
              cursor:pointer;display:flex;align-items:center;justify-content:center;
              box-shadow:0 4px 16px rgba(0,0,0,0.4);transition:transform 0.15s,box-shadow 0.15s"
       onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 8px 24px rgba(0,0,0,0.5)'"
       onmouseout="this.style.transform='';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.4)'"
-      title="Ask AI">
+      title="Agent">
+      <!-- Bell (closed) -->
       <svg x-show="!open" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
       </svg>
       <svg x-show="open" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
       </svg>
+      <!-- Attention badge -->
+      <span x-show="!open && cards.length" x-text="cards.length"
+        style="position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--bg)"></span>
     </button>
   </div>
   <!-- ── /Floating chat widget ──────────────────────────────────── -->
