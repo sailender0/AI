@@ -5,6 +5,7 @@ AI-generated text are attacker-influenced. Add a new kind by writing a render_*
 function and registering it in _RENDERERS (keep the route's _SUPPORTED in sync).
 """
 import html
+import re
 from datetime import datetime
 
 _SOURCE_NAMES = {
@@ -35,6 +36,39 @@ def _summary_html(text: str) -> str:
     if not text:
         return "<p style='color:#888'>No AI summary generated for this period.</p>"
     return f"<div>{_nl2br(text)}</div>"
+
+
+def _md_html(text: str) -> str:
+    """Minimal markdown → HTML for a freeform AI answer: **bold**, `-`/`*`/`•`
+    bullets, blank-line paragraphs. Escapes first so answer text can't inject markup."""
+    out: list[str] = []
+    bullets: list[str] = []
+
+    def flush():
+        if bullets:
+            out.append("<ul style='padding-left:18px;margin:6px 0'>" + "".join(bullets) + "</ul>")
+            bullets.clear()
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            flush()
+            continue
+        is_bullet = line[:2] in ("- ", "* ") or line.startswith("• ")
+        content = line[2:].strip() if is_bullet else line
+        esc = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html.escape(content))
+        if is_bullet:
+            bullets.append(f"<li>{esc}</li>")
+        else:
+            flush()
+            out.append(f"<p style='margin:6px 0'>{esc}</p>")
+    flush()
+    return "".join(out) or "<p style='color:#888'>(empty)</p>"
+
+
+def render_chat(title: str, text: str) -> tuple[str, str]:
+    """Freeform AI chat answer → (subject, styled html) using the report shell."""
+    return f"AI answer: {title}"[:200], _wrap(title or "AI answer", _md_html(text))
 
 
 def _kpi_html(counts: dict) -> str:

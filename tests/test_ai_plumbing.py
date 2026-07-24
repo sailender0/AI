@@ -83,7 +83,8 @@ def test_intent_to_filter_range_to_date_to():
 
 def test_scope_to_range_windows_are_ordered():
     frozen = datetime(2026, 7, 8, 12, 0, tzinfo=UTC)               # Wed
-    with patch.object(q, "now_local", return_value=frozen):
+    # _scope_to_range lives in app.ai.context now (re-exported via query); patch it there.
+    with patch("app.ai.context.now_local", return_value=frozen):
         today = q._scope_to_range("today", "UTC")["$gte"]
         week  = q._scope_to_range("week", "UTC")["$gte"]
         month = q._scope_to_range("month", "UTC")["$gte"]

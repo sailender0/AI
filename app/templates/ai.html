@@ -197,7 +197,7 @@
     const res  = await fetch(`/api/chat/conversations/${id}/messages`, { credentials: 'include' });
     const msgs = await res.json();
     document.getElementById('messages-area').innerHTML = '';
-    (Array.isArray(msgs) ? msgs : []).forEach(m => appendBubble(m.role, m.content));
+    (Array.isArray(msgs) ? msgs : []).forEach(m => appendBubble(m.role, m.content, m.id));
     scrollBottom();
   }
 
@@ -278,6 +278,7 @@
             scrollBottom();
           } else if (msg.done) {
             if (msg.chart_link && bubbleEl) _appendChartChip(bubbleEl, msg.chart_link);
+            if (msg.ai_message && bubbleEl) _appendEmailAction(bubbleEl, msg.ai_message.id);
             const conv = conversations.find(c => c.id === currentConvId);
             if (conv && msg.conversation_title) {
               conv.title      = msg.conversation_title;
@@ -327,7 +328,75 @@
     bubbleEl.appendChild(a);
   }
 
-  function appendBubble(role, content) {
+  // Report-styled email preview: sandboxed iframe of the exact HTML + a Send button.
+  // Returns the bubble element so the stream loop treats the turn as answered.
+  function _appendEmailPreview(html, messageId) {
+    const area = document.getElementById('messages-area');
+    const el   = document.createElement('div');
+    el.className = 'msg-ai';
+    el.innerHTML = `<div class="msg-ai-avatar">AI</div>
+      <div class="msg-ai-bubble" style="max-width:100%">
+        <div style="font-size:12px;color:var(--chrome);margin-bottom:6px">Preview — this is what will be emailed to you:</div>
+        <iframe sandbox style="width:100%;height:340px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="email-send-btn" style="font-size:12px;padding:6px 14px;border:none;border-radius:8px;background:#4f46e5;color:#fff;cursor:pointer">✉ Send to my inbox</button>
+          <button class="email-cancel-btn" style="font-size:12px;padding:6px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:var(--chrome);cursor:pointer">Cancel</button>
+        </div>
+      </div>`;
+    area.appendChild(el);
+    el.querySelector('iframe').srcdoc = html;   // set via property (no attribute escaping)
+    const send = el.querySelector('.email-send-btn');
+    send.dataset.msgId = messageId || '';       // which message this preview will email
+    send.addEventListener('click', (e) => emailAnswer(e.target));
+    el.querySelector('.email-cancel-btn').addEventListener('click', () => el.remove());
+    scrollBottom();
+    return el;
+  }
+
+  async function emailAnswer(btn) {
+    btn.disabled = true; btn.textContent = 'Sending…';
+    const wrap = btn.closest('.msg-ai-bubble');
+    try {
+      const r = await fetch(`/api/chat/conversations/${currentConvId}/email`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: btn.dataset.msgId || null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      wrap.textContent = d.sent ? '✉ Sent to your inbox.'
+        : "⚠ Couldn't send — sign out and back in to grant Mail.Send.";
+    } catch {
+      btn.disabled = false; btn.textContent = '✉ Send to my inbox';
+    }
+  }
+
+  // "✉ Email this" under each AI answer → previews THAT message, then a Send button.
+  function _appendEmailAction(bubbleEl, id) {
+    const b = document.createElement('button');
+    b.textContent = '✉ Email this';
+    b.style.cssText = 'display:block;margin-top:8px;font-size:11px;padding:3px 9px;'
+      + 'border-radius:999px;background:var(--surface);border:1px solid var(--border);'
+      + 'color:var(--chrome);cursor:pointer';
+    b.addEventListener('click', () => previewEmail(id, b));
+    bubbleEl.appendChild(b);
+  }
+
+  async function previewEmail(messageId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch(`/api/chat/conversations/${currentConvId}/email/preview`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: messageId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.html) _appendEmailPreview(d.html, messageId);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function appendBubble(role, content, id) {
     const area = document.getElementById('messages-area');
     const el   = document.createElement('div');
     if (role === 'user') {
@@ -338,6 +407,7 @@
       el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble">${escHtml(content)}</div>`;
     }
     area.appendChild(el);
+    if (role === 'assistant' && id) _appendEmailAction(el.querySelector('.msg-ai-bubble'), id);
   }
 
   function showTyping(on) {
