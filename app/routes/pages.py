@@ -132,9 +132,34 @@ async def my_day_page(request: Request):
 
 @router.get("/email", response_class=HTMLResponse)
 async def email_page(request: Request):
-    if not await get_profile_from_session(request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    from app.auth.rbac import granted
+    from app.storage.models import Profile
+    from app.storage.postgres import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile or "email_report" not in granted(profile):
         return RedirectResponse("/")
     return templates.TemplateResponse(request=request, name="email.html", context={"active_page": "email"})
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    from app.storage.models import Profile
+    from app.storage.postgres import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile or profile.role not in ("supervisor", "admin"):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(
+        request=request, name="admin.html",
+        context={"active_page": "admin", "can_edit": profile.role == "admin"},
+    )
 
 
 @router.websocket("/ws")

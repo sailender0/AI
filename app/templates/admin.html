@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Admin — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Access control{% endblock %}
+
+{% block content %}
+<style>
+  /* Access console — scoped to the admin page */
+  .ac-eyebrow { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-3); font-weight:600; }
+  .ac-input {
+    background:var(--surface-2); color:var(--text-1); border:1px solid var(--border);
+    border-radius:8px; padding:7px 10px; font-size:13px; outline:none;
+  }
+  .ac-input:focus { border-color:var(--border-strong); }
+  .ac-chip {
+    display:flex; align-items:baseline; gap:6px; padding:8px 12px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  }
+  .ac-chip b { font-size:18px; font-weight:700; color:var(--text-1); font-variant-numeric:tabular-nums; }
+  .ac-chip span { font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.05em; }
+
+  .urow { border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; }
+  .urow + .urow { margin-top:8px; }
+  .urow-head {
+    display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+    padding:12px 14px 12px 0; background:none; border:none; cursor:pointer; color:inherit;
+    border-left:3px solid var(--rail, var(--text-3));
+  }
+  .urow-head:hover { background:var(--surface-2); }
+  .urow-head:focus-visible { outline:2px solid var(--chrome-hover); outline-offset:-2px; }
+  .u-avatar {
+    width:32px; height:32px; border-radius:9px; flex-shrink:0; margin-left:11px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; color:var(--rail, var(--text-2));
+    background:var(--rail-bg, var(--surface-2)); border:1px solid var(--border);
+  }
+  .u-email { font-size:13.5px; font-weight:600; color:var(--text-1); flex:1; min-width:0;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .u-badge { font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px;
+             color:var(--rail); background:var(--rail-bg); text-transform:capitalize; }
+  .u-count { font-size:11px; color:var(--text-3); font-variant-numeric:tabular-nums; min-width:34px; text-align:right; }
+  .u-caret { color:var(--text-3); transition:transform .18s ease; margin-right:14px; }
+  .urow.open .u-caret { transform:rotate(90deg); }
+
+  .u-insp { display:none; padding:4px 16px 16px 16px; border-top:1px solid var(--border); background:var(--surface-2); }
+  .urow.open .u-insp { display:block; }
+  .u-insp-grid { display:grid; grid-template-columns:1fr; gap:20px; margin-top:14px; }
+  @media (min-width:820px) { .u-insp-grid { grid-template-columns:minmax(0,240px) 1fr; } }
+  .u-sec-label { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-3); font-weight:600; margin-bottom:10px; }
+
+  .perm-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 0; }
+  .perm-row + .perm-row { border-top:1px solid var(--border); }
+  .perm-name { font-size:13px; color:var(--text-2); }
+
+  /* Toggle switch */
+  .sw { position:relative; display:inline-block; width:34px; height:19px; flex-shrink:0; }
+  .sw input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .sw i {
+    position:absolute; inset:0; border-radius:999px; background:var(--surface);
+    border:1px solid var(--border-strong); transition:background .15s, border-color .15s;
+  }
+  .sw i::before {
+    content:""; position:absolute; width:13px; height:13px; left:2px; top:2px;
+    border-radius:50%; background:var(--text-3); transition:transform .15s, background .15s;
+  }
+  .sw input:checked + i { background:var(--positive); border-color:transparent; }
+  .sw input:checked + i::before { transform:translateX(15px); background:#fff; }
+  .sw input:disabled { cursor:not-allowed; }
+  .sw input:disabled + i { opacity:.4; }
+  .sw input:focus-visible + i { outline:2px solid var(--chrome-hover); outline-offset:2px; }
+
+  .rep-field { margin-bottom:10px; }
+  .rep-field label { display:block; font-size:11px; color:var(--text-3); margin-bottom:4px; }
+  .rep-select, .rep-datein {
+    width:100%; background:var(--surface); color:var(--text-1);
+    border:1px solid var(--border); border-radius:8px; padding:7px 9px; font-size:13px; outline:none;
+  }
+  .rep-select:focus, .rep-datein:focus { border-color:var(--border-strong); }
+  .rep-preview { width:100%; height:280px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+  .btn { font-size:13px; font-weight:500; padding:8px 14px; border-radius:8px; cursor:pointer; transition:opacity .12s; border:1px solid transparent; }
+  .btn:hover { opacity:.9; }
+  .btn-ghost { background:var(--surface); color:var(--text-1); border-color:var(--border); }
+  .btn-solid { background:var(--chrome); color:var(--chrome-text); }
+  .btn-danger { background:transparent; color:var(--negative); border-color:var(--negative); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .u-caret, .sw i, .sw i::before { transition:none; }
+  }
+</style>
+
+<div class="card" style="padding:18px 18px 8px">
+  <!-- Console header -->
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <div class="ac-eyebrow">Access control</div>
+      <h2 class="mt-1" style="font-size:17px;font-weight:700;color:var(--text-1)">Users &amp; permissions</h2>
+    </div>
+    <div class="flex items-center gap-2">
+      <input id="u-search" class="ac-input" type="search" placeholder="Search email…" oninput="applyFilter()" style="width:200px">
+      <select id="u-role-filter" class="ac-input" onchange="applyFilter()">
+        <option value="">All roles</option>
+        <option value="user">User</option>
+        <option value="supervisor">Supervisor</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Stat chips -->
+  <div class="flex flex-wrap gap-2 mt-4">
+    <div class="ac-chip"><b id="stat-total">–</b><span>Users</span></div>
+    <div class="ac-chip"><b id="stat-sup">–</b><span>Supervisors</span></div>
+    <div class="ac-chip"><b id="stat-admin">–</b><span>Admins</span></div>
+    <span id="users-status" class="ml-auto self-center text-xs" style="color:var(--text-3)"></span>
+  </div>
+
+  <!-- User rows -->
+  <div id="user-list" class="mt-4 mb-3">
+    <p class="text-sm" style="color:var(--text-3)">Loading…</p>
+  </div>
+  <p id="no-match" class="text-sm mb-3" style="color:var(--text-3);display:none">No users match your filter.</p>
+</div>
+
+<script>const CAN_EDIT = {{ 'true' if can_edit else 'false' }};</script>
+<script src="/static/pages/admin.js"></script>
+{% endblock %}

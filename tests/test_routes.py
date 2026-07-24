@@ -133,6 +133,8 @@ async def test_get_me_authenticated_returns_correct_shape():
         id = uuid.UUID(PROFILE_ID)
         email = "dev@example.com"
         timezone = "UTC"
+        role = "user"
+        permissions = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
 
     db = _mock_db()
     db.get = AsyncMock(return_value=_FakeProfile())
@@ -150,6 +152,8 @@ async def test_get_me_authenticated_returns_correct_shape():
     assert body["authenticated"] is True
     assert body["email"] == "dev@example.com"
     assert body["profile_id"] == PROFILE_ID
+    assert body["role"] == "user"
+    assert body["permissions"] == ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
     assert "integrations" in body
     assert "integration_errors" in body
     assert "connect_urls" in body
