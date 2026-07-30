@@ -40,7 +40,6 @@ class Settings(BaseSettings):
 
     # GitLab
     GITLAB_WEBHOOK_SECRET: str = ""
-    GITLAB_PROJECT_ID: str = ""
     GITLAB_CLIENT_ID: str = ""
     GITLAB_CLIENT_SECRET: str = ""
 
@@ -51,11 +50,6 @@ class Settings(BaseSettings):
 
     # Teams
     BOT_SERVICE_PRINCIPAL_ID: str = ""
-
-    # Azure AI Foundry
-    FOUNDRY_ENDPOINT: str = ""
-    FOUNDRY_PROJECT: str = ""
-    FOUNDRY_AGENT_ID: str = ""
 
     # Storage
     POSTGRES_URL: str = "postgresql+asyncpg://user:password@localhost:5432/activity_tracker"
