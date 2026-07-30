@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Consolidated Report — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Consolidated report{% endblock %}
+
+{% block content %}
+<style>
+  .cr-label { font-size:11px; color:var(--text-3); margin-bottom:5px; display:block; }
+  .cr-area {
+    width:100%; background:var(--surface-2); color:var(--text-1);
+    border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:13px; outline:none;
+    resize:vertical; min-height:64px;
+  }
+  .cr-area:focus { border-color:var(--border-strong); }
+  .cr-chip {
+    display:inline-flex; align-items:center; gap:7px; padding:6px 12px; cursor:pointer;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:999px; font-size:13px; color:var(--text-2);
+  }
+  .cr-chip input { accent-color:var(--chrome); }
+  .cr-seg { display:inline-flex; flex-wrap:wrap; gap:4px; }
+  .cr-seg button, .cr-preset {
+    font-size:13px; font-weight:600; padding:6px 12px; border-radius:8px; cursor:pointer;
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text-2);
+  }
+  .cr-seg button[aria-pressed="true"], .cr-preset[aria-pressed="true"] {
+    background:var(--chrome); color:var(--chrome-text); border-color:var(--chrome);
+  }
+  .cr-seg input:checked + label.cr-preset { background:var(--chrome); color:var(--chrome-text); border-color:var(--chrome); }
+  .cr-btn { font-size:14px; font-weight:600; padding:10px 20px; border-radius:8px; cursor:pointer;
+            background:var(--chrome); color:var(--chrome-text); border:none; transition:opacity .12s; }
+  .cr-btn:hover { opacity:.9; }
+  .cr-btn:disabled { opacity:.5; cursor:default; }
+  .cr-btn-ghost { font-size:13px; font-weight:600; padding:10px 16px; border-radius:8px; cursor:pointer;
+                  background:var(--surface-2); color:var(--text-1); border:1px solid var(--border); }
+  .cr-btn-ghost:disabled { opacity:.5; cursor:default; }
+  .cr-kpi { display:inline-flex; align-items:baseline; gap:6px; padding:8px 14px; margin:0 8px 8px 0;
+            background:var(--surface-2); border:1px solid var(--border); border-radius:10px; }
+  .cr-kpi b { font-size:20px; color:var(--text-1); font-variant-numeric:tabular-nums; }
+  .cr-kpi span { font-size:12px; color:var(--text-3); text-transform:capitalize; }
+  .cr-summary { white-space:pre-wrap; line-height:1.6; font-size:14px; color:var(--text-1); }
+</style>
+
+<div class="card" style="padding:20px;max-width:860px">
+  <div class="ac-eyebrow" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);font-weight:600">Consolidated report</div>
+  <h2 class="mt-1" style="font-size:17px;font-weight:700;color:var(--text-1)">AI summary over a date range</h2>
+
+  <!-- Period (shared range calendar) -->
+  <div class="mt-5">
+    <span class="cr-label">Period</span>
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="cr-seg" id="cr-presets">
+        <button class="cr-preset" data-preset="7"  type="button" aria-pressed="true">Last 7 days</button>
+        <button class="cr-preset" data-preset="14" type="button">Last 14 days</button>
+        <button class="cr-preset" data-preset="30" type="button">Last 30 days</button>
+        <button class="cr-preset" data-preset="thismonth" type="button">This month</button>
+        <button class="cr-preset" data-preset="custom" type="button">Custom</button>
+      </div>
+      <span class="cr-label" id="cr-range-label" style="margin:0;font-size:12.5px;color:var(--text-2)"></span>
+    </div>
+    <div id="cr-custom" class="mt-3" style="display:none"><div id="cr-cal"></div></div>
+  </div>
+
+  <!-- Connectors -->
+  <div class="mt-5">
+    <span class="cr-label">Connectors</span>
+    <div id="cr-sources" class="flex flex-wrap gap-2">
+      <label class="cr-chip"><input type="checkbox" value="github" checked> GitHub</label>
+      <label class="cr-chip"><input type="checkbox" value="gitlab" checked> GitLab</label>
+      <label class="cr-chip"><input type="checkbox" value="jira" checked> Jira</label>
+      <label class="cr-chip"><input type="checkbox" value="teams" checked> Teams</label>
+    </div>
+    <p class="cr-label mt-1" style="margin-bottom:0">Leave all checked for everything.</p>
+  </div>
+
+  <!-- Detail + prompt -->
+  <div class="mt-5">
+    <span class="cr-label">Summary depth</span>
+    <div class="cr-seg">
+      <input type="radio" name="cr-detail" id="cr-brief" value="brief" checked style="display:none"><label for="cr-brief" class="cr-preset" style="cursor:pointer">Brief</label>
+      <input type="radio" name="cr-detail" id="cr-detail" value="detail" style="display:none"><label for="cr-detail" class="cr-preset" style="cursor:pointer">Detailed</label>
+    </div>
+  </div>
+  <div class="mt-5">
+    <label class="cr-label" for="cr-prompt">Prompt (optional) — tell the AI what to focus on</label>
+    <textarea id="cr-prompt" class="cr-area" placeholder="e.g. Focus on code review activity and highlight blockers."></textarea>
+  </div>
+
+  <div class="flex items-center gap-3 mt-6">
+    <button id="cr-generate" class="cr-btn" onclick="generateReport()">Generate report</button>
+    <button id="cr-download" class="cr-btn-ghost" onclick="downloadReport()" disabled>Download</button>
+    <span id="cr-status" class="text-sm" style="color:var(--text-3)"></span>
+  </div>
+</div>
+
+<!-- Result -->
+<div id="cr-result" class="card" style="padding:20px;max-width:860px;margin-top:20px;display:none">
+  <div class="ac-eyebrow" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);font-weight:600" id="cr-result-range"></div>
+  <div id="cr-kpis" class="mt-3"></div>
+  <div id="cr-summary" class="cr-summary mt-4"></div>
+</div>
+
+<script src="/static/range-calendar.js"></script>
+<script src="/static/pages/consolidated.js"></script>
+{% endblock %}

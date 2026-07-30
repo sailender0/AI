@@ -419,6 +419,8 @@ async function initBase() {
   if (emailNav && !hasPerm('email_report')) emailNav.classList.add('hidden');
   const reportNav = document.getElementById('nav-report');
   if (reportNav && hasPerm('attendance_report')) reportNav.classList.remove('hidden');
+  const summaryNav = document.getElementById('nav-summary');
+  if (summaryNav && hasPerm('consolidated_report')) summaryNav.classList.remove('hidden');
   document.getElementById('page-greeting').textContent = getGreeting(data.email);
   // Feed avatar identity, shared by every page's onBaseReady
   const _emailUser = (data.email || '').split('@')[0];

@@ -3,6 +3,8 @@
 - Attendance (`attendance_report` perm): a people × days grid, >=3 events/day = P.
   Row-scoped by role — user sees self, manager their reports, admin anyone; cross-user
   views/downloads audited.
+- Consolidated (`consolidated_report` perm): a custom date-range, connector-filtered,
+  AI-summarised brief/detailed narrative. Self-service — the caller's own activity.
 """
 import logging
 import re
@@ -13,9 +15,10 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.rbac import granted, load_profile, visible_profiles
+from app.auth.rbac import granted, load_profile, require_permission, visible_profiles
 from app.middleware.rate_limit import limiter
 from app.services.attendance import attendance_csv, build_attendance
+from app.services.consolidated import build_consolidated, summarize_consolidated
 from app.storage.models import Profile
 from app.storage.mongodb import access_log
 from app.storage.postgres import get_db
@@ -105,3 +108,41 @@ async def attendance_download(request: Request, start: str = "", end: str = "",
         content=attendance_csv(data), media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="attendance-{start}_{end}.csv"'},
     )
+
+
+# ─────────────────────────── consolidated (AI summary) ───────────────────────────
+
+class ConsolidatedReq(BaseModel):
+    start: str
+    end: str
+    sources: list[str] | None = None       # empty/None = all connectors
+    event_types: list[str] | None = None
+    detail: str = "brief"                   # brief | detail
+    prompt: str | None = None
+
+
+@router.post("/api/report/consolidated")
+@limiter.limit("10/minute")
+async def consolidated(request: Request, body: ConsolidatedReq,
+                       profile_id: str = Depends(require_permission("consolidated_report")),
+                       db: AsyncSession = Depends(get_db)):
+    """AI narrative over a custom date range — always the caller's own activity."""
+    sources = [_SOURCE_MAP[s] for s in (body.sources or []) if s in _SOURCE_MAP]
+    try:
+        data = await build_consolidated(
+            profile_id, body.start, body.end, sources, body.event_types or [], db,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    try:
+        summary = await summarize_consolidated(data, body.detail, body.prompt)
+    except Exception as exc:
+        logger.error("consolidated summary failed for %s: %s", profile_id, exc)
+        summary = ""
+
+    return JSONResponse({
+        "start": data["start"], "end": data["end"],
+        "total": data["total"], "by_source": data["by_source"],
+        "truncated": data["truncated"], "summary": summary,
+    })

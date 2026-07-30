@@ -168,6 +168,24 @@ async def report_page(request: Request):
     )
 
 
+@router.get("/report/summary", response_class=HTMLResponse)
+async def summary_page(request: Request):
+    """Consolidated report — the AI narrative summary over a custom date range."""
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    from app.auth.rbac import granted
+    from app.storage.models import Profile
+    from app.storage.postgres import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile or "consolidated_report" not in granted(profile):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(
+        request=request, name="consolidated.html", context={"active_page": "summary"},
+    )
+
+
 @router.get("/user-management", response_class=HTMLResponse)
 async def user_management_page(request: Request):
     profile_id = await get_profile_from_session(request)
