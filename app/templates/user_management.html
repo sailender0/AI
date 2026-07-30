@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}User Management — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}User management{% endblock %}
+
+{% block content %}
+<style>
+  /* Access console — scoped to the admin page */
+  .ac-eyebrow { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-3); font-weight:600; }
+  .ac-input {
+    background:var(--surface-2); color:var(--text-1); border:1px solid var(--border);
+    border-radius:8px; padding:7px 10px; font-size:13px; outline:none;
+  }
+  .ac-input:focus { border-color:var(--border-strong); }
+  .ac-chip {
+    display:flex; align-items:baseline; gap:6px; padding:8px 12px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  }
+  .ac-chip b { font-size:18px; font-weight:700; color:var(--text-1); font-variant-numeric:tabular-nums; }
+  .ac-chip span { font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.05em; }
+
+  .urow { border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; }
+  .urow + .urow { margin-top:8px; }
+  .urow-head {
+    display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+    padding:12px 14px 12px 0; background:none; border:none; cursor:pointer; color:inherit;
+    border-left:3px solid var(--rail, var(--text-3));
+  }
+  .urow-head:hover { background:var(--surface-2); }
+  .urow-head:focus-visible { outline:2px solid var(--chrome-hover); outline-offset:-2px; }
+  .u-avatar {
+    width:32px; height:32px; border-radius:9px; flex-shrink:0; margin-left:11px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; color:var(--rail, var(--text-2));
+    background:var(--rail-bg, var(--surface-2)); border:1px solid var(--border);
+  }
+  .u-email { font-size:13.5px; font-weight:600; color:var(--text-1); flex:1; min-width:0;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .u-badge { font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px;
+             color:var(--rail); background:var(--rail-bg); text-transform:capitalize; }
+  .u-count { font-size:11px; color:var(--text-3); font-variant-numeric:tabular-nums; min-width:34px; text-align:right; }
+  .u-caret { color:var(--text-3); transition:transform .18s ease; margin-right:14px; }
+  .urow.open .u-caret { transform:rotate(90deg); }
+
+  .u-insp { display:none; padding:4px 16px 16px 16px; border-top:1px solid var(--border); background:var(--surface-2); }
+  .urow.open .u-insp { display:block; }
+  .u-insp-grid { display:grid; grid-template-columns:1fr; gap:20px; margin-top:14px; }
+  @media (min-width:820px) { .u-insp-grid { grid-template-columns:minmax(0,560px); } }
+  .u-sec-label { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-3); font-weight:600; margin-bottom:10px; }
+
+  .ac-tabs { display:flex; gap:2px; border-bottom:1px solid var(--border); margin-top:14px; }
+  .ac-tab { padding:9px 16px; font-size:13px; font-weight:600; color:var(--text-3); background:none; border:none;
+            cursor:pointer; border-bottom:2px solid transparent; }
+  .ac-tab:hover { color:var(--text-2); }
+  .ac-tab[aria-selected="true"] { color:var(--text-1); border-bottom-color:var(--chrome); }
+  .seg-btn { padding:7px 13px; font-size:13px; font-weight:600; cursor:pointer; color:var(--text-2);
+             background:var(--surface); border:1px solid var(--border); }
+  .seg-btn:first-child { border-radius:8px 0 0 8px; }
+  .seg-btn:last-child { border-radius:0 8px 8px 0; border-left:none; }
+  .seg-btn[aria-selected="true"] { background:var(--chrome); color:var(--chrome-text); border-color:var(--chrome); }
+
+  .perm-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 0; }
+  .perm-row + .perm-row { border-top:1px solid var(--border); }
+  .perm-name { font-size:13px; color:var(--text-2); }
+
+  /* Toggle switch */
+  .sw { position:relative; display:inline-block; width:34px; height:19px; flex-shrink:0; }
+  .sw input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .sw i {
+    position:absolute; inset:0; border-radius:999px; background:var(--surface);
+    border:1px solid var(--border-strong); transition:background .15s, border-color .15s;
+  }
+  .sw i::before {
+    content:""; position:absolute; width:13px; height:13px; left:2px; top:2px;
+    border-radius:50%; background:var(--text-3); transition:transform .15s, background .15s;
+  }
+  .sw input:checked + i { background:var(--positive); border-color:transparent; }
+  .sw input:checked + i::before { transform:translateX(15px); background:#fff; }
+  .sw input:disabled { cursor:not-allowed; }
+  .sw input:disabled + i { opacity:.4; }
+  .sw input:focus-visible + i { outline:2px solid var(--chrome-hover); outline-offset:2px; }
+
+  .rep-field { margin-bottom:10px; }
+  .rep-field label { display:block; font-size:11px; color:var(--text-3); margin-bottom:4px; }
+  .rep-select, .rep-datein {
+    width:100%; background:var(--surface); color:var(--text-1);
+    border:1px solid var(--border); border-radius:8px; padding:7px 9px; font-size:13px; outline:none;
+  }
+  .rep-select:focus, .rep-datein:focus { border-color:var(--border-strong); }
+  .rep-preview { width:100%; height:280px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+  .btn { font-size:13px; font-weight:500; padding:8px 14px; border-radius:8px; cursor:pointer; transition:opacity .12s; border:1px solid transparent; }
+  .btn:hover { opacity:.9; }
+  .btn-ghost { background:var(--surface); color:var(--text-1); border-color:var(--border); }
+  .btn-solid { background:var(--chrome); color:var(--chrome-text); }
+  .btn-danger { background:transparent; color:var(--negative); border-color:var(--negative); }
+
+  /* Audit table */
+  .audit-tbl { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+  .audit-tbl th { text-align:left; font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+                  color:var(--text-3); font-weight:600; padding:6px 10px; border-bottom:1px solid var(--border); }
+  .audit-tbl td { padding:8px 10px; border-bottom:1px solid var(--border); color:var(--text-2); vertical-align:top; }
+  .audit-tbl tr:hover td { background:var(--surface-2); }
+  .role-pill { font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px; text-transform:capitalize; }
+  .act-pill { font-size:11px; font-weight:600; padding:1px 8px; border-radius:6px;
+              background:var(--surface-2); border:1px solid var(--border); color:var(--text-1); }
+  .audit-when { color:var(--text-3); white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .u-caret, .sw i, .sw i::before { transition:none; }
+  }
+</style>
+
+<div class="card" style="padding:18px 18px 8px">
+  <!-- Console header -->
+  <div class="ac-eyebrow">User management</div>
+  <h2 class="mt-1" style="font-size:17px;font-weight:700;color:var(--text-1)">Users &amp; permissions</h2>
+
+  <!-- Tabs -->
+  <div class="ac-tabs" role="tablist">
+    <button class="ac-tab" role="tab" data-tab="users" aria-selected="true" onclick="showTab('users')">Users</button>
+    <button class="ac-tab" role="tab" data-tab="bulk" aria-selected="false" onclick="showTab('bulk')">Assign permissions</button>
+    {% if can_edit %}<button class="ac-tab" role="tab" data-tab="mgrperms" aria-selected="false" onclick="showTab('mgrperms')">Manager permissions</button>{% endif %}
+  </div>
+
+  <!-- TAB: Users -->
+  <div id="tab-users">
+    <div class="flex flex-wrap items-center gap-2 mt-4">
+      <input id="u-search" class="ac-input" type="search" aria-label="Search users by email" placeholder="Search email…" oninput="applyFilter()" style="width:200px">
+      <select id="u-role-filter" class="ac-input" aria-label="Filter by role" onchange="applyFilter()">
+        <option value="">All roles</option>
+        <option value="user">User</option>
+        <option value="manager">Manager</option>
+        <option value="admin">Admin</option>
+      </select>
+      <div class="ac-chip ml-auto"><b id="stat-total">–</b><span>Users</span></div>
+      <div class="ac-chip"><b id="stat-sup">–</b><span>Managers</span></div>
+      <div class="ac-chip"><b id="stat-admin">–</b><span>Admins</span></div>
+      <span id="users-status" class="text-xs" style="color:var(--text-3)"></span>
+    </div>
+
+    <div id="user-list" class="mt-4 mb-3">
+      <p class="text-sm" style="color:var(--text-3)">Loading…</p>
+    </div>
+    <p id="no-match" class="text-sm mb-3" style="color:var(--text-3);display:none">No users match your filter.</p>
+  </div>
+
+  <!-- TAB: Assign permissions -->
+  <div id="tab-bulk" class="mt-4 mb-4" style="display:none">
+    <p class="text-sm" style="color:var(--text-3);margin-bottom:12px">Pick permissions, then assign them to specific users or to everyone with a role.</p>
+    <div class="flex flex-wrap gap-6">
+      <div>
+        <div class="u-sec-label" style="margin-bottom:6px">Permissions</div>
+        <div id="bulk-perms" class="flex flex-col gap-1"></div>
+      </div>
+      <div style="flex:1;min-width:300px">
+        <div class="u-sec-label" style="margin-bottom:6px">Assign to</div>
+        <div style="display:inline-flex" id="bulk-target-seg">
+          <button class="seg-btn" aria-selected="true" onclick="bulkTarget('users')">Specific users</button>
+          <button class="seg-btn" aria-selected="false" onclick="bulkTarget('role')">A whole role</button>
+        </div>
+
+        <div id="bulk-users-target" class="mt-3">
+          <div style="position:relative;max-width:400px">
+            <input id="bulk-search" class="ac-input" type="text" placeholder="Search users to add…" autocomplete="off"
+                   oninput="bulkSearch(this.value)" onfocus="bulkSearch(this.value)" style="width:100%">
+            <div id="bulk-drop" style="position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:220px;overflow:auto;
+                 padding:5px;display:none;background:var(--surface);border:1px solid var(--border-strong);border-radius:9px"></div>
+          </div>
+          <div id="bulk-selected" class="flex flex-wrap gap-2 mt-2"></div>
+        </div>
+
+        <div id="bulk-role-target" class="mt-3" style="display:none">
+          <select id="bulk-role" class="ac-input" aria-label="Target role for bulk change" onchange="renderBulkRoleCount()" style="min-width:200px">
+            <option value="user">All Users</option>
+            <option value="manager">All Managers</option>
+            <option value="admin">All Admins</option>
+          </select>
+          <p id="bulk-role-count" class="text-xs mt-2" style="color:var(--text-3)"></p>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mt-4">
+      <button class="btn btn-solid" onclick="bulkApply('grant')">Grant</button>
+      <button class="btn btn-ghost" onclick="bulkApply('revoke')">Revoke</button>
+      <span id="bulk-status" class="text-xs" style="color:var(--text-3)"></span>
+    </div>
+  </div>
+
+  {% if can_edit %}
+  <!-- TAB: Manager permissions -->
+  <div id="tab-mgrperms" class="mt-4 mb-4" style="display:none">
+    <p class="text-sm" style="color:var(--text-3);margin-bottom:12px">Choose a manager, then turn on the permissions they're allowed to assign to their own team. Off means they can never hand it down.</p>
+    <select id="mgrperms-select" class="ac-input" aria-label="Manager" onchange="renderMgrPerms()" style="min-width:240px">
+      <option value="">Choose a manager…</option>
+    </select>
+    <div id="mgrperms-list" style="max-width:420px;margin-top:14px"></div>
+    <div id="mgrperms-actions" class="flex items-center gap-2 mt-3" style="display:none">
+      <button class="btn btn-solid" onclick="saveMgrPerms()">Save</button>
+      <span id="mgrperms-status" class="text-xs" style="color:var(--text-3)"></span>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if can_edit %}
+<!-- Audit log (admin only) -->
+<div class="card" style="padding:18px;margin-top:20px">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <div class="ac-eyebrow">Audit log</div>
+      <h2 class="mt-1" style="font-size:17px;font-weight:700;color:var(--text-1)">Cross-user access</h2>
+    </div>
+    <div class="flex items-center gap-2">
+      <select id="audit-role" class="ac-input" aria-label="Filter audit log by role" onchange="loadAudit()">
+        <option value="">All roles</option>
+        <option value="manager">Manager</option>
+        <option value="supervisor">Supervisor (legacy)</option>
+        <option value="admin">Admin</option>
+        <option value="user">User</option>
+      </select>
+      <select id="audit-action" class="ac-input" aria-label="Filter audit log by action" onchange="loadAudit()">
+        <option value="">All actions</option>
+        <option value="preview">Viewed</option>
+        <option value="download">Downloaded</option>
+        <option value="email_delivery">Sent</option>
+        <option value="delete_user">Deleted user</option>
+      </select>
+    </div>
+  </div>
+  <div id="audit-list" class="mt-4" style="overflow-x:auto">
+    <p class="text-sm" style="color:var(--text-3)">Loading…</p>
+  </div>
+</div>
+{% endif %}
+
+<script>const CAN_EDIT = {{ 'true' if can_edit else 'false' }};</script>
+<script src="/static/pages/user_management.js"></script>
+{% endblock %}

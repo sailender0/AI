@@ -30,7 +30,7 @@ from app.storage.postgres import AsyncSessionLocal, get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Kinds a supervisor/admin may pull for ANOTHER user (privacy-reviewed subset).
+# Kinds a manager/admin may pull for ANOTHER user (privacy-reviewed subset).
 _CROSS_USER_KINDS = {"my_day", "analytics"}
 _FREQUENCIES = {"daily", "weekdays", "weekly"}
 
@@ -77,7 +77,7 @@ async def _resolve_recipient(to_user_id: str | None, actor: Profile, owner_id: s
     self-only and every cross-user delivery is traceable."""
     if not to_user_id or to_user_id == str(actor.id):
         return actor
-    if actor.role not in ("supervisor", "admin"):
+    if actor.role not in ("manager", "admin"):
         raise HTTPException(403, "forbidden")
     try:
         recip = await db.get(Profile, uuid.UUID(to_user_id))

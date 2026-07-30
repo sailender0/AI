@@ -12,10 +12,12 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-# Feature keys an admin can grant/revoke per user. Granted by default (see
-# Profile.permissions) so existing users keep what they already had.
-# Authorization logic lives in app/auth/rbac.py.
-ALL_PERMISSIONS = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
+# Feature keys an admin can grant/revoke per user. Authorization logic lives in
+# app/auth/rbac.py. DEFAULT_PERMISSIONS are granted to a new profile automatically
+# (default-on, admin revokes); anything in ALL_PERMISSIONS but NOT in DEFAULT is
+# opt-in — off until an admin grants it (e.g. consolidated_report).
+DEFAULT_PERMISSIONS = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
+ALL_PERMISSIONS = DEFAULT_PERMISSIONS + ["consolidated_report", "attendance_report"]
 
 
 class Base(DeclarativeBase):
@@ -30,9 +32,20 @@ class Profile(Base):
     email = Column(String, unique=True, nullable=False)
     timezone = Column(String, default="UTC")
     teams_user_id = Column(String)
-    role = Column(String, nullable=False, default="user")   # user | supervisor | admin
-    permissions = Column(JSON, nullable=False, default=lambda: list(ALL_PERMISSIONS))
+    role = Column(String, nullable=False, default="user")   # user | manager | admin
+    permissions = Column(JSON, nullable=False, default=lambda: list(DEFAULT_PERMISSIONS))
+    # Manager-only, admin-controlled: which permissions THIS manager may assign to
+    # their reports. Separate from `permissions` (their own usage). Default empty —
+    # a manager can delegate nothing until an admin turns it on.
+    assignable_perms = Column(JSON, nullable=False, default=list)
+    # A user reports to at most one manager (admin-assigned). Deleting the manager
+    # nulls this rather than the report (SET NULL) — reports outlive their manager.
+    manager_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    # Self-referential: manager (one) ⇄ reports (many). passive_deletes lets the DB
+    # SET NULL handle a manager delete instead of the ORM loading every report.
+    manager = relationship("Profile", remote_side=[id], backref="reports", passive_deletes=True)
 
     linked_identities = relationship("LinkedIdentity", back_populates="profile", cascade="all, delete-orphan")
     integrations = relationship("Integration", back_populates="profile", cascade="all, delete-orphan")

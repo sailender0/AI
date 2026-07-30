@@ -47,7 +47,7 @@ async def test_purge_profile_clears_activity_but_keeps_audit():
 
 
 async def test_cannot_delete_self():
-    from app.routes.admin import router
+    from app.routes.user_management import router
 
     admin = SimpleNamespace(id=uuid.UUID(ADMIN_ID), email="admin@x.com", role="admin")
     db = AsyncMock(spec=AsyncSession)
@@ -59,7 +59,7 @@ async def test_cannot_delete_self():
     app.include_router(router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.delete(f"/api/admin/users/{ADMIN_ID}")
+        r = await c.delete(f"/api/user-management/users/{ADMIN_ID}")
 
     assert r.status_code == 400
     assert "yourself" in r.json()["error"]

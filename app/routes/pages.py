@@ -145,8 +145,8 @@ async def email_page(request: Request):
     return templates.TemplateResponse(request=request, name="email.html", context={"active_page": "email"})
 
 
-@router.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
+@router.get("/user-management", response_class=HTMLResponse)
+async def user_management_page(request: Request):
     profile_id = await get_profile_from_session(request)
     if not profile_id:
         return RedirectResponse("/")
@@ -154,11 +154,11 @@ async def admin_page(request: Request):
     from app.storage.postgres import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         profile = await db.get(Profile, profile_id)
-    if not profile or profile.role not in ("supervisor", "admin"):
+    if not profile or profile.role not in ("manager", "admin"):
         return RedirectResponse("/")
     return templates.TemplateResponse(
-        request=request, name="admin.html",
-        context={"active_page": "admin", "can_edit": profile.role == "admin"},
+        request=request, name="user_management.html",
+        context={"active_page": "user_management", "can_edit": profile.role == "admin"},
     )
 
 

@@ -384,9 +384,8 @@ function getGreeting(email) {
 
 /* ══ RBAC ═════════════════════════════════════════════════════ */
 function hasPerm(key) {
-  const role = window._role;
-  if (role === 'supervisor' || role === 'admin') return true;  // elevated hold all
-  return (window._perms || []).includes(key);
+  if (window._role === 'admin') return true;   // only admin implicitly holds all
+  return (window._perms || []).includes(key);  // managers gated by their own list too
 }
 
 /* ══ Boot ═════════════════════════════════════════════════════ */
@@ -409,8 +408,8 @@ async function initBase() {
   window._perms = data.permissions || [];
   window._email = data.email || '';
   window._profileId = data.profile_id || '';
-  if (window._role === 'supervisor' || window._role === 'admin') {
-    const adminNav = document.getElementById('nav-admin');
+  if (window._role === 'manager' || window._role === 'admin') {
+    const adminNav = document.getElementById('nav-user-management');
     if (adminNav) adminNav.classList.remove('hidden');
   }
   const emailNav = document.getElementById('nav-email');
