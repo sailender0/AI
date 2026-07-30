@@ -1,6 +1,14 @@
 # ADR-0002: Proactive delivery of standups & summaries
 
-**Status:** Accepted · **Date:** 2026-07-02
+**Status:** Accepted, §4 amended · **Date:** 2026-07-02 · **Amended:** 2026-07-24
+
+> **Amendment (2026-07-24).** The MVP (§3) shipped as written. The extension
+> point in §4 did **not**: email landed as `app/delivery/email_delivery.py` plus
+> an `email_preferences` table, with **no** `dispatch.py` and no `deliver()`
+> seam. That was the right call and this ADR's own §2 predicted it — a
+> dispatcher fanning out to a single push channel is still an abstraction with
+> one caller. §4 stands as the shape to adopt when a *second* push channel
+> (webhook or Teams) actually exists, not as a description of the code today.
 
 ## Context
 
