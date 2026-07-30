@@ -13,7 +13,7 @@
     </div>
 
     <div>
-      <label class="text-xs" style="color:var(--text-3)">Report</label>
+      <label class="text-xs" style="color:var(--text-3)" for="email-kind">Report</label>
       <select id="email-kind" onchange="onKindChange()"
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
@@ -34,7 +34,7 @@
     </div>
 
     <div>
-      <label id="email-date-label" class="text-xs" style="color:var(--text-3)">Date</label>
+      <label id="email-date-label" class="text-xs" style="color:var(--text-3)" for="email-date">Date</label>
       <input id="email-date" type="date" onchange="loadPreview()"
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
@@ -42,7 +42,7 @@
     </div>
 
     <div>
-      <label class="text-xs" style="color:var(--text-3)">Preview</label>
+      <span class="text-xs" style="color:var(--text-3)">Preview</span>
       <iframe id="email-preview" sandbox=""
         class="w-full mt-1 rounded-md"
         style="height:320px;border:1px solid var(--border);background:#fff"></iframe>
@@ -61,7 +61,7 @@
     </div>
 
     <div>
-      <label class="text-xs" style="color:var(--text-3)">Report</label>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-kind">Report</label>
       <select id="sched-kind" onchange="loadSchedule()"
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
@@ -74,7 +74,7 @@
     </div>
 
     <div>
-      <label class="text-xs" style="color:var(--text-3)">Frequency</label>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-freq">Frequency</label>
       <select id="sched-freq"
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
@@ -86,7 +86,7 @@
     </div>
 
     <div>
-      <label class="text-xs" style="color:var(--text-3)">Hour (local, 0–23)</label>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-hour">Hour (local, 0–23)</label>
       <input id="sched-hour" type="number" min="0" max="23" value="9"
         class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
