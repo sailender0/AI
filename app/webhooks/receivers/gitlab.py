@@ -80,7 +80,10 @@ async def gitlab_webhook(
     background_tasks: BackgroundTasks,
     x_gitlab_token: str = Header(default=""),
 ):
-    if not hmac.compare_digest(x_gitlab_token, settings.GITLAB_WEBHOOK_SECRET):
+    # Fail closed: an unset secret makes compare_digest("", "") true, which would
+    # accept unauthenticated (spoofable) events. No secret → no webhook.
+    secret = settings.GITLAB_WEBHOOK_SECRET
+    if not secret or not hmac.compare_digest(x_gitlab_token, secret):
         return JSONResponse({"error": "invalid_token"}, status_code=401)
 
     body = await request.json()

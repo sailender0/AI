@@ -69,6 +69,10 @@ async def jira_webhook(
     auth = request.headers.get("Authorization", "")
     qs_secret = request.query_params.get("secret", "")
     secret = settings.JIRA_WEBHOOK_SECRET
+    # Fail closed: without a configured secret, compare_digest("", "") is true and
+    # every unauthenticated request would pass. No secret → reject.
+    if not secret:
+        return JSONResponse({"error": "invalid_secret"}, status_code=401)
     qs_ok = hmac.compare_digest(qs_secret, secret)
     auth_ok = hmac.compare_digest(auth, f"Bearer {secret}")
     if not qs_ok and not auth_ok:

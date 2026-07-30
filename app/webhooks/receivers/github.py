@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
+    # Fail closed on an unset secret: an empty key makes the HMAC forgeable by
+    # anyone, so a blank GITHUB_WEBHOOK_SECRET must reject, not accept.
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        return False
     if not signature or not signature.startswith("sha256="):
         return False
     expected = hmac.new(
