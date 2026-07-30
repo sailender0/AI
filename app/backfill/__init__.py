@@ -9,8 +9,11 @@ The fetch/runner/route layer talks to live GitHub/GitLab APIs and needs real
 tokens to verify, so it is deferred until creds are available (ADR Phase-1
 remainder). These mappers are the correctness-critical, offline-testable core.
 """
+import logging
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 def parse_iso(raw_ts) -> datetime:
@@ -42,6 +45,51 @@ async def paged(client, url: str, headers: dict, params: dict, *, cap: int = 10)
         if len(batch) < 100:
             break
         page += 1
+    return out
+
+
+GRAPH = "https://graph.microsoft.com/v1.0"
+
+
+def person_key(email: str | None, fallback: str) -> str:
+    """The id a person is filed under, shared by every Graph connector.
+
+    Lowercased email address wherever we have one, because that is the ONLY
+    identifier mail and calendar ever expose — keying chat on the Entra oid would
+    file the same colleague under two ids and split their history in the person
+    search. Falls back to the oid when no address is available (a chat member
+    beyond the 25 the members expansion returns, or a non-Entra participant).
+    """
+    return email.strip().lower() if email and email.strip() else fallback
+
+
+async def walk(client, url: str, headers: dict, params: dict | None, *, cap: int = 20) -> list:
+    """Follow @odata.nextLink through a Graph collection. Graph bakes the query
+    into nextLink, so params go on the first request only.
+
+    ponytail: cap bounds a runaway walk at cap*50 items; raise it if a real day
+    legitimately carries more than ~1000 messages or events.
+    """
+    out = []
+    for _ in range(cap):
+        resp = await client.get(url, headers=headers, params=params)
+        if resp.status_code != 200:
+            # Log the API error only — code and message, never resp.text, which
+            # on a 200 would carry message bodies. Without this a bad $filter or
+            # a missing scope fails completely silently.
+            try:
+                err = (resp.json() or {}).get("error") or {}
+                detail = f'{err.get("code", "?")}: {str(err.get("message", ""))[:200]}'
+            except Exception:
+                detail = "<unparseable error body>"
+            logger.warning("Graph %s on %s — %s", resp.status_code,
+                           str(url).split("?")[0], detail)
+            break
+        data = resp.json()
+        out.extend(data.get("value", []))
+        url, params = data.get("@odata.nextLink"), None
+        if not url:
+            break
     return out
 
 

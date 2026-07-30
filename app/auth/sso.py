@@ -7,6 +7,7 @@ a delegated token instead of app-only, which is required for
 the me/messages Graph subscription resource.
 """
 import json
+import logging
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -23,7 +24,26 @@ from app.storage.redis_client import get_redis
 
 router = APIRouter()
 
-_GRAPH_SCOPES = ["Mail.Send"]  # delegated send-as-self for email reports (ADR email delivery)
+# Delegated scopes. Changing this list invalidates every stored MSAL cache, so
+# users must sign out and back in once before acquire_delegated_token works again.
+# Consent is recorded per exact scope set — add scopes together, not one release
+# at a time, or the tenant re-prompts on each change.
+#   Mail.ReadBasic — mail metadata; structurally cannot return message bodies
+#   Calendars.Read — meeting subject, times, attendees, your own responseStatus
+#   Chat.Read      — individual chat messages (ReadBasic can't reach /messages)
+#
+# Mail.Send is DELIBERATELY ABSENT: it isn't on the app registration, and
+# acquire_token_silent is all-or-nothing — one unconsented scope returns no token
+# at all, which took the read-only activity connectors down with it. /email
+# therefore cannot send until an admin adds Mail.Send; put it back here (and have
+# everyone sign in again) when they do.
+#
+# NOT here either: CallRecords.Read.All has no delegated variant. It is
+# application-only and runs through a separate client-credentials path — putting
+# it in this list would fail the delegated token request outright.
+_GRAPH_SCOPES = ["Mail.ReadBasic", "Calendars.Read", "Chat.Read"]
+
+logger = logging.getLogger(__name__)
 
 AUTHORITY = f"https://login.microsoftonline.com/{settings.AZURE_TENANT_ID}"
 
@@ -50,6 +70,32 @@ async def _save_cache(profile_id: str, cache: msal.SerializableTokenCache):
     if cache.has_state_changed:
         redis = get_redis()
         await redis.set(f"msal_cache:{profile_id}", cache.serialize(), ex=86400 * 30)
+
+
+async def acquire_app_token() -> str | None:
+    """A client-credentials token for the app itself, with no signed-in user.
+
+    Only CallRecords.Read.All needs this — it has no delegated variant, so call
+    records cannot be read on a user's behalf at all. The `.default` scope means
+    "every application permission already consented for this app", which is why
+    nothing lists CallRecords here: adding a scope name would be rejected.
+
+    ponytail: no cache. MSAL keeps app tokens in memory for their ~1h lifetime,
+    and this runs hourly from one process. Add a shared cache only if the job
+    ever fans out across workers.
+    """
+    if not settings.AZURE_CLIENT_SECRET:
+        return None
+    app = msal.ConfidentialClientApplication(
+        settings.AZURE_CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=settings.AZURE_CLIENT_SECRET,
+    )
+    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+    if result and "access_token" in result:
+        return result["access_token"]
+    logger.warning("app-only token failed: %s", (result or {}).get("error_description", "?"))
+    return None
 
 
 async def acquire_delegated_token(profile_id: str) -> str | None:

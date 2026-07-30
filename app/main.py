@@ -22,6 +22,7 @@ from app.auth.oauth import router as oauth_router
 from app.auth.github_app import router as github_app_router
 from app.routes.pages import router as pages_router
 from app.routes.profile import router as profile_router
+from app.backfill.graph_poll import run_graph_poll_job
 from app.routes.activity import router as activity_router
 from app.routes.stats import router as stats_router
 from app.routes.summaries import router as summaries_router
@@ -57,6 +58,11 @@ async def lifespan(app: FastAPI):
     await init_indexes()
 
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
+    # Hourly: pulls each profile's chat, mail and meetings for their own local
+    # today. Delegated Chat.Read has no all-chats endpoint, so chat is N+1 per
+    # profile — hourly balances call volume against how stale the calendar gets.
+    # Re-polling is idempotent (ingest dedups on the Graph id).
+    scheduler.add_job(run_graph_poll_job, "cron", minute=20, id="graph_poll")
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
     if settings.AI_ENABLED:
