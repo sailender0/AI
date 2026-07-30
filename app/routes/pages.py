@@ -148,6 +148,26 @@ async def email_page(request: Request):
     return templates.TemplateResponse(request=request, name="email.html", context={"active_page": "email"})
 
 
+@router.get("/report", response_class=HTMLResponse)
+async def report_page(request: Request):
+    """Attendance report — the people × days grid. Row-scoped by role; a plain user
+    sees only their own row."""
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        return RedirectResponse("/")
+    from app.auth.rbac import granted
+    from app.storage.models import Profile
+    from app.storage.postgres import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile or "attendance_report" not in granted(profile):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(
+        request=request, name="attendance.html",
+        context={"active_page": "report", "is_elevated": profile.role in ("manager", "admin")},
+    )
+
+
 @router.get("/user-management", response_class=HTMLResponse)
 async def user_management_page(request: Request):
     profile_id = await get_profile_from_session(request)

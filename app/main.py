@@ -38,6 +38,7 @@ from app.routes.standup import router as standup_router, run_standup_job
 from app.routes.email import router as email_router, run_email_digest_job
 from app.routes.backfill import router as backfill_router
 from app.routes.user_management import router as user_management_router
+from app.routes.reports import router as reports_router
 
 from app.webhooks.renewal import (
     check_github_webhook_health,
@@ -131,6 +132,7 @@ app.include_router(standup_router)
 app.include_router(email_router)
 app.include_router(backfill_router)
 app.include_router(user_management_router)
+app.include_router(reports_router)
 
 
 @app.get("/health")
