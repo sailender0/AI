@@ -40,6 +40,15 @@ jobs:
       - name: Install CSS toolchain
         run: npm ci
 
+      # Reports known CVEs in dependencies. Non-blocking (continue-on-error) so a
+      # newly-disclosed advisory surfaces in the log without failing every build;
+      # promote to blocking once the dependency set is pinned.
+      - name: Audit dependencies
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
       # The frontend guards skip locally when node is absent, but FAIL when CI=1
       # (which Actions sets) — a skipped guard is a guard that isn't guarding.
       - name: Run tests
