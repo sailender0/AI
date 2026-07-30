@@ -26,6 +26,7 @@ router = APIRouter()
 
 _VALID_SOURCES = {"github", "gitlab", "jira", "teams_subscription"}
 _CHART_SOURCES = ["github", "jira", "teams_subscription", "gitlab"]
+_INVALID_DATE = {"error": "invalid date"}
 
 
 def _local_midnight_utc(date_str: str, tz: ZoneInfo) -> datetime:
@@ -109,7 +110,7 @@ async def get_week_stats(start: str = None, end: str = None,
         start_dt, _ = day_bounds(start, tz)
         _, end_dt   = day_bounds(end, tz)
     except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid date"}, status_code=400)
+        return JSONResponse(_INVALID_DATE, status_code=400)
 
     return JSONResponse(await week_source_stats(profile_id, start_dt, end_dt))
 
@@ -123,7 +124,7 @@ async def get_day_data(date: str = None, profile_id: str = Depends(require_profi
     try:
         day_start, day_end = day_bounds(date, tz)
     except ValueError:
-        return JSONResponse({"error": "invalid date"}, status_code=400)
+        return JSONResponse(_INVALID_DATE, status_code=400)
 
     raw_events = await find_events(profile_id, start=day_start, end=day_end, limit=500)
 
@@ -163,7 +164,7 @@ async def get_week_breakdown(start: str = None, end: str = None,
     try:
         start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=tz)
     except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid date"}, status_code=400)
+        return JSONResponse(_INVALID_DATE, status_code=400)
 
     today_local = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
     try:
@@ -212,9 +213,21 @@ async def get_week_breakdown(start: str = None, end: str = None,
     return JSONResponse({"days": result_days})
 
 
+def _roll_up_weekly(labels: list[str], pivot: dict) -> dict:
+    """Sum a per-source/per-day pivot into weeks, keyed by that week's Monday."""
+    week_data: dict = {}
+    for day_str in labels:
+        d = datetime.strptime(day_str, "%Y-%m-%d").date()
+        monday_str = (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+        week = week_data.setdefault(monday_str, dict.fromkeys(_CHART_SOURCES, 0))
+        for src in _CHART_SOURCES:
+            week[src] += pivot[src].get(day_str, 0)
+    return week_data
+
+
 @router.get("/api/analytics/trend")
 async def get_analytics_trend(
-    days: int = 28,
+    days: int = Query(default=28, ge=1, le=366),
     group_by: str = "day",
     start_date: str = None,
     profile_id: str = Depends(require_profile),
@@ -234,7 +247,7 @@ async def get_analytics_trend(
 
     results = await trend_rows(profile_id, start, tz_name)
 
-    pivot = {s: {day: 0 for day in labels} for s in _CHART_SOURCES}
+    pivot = {s: dict.fromkeys(labels, 0) for s in _CHART_SOURCES}
     for r in results:
         src = r["_id"]["source"]
         day = r["_id"]["day"]
@@ -242,14 +255,7 @@ async def get_analytics_trend(
             pivot[src][day] = r["count"]
 
     if group_by == "week":
-        week_data: dict = {}
-        for day_str in labels:
-            d = datetime.strptime(day_str, "%Y-%m-%d").date()
-            monday_str = (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
-            if monday_str not in week_data:
-                week_data[monday_str] = {s: 0 for s in _CHART_SOURCES}
-            for src in _CHART_SOURCES:
-                week_data[monday_str][src] += pivot[src].get(day_str, 0)
+        week_data = _roll_up_weekly(labels, pivot)
         sorted_weeks = sorted(week_data.keys())
         return JSONResponse({
             "labels":     [datetime.strptime(d, "%Y-%m-%d").strftime("%d %b") for d in sorted_weeks],

@@ -1,6 +1,7 @@
 import csv
 import io
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -20,6 +21,28 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_INVALID_DATE = {"error": "invalid date"}
+
+
+def _attachment(filename: str) -> dict:
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+def _valid_date(s: str) -> bool:
+    """Empty (defaulted downstream) or a YYYY-MM-DD string. Keeps a user value out
+    of both the Mongo query and the Content-Disposition filename unvalidated."""
+    return not s or bool(_DATE_RE.match(s))
+
+
+def _csv_safe(v) -> str:
+    """Neutralize spreadsheet formula injection: a cell that starts with =, +, -,
+    @ or a control char is evaluated by Excel/Sheets on open. Titles and workspace
+    names come from webhook payloads, so prefix those with a quote to force text."""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
 def _fmt_day(dt) -> str:
     if isinstance(dt, datetime):
         return f"{dt.strftime('%A, %b')} {dt.day}"
@@ -30,6 +53,8 @@ def _fmt_day(dt) -> str:
 async def export_daily_pdf(date: str = "", user_id: str = "",
                            actor: Profile = Depends(load_profile),
                            db: AsyncSession = Depends(get_db)):
+    if not _valid_date(date):
+        return JSONResponse(_INVALID_DATE, status_code=400)
     profile_id = await report_target("export_my_day", "my_day", user_id, actor, db)
     try:
         if not date:
@@ -39,7 +64,7 @@ async def export_daily_pdf(date: str = "", user_id: str = "",
         from app.services.export_pdf import generate_daily_pdf
         pdf_bytes = generate_daily_pdf(label, summary_text, events)
         return Response(content=pdf_bytes, media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="daily-{date}.pdf"'})
+                        headers=_attachment(f"daily-{date}.pdf"))
     except Exception as _exc:
         logger.exception("daily-pdf failed: %s", _exc)
         return JSONResponse({"error": "export_failed"}, status_code=500)
@@ -49,6 +74,8 @@ async def export_daily_pdf(date: str = "", user_id: str = "",
 async def export_weekly_pdf(week_start: str = "", user_id: str = "",
                             actor: Profile = Depends(load_profile),
                             db: AsyncSession = Depends(get_db)):
+    if not _valid_date(week_start):
+        return JSONResponse(_INVALID_DATE, status_code=400)
     profile_id = await report_target("export_analytics", "analytics", user_id, actor, db)
     try:
         if not week_start:
@@ -67,7 +94,7 @@ async def export_weekly_pdf(week_start: str = "", user_id: str = "",
         from app.services.export_pdf import generate_weekly_pdf
         pdf_bytes = generate_weekly_pdf(label, summary_text, list(day_map.items()), counts, week_stats)
         return Response(content=pdf_bytes, media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="weekly-{week_start}.pdf"'})
+                        headers=_attachment(f"weekly-{week_start}.pdf"))
     except Exception as _exc:
         logger.exception("weekly-pdf failed: %s", _exc)
         return JSONResponse({"error": "export_failed"}, status_code=500)
@@ -87,10 +114,10 @@ def _events_to_csv(events: list) -> str:
             date_str = time_str = ""
         writer.writerow([
             date_str, time_str,
-            e.get("source", ""),
-            e.get("event_type", ""),
-            e.get("workspace", ""),
-            e.get("title", ""),
+            _csv_safe(e.get("source", "")),
+            _csv_safe(e.get("event_type", "")),
+            _csv_safe(e.get("workspace", "")),
+            _csv_safe(e.get("title", "")),
         ])
     return output.getvalue()
 
@@ -99,6 +126,8 @@ def _events_to_csv(events: list) -> str:
 async def export_daily_csv(date: str = "", user_id: str = "",
                            actor: Profile = Depends(load_profile),
                            db: AsyncSession = Depends(get_db)):
+    if not _valid_date(date):
+        return JSONResponse(_INVALID_DATE, status_code=400)
     profile_id = await report_target("export_my_day", "my_day", user_id, actor, db)
     if not date:
         date = today_str(resolve(await get_profile_tz(profile_id, db)))
@@ -106,7 +135,7 @@ async def export_daily_csv(date: str = "", user_id: str = "",
     return Response(
         content=_events_to_csv(events),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="daily-{date}.csv"'},
+        headers=_attachment(f"daily-{date}.csv"),
     )
 
 
@@ -114,6 +143,8 @@ async def export_daily_csv(date: str = "", user_id: str = "",
 async def export_weekly_csv(week_start: str = "", user_id: str = "",
                             actor: Profile = Depends(load_profile),
                             db: AsyncSession = Depends(get_db)):
+    if not _valid_date(week_start):
+        return JSONResponse(_INVALID_DATE, status_code=400)
     profile_id = await report_target("export_analytics", "analytics", user_id, actor, db)
     if not week_start:
         now = datetime.now(resolve(await get_profile_tz(profile_id, db)))
@@ -122,5 +153,5 @@ async def export_weekly_csv(week_start: str = "", user_id: str = "",
     return Response(
         content=_events_to_csv(events),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="weekly-{week_start}.csv"'},
+        headers=_attachment(f"weekly-{week_start}.csv"),
     )

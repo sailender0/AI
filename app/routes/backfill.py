@@ -1,6 +1,6 @@
 """On-demand event backfill. Self-only: always runs for the caller's own
 profile, never a client-supplied one. See docs/adr-0003-backfill.md §5."""
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.auth.sso import require_profile
@@ -16,7 +16,7 @@ async def trigger_backfill(
     source: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    days: int = 30,
+    days: int = Query(default=30, ge=1, le=365),
     profile_id: str = Depends(require_profile),
 ):
     if source not in SUPPORTED:
