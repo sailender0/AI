@@ -24,6 +24,7 @@ from app.routes.pages import router as pages_router
 from app.routes.profile import router as profile_router
 from app.backfill.graph_poll import run_graph_poll_job
 from app.routes.activity import router as activity_router
+from app.routes.calendar import router as calendar_router
 from app.routes.stats import router as stats_router
 from app.routes.summaries import router as summaries_router
 from app.routes.exports import router as exports_router
@@ -113,6 +114,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(pages_router)
 app.include_router(profile_router)
 app.include_router(activity_router)
+app.include_router(calendar_router)
 app.include_router(stats_router)
 app.include_router(summaries_router)
 app.include_router(exports_router)

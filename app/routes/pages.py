@@ -43,11 +43,14 @@ async def jira_page(request: Request):
     return templates.TemplateResponse(request=request, name="jira.html", context={"active_page": "jira"})
 
 
-@router.get("/teams", response_class=HTMLResponse)
-async def teams_page(request: Request):
+@router.get("/teams-outlook", response_class=HTMLResponse)
+async def teams_outlook_page(request: Request):
+    """One activity calendar over both connectors. Replaces the separate /teams
+    and /outlook mock pages — the spec is a single month grid, not two."""
     if not await get_profile_from_session(request):
         return RedirectResponse("/")
-    return templates.TemplateResponse(request=request, name="teams.html", context={"active_page": "teams"})
+    return templates.TemplateResponse(request=request, name="teams_outlook.html",
+                                      context={"active_page": "teams_outlook"})
 
 
 @router.get("/ai", response_class=HTMLResponse)

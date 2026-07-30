@@ -261,6 +261,8 @@ body {
 [data-theme="light"] .kpi-num-jira   { color: #06b6d4; }
 [data-theme="dark"]  .kpi-num-teams  { text-shadow: 0 0 18px rgba(139,92,246,0.35); }
 [data-theme="light"] .kpi-num-teams  { color: #8b5cf6; }
+[data-theme="dark"]  .kpi-num-outlook{ text-shadow: 0 0 18px rgba(15,108,189,0.35); }
+[data-theme="light"] .kpi-num-outlook{ color: #0F6CBD; }
 
 /* ── Live pulse dot ────────────────────────────────────── */
 .live-dot {

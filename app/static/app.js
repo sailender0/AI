@@ -17,7 +17,10 @@ const SOURCES = {
   github:             { label: 'GitHub', color: '#f97316', hover: '#fb923c', grad: '#f97316,#fb923c', cls: 'kpi-num-github', href: '/github', icon: '⌥' },
   gitlab:             { label: 'GitLab', color: '#10b981', hover: '#34d399', grad: '#10b981,#34d399', cls: 'kpi-num-gitlab', href: '/gitlab', icon: '🦊' },
   jira:               { label: 'Jira',   color: '#06b6d4', hover: '#22d3ee', grad: '#06b6d4,#22d3ee', cls: 'kpi-num-jira',   href: '/jira',   icon: '◈' },
-  teams_subscription: { label: 'Teams',  color: '#8b5cf6', hover: '#a78bfa', grad: '#8b5cf6,#a78bfa', cls: 'kpi-num-teams',  href: '/teams',  icon: '◉' },
+  // One connector, one entry. Teams and Outlook were separate rows while each had
+  // its own mock page; they now share a single activity calendar, and the Graph
+  // subscription behind them is one thing (me/messages plus chat and calendar).
+  teams_subscription: { label: 'Teams / Outlook', color: '#8b5cf6', hover: '#a78bfa', grad: '#8b5cf6,#a78bfa', cls: 'kpi-num-teams', href: '/teams-outlook', icon: '◉' },
 };
 // The analytics/agent pages key Teams as plain "teams". Alias, don't duplicate.
 SOURCES.teams = SOURCES.teams_subscription;
@@ -432,7 +435,8 @@ async function initBase() {
     const meta      = SOURCES[source];
     const connected = data.integrations[source];
     const broken    = (data.integration_errors || {})[source];
-    const isActive  = ACTIVE_PAGE === source || (ACTIVE_PAGE === 'teams' && source === 'teams_subscription');
+    const isActive  = ACTIVE_PAGE === source
+      || (source === 'teams_subscription' && (ACTIVE_PAGE === 'teams' || ACTIVE_PAGE === 'teams_outlook'));
     container.innerHTML += `
       <a href="${meta.href}" title="${meta.label}${broken ? ' — connection problem, reconnect' : ''}" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition
         ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100'}">
