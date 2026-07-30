@@ -14,7 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.rbac import load_profile, report_target
@@ -207,6 +207,17 @@ async def set_preference(body: PreferenceBody, profile_id: str = Depends(require
                                hour=body.hour, weekday=body.weekday, enabled=enabled))
     await db.commit()
     return JSONResponse({"ok": True, "enabled": enabled})
+
+
+@router.delete("/api/email/preferences/{kind}")
+async def delete_preference(kind: str, profile_id: str = Depends(require_profile),
+                            db: AsyncSession = Depends(get_db)):
+    """Remove a saved schedule outright (vs. PUT frequency=off, which keeps the row)."""
+    await db.execute(delete(EmailPreference).where(
+        EmailPreference.profile_id == profile_id, EmailPreference.kind == kind
+    ))
+    await db.commit()
+    return JSONResponse({"ok": True})
 
 
 def _digest_due(frequency: str, hour: int, weekday: int, local_now: datetime) -> bool:

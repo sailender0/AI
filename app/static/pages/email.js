@@ -107,8 +107,27 @@
     const active = (prefs || []).filter(p => p.enabled);
     if (!active.length) { el.innerHTML = '<p class="text-sm" style="color:var(--text-3)">No active schedules.</p>'; return; }
     el.innerHTML = active.map(p =>
-      `<div class="text-sm" style="color:var(--text-2)">• ${KINDS[p.kind] || p.kind} — ${p.frequency} at ${String(p.hour).padStart(2, '0')}:00</div>`
+      `<div class="text-sm flex items-center justify-between gap-2" style="color:var(--text-2)">
+         <span>• ${KINDS[p.kind] || p.kind} — ${p.frequency} at ${String(p.hour).padStart(2, '0')}:00</span>
+         <button onclick="deleteSchedule('${p.kind}')" title="Delete schedule"
+           class="text-xs px-2 py-0.5 rounded transition hover:opacity-80"
+           style="color:var(--text-3);border:1px solid var(--border)">Delete</button>
+       </div>`
     ).join('');
+  }
+
+  async function deleteSchedule(kind) {
+    if (!confirm(`Delete the ${KINDS[kind] || kind} schedule?`)) return;
+    const status = document.getElementById('sched-status');
+    try {
+      const r = await fetch('/api/email/preferences/' + encodeURIComponent(kind), {
+        method: 'DELETE', credentials: 'include',
+      });
+      const d = await r.json();
+      status.textContent = d.error ? ('✕ ' + d.error) : '✓ Deleted';
+      loadSchedule();
+    } catch (e) { status.textContent = '✕ Error'; }
+    setTimeout(() => { status.textContent = ''; }, 2500);
   }
 
   async function saveSchedule() {

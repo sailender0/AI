@@ -35,6 +35,7 @@ SESSION_ROUTES = [
     ("PATCH", "/api/profile/timezone",   {}),
     ("GET",   "/api/email/preferences",  None),
     ("PUT",   "/api/email/preferences",  {"kind": "standup"}),
+    ("DELETE", "/api/email/preferences/standup", None),
     ("POST",  "/api/email/preview",      {"kind": "standup"}),
     ("POST",  "/api/email/send",         {"kind": "standup"}),
 ]
