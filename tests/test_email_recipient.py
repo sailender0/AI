@@ -46,6 +46,30 @@ async def test_elevated_can_send_to_another_user_and_audits():
     al.return_value.insert_one.assert_awaited_once()
 
 
+async def test_cross_user_send_to_self_is_audited_with_recipient():
+    """Admin emails ANOTHER user's report to themselves (default recipient):
+    must still log an email_delivery row naming the recipient — the bug fix."""
+    admin = _actor("admin")   # id = ACTOR_ID
+    owner = "99999999-9999-9999-9999-999999999999"   # someone else's report
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=SimpleNamespace(id=uuid.UUID(owner), email="owner@x.com"))
+    with _audit_ok() as al:
+        out = await _resolve_recipient(None, admin, owner, "my_day", db)
+    assert out is admin                                   # delivered to the admin
+    doc = al.return_value.insert_one.call_args[0][0]
+    assert doc["action"] == "email_delivery"
+    assert doc["recipient_email"] == admin.email          # "Sent to" is populated
+    assert doc["report_owner_id"] == owner
+
+
+async def test_pure_self_send_is_not_audited():
+    """Self-service page: own report to own inbox — no cross-user access, no row."""
+    actor = _actor("user")
+    with _audit_ok() as al:
+        await _resolve_recipient(None, actor, ACTOR_ID, "my_day", AsyncMock())
+    al.return_value.insert_one.assert_not_awaited()
+
+
 async def test_bad_uuid_is_404():
     with pytest.raises(HTTPException) as e:
         await _resolve_recipient("not-a-uuid", _actor("admin"), ACTOR_ID, "my_day", AsyncMock())

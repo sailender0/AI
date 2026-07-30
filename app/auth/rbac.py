@@ -131,11 +131,13 @@ def authorize_report(permission: str, actor_role: str, actor_permissions: list[s
 
 
 async def report_target(permission: str, kind: str, user_id: str | None,
-                        actor: Profile, db: AsyncSession, action: str = "download") -> str:
+                        actor: Profile, db: AsyncSession, action: str = "download",
+                        audit: bool = True) -> str:
     """The profile a report should be built for, authorized and audited.
 
-    Self  → needs `permission`. Someone else → needs manager/admin, and the
-    access is written to access_log before the data is read.
+    Self  → needs `permission`. Someone else → needs supervisor/admin, and the
+    access is written to access_log before the data is read. Pass audit=False when
+    the caller logs its own richer row (e.g. a send that also records the recipient).
     """
     actor_id = str(actor.id)
     if not authorize_report(permission, actor.role, list(actor.permissions or []), actor_id, user_id):
@@ -155,12 +157,16 @@ async def report_target(permission: str, kind: str, user_id: str | None,
     if actor.role != "admin" and str(target.manager_id or "") != actor_id:
         raise HTTPException(403, "forbidden")
 
+    if not audit:
+        return str(target_uuid)
+
     try:
         await access_log().insert_one({
             "actor_profile_id":  actor_id,
             "actor_email":       actor.email,
             "actor_role":        actor.role,
             "target_profile_id": str(target_uuid),
+            "target_email":      target.email,
             "kind":              kind,
             "action":            action,
             "at":                datetime.now(timezone.utc),

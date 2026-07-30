@@ -60,45 +60,57 @@ async def _run(kind: str, profile_id: str, to: str, date: str | None = None,
 
 
 async def _resolve_report_access(body: EmailRequest, actor: Profile, db: AsyncSession,
-                                 action: str) -> str:
+                                 action: str, audit: bool = True) -> str:
     """Target profile_id for an email request, authorized + audited.
     Self needs the email_report permission; a cross-user request (user_id set)
     needs supervisor/admin and a privacy-reviewed kind. Raises HTTPException,
-    which FastAPI renders as {"detail": ...} with the right status code."""
+    which FastAPI renders as {"detail": ...} with the right status code.
+    The send path passes audit=False — it logs one richer row that also names the
+    recipient (see _resolve_recipient)."""
     if body.user_id and body.user_id != str(actor.id) and body.kind not in _CROSS_USER_KINDS:
         raise HTTPException(400, "kind not allowed for another user")
-    return await report_target("email_report", body.kind, body.user_id, actor, db, action)
+    return await report_target("email_report", body.kind, body.user_id, actor, db, action, audit=audit)
 
 
 async def _resolve_recipient(to_user_id: str | None, actor: Profile, owner_id: str,
                              kind: str, db: AsyncSession) -> Profile:
-    """The Profile the mail is delivered to. Defaults to the actor (self/admin).
-    Sending to anyone else is elevated-only and audited so the /email page stays
-    self-only and every cross-user delivery is traceable."""
+    """The Profile the mail is delivered to. Defaults to the actor (self/admin);
+    sending to anyone else is elevated-only. When the report is someone else's
+    data, the send is audited with BOTH owner and recipient — even a "send to me"
+    of another user's report is recorded, so "Sent to" is always populated."""
     if not to_user_id or to_user_id == str(actor.id):
-        return actor
-    if actor.role not in ("manager", "admin"):
+        recip = actor
+    elif actor.role not in ("manager", "admin"):
         raise HTTPException(403, "forbidden")
-    try:
-        recip = await db.get(Profile, uuid.UUID(to_user_id))
-    except ValueError:
-        raise HTTPException(404, "no_such_recipient")
-    if not recip:
-        raise HTTPException(404, "no_such_recipient")
-    try:
-        await access_log().insert_one({
-            "actor_profile_id":     str(actor.id),
-            "actor_email":          actor.email,
-            "report_owner_id":      owner_id,
-            "recipient_profile_id": str(recip.id),
-            "recipient_email":      recip.email,
-            "kind":                 kind,
-            "action":               "email_delivery",
-            "at":                   datetime.now(timezone.utc),
-        })
-    except Exception as exc:
-        logger.error("access_log delivery write failed (%s → %s by %s): %s",
-                     owner_id, recip.id, actor.id, exc)
+    else:
+        try:
+            recip = await db.get(Profile, uuid.UUID(to_user_id))
+        except ValueError:
+            raise HTTPException(404, "no_such_recipient")
+        if not recip:
+            raise HTTPException(404, "no_such_recipient")
+
+    # Audit any send that crosses a person boundary — someone else's report, or
+    # a report going to someone other than the actor. Only a pure self→self send
+    # (own report to own inbox, the self-service page) stays out of the trail.
+    if owner_id != str(actor.id) or str(recip.id) != str(actor.id):
+        owner = await db.get(Profile, uuid.UUID(owner_id))
+        try:
+            await access_log().insert_one({
+                "actor_profile_id":     str(actor.id),
+                "actor_email":          actor.email,
+                "actor_role":           actor.role,
+                "report_owner_id":      owner_id,
+                "target_email":         owner.email if owner else None,
+                "recipient_profile_id": str(recip.id),
+                "recipient_email":      recip.email,
+                "kind":                 kind,
+                "action":               "email_delivery",
+                "at":                   datetime.now(timezone.utc),
+            })
+        except Exception as exc:
+            logger.error("access_log delivery write failed (%s → %s by %s): %s",
+                         owner_id, recip.id, actor.id, exc)
     return recip
 
 
@@ -132,7 +144,8 @@ async def send_email_report(
 ):
     if body.kind not in SUPPORTED_KINDS:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
-    target_id = await _resolve_report_access(body, actor, db, action="email")
+    # audit=False: _resolve_recipient writes the single email_delivery row (with recipient).
+    target_id = await _resolve_report_access(body, actor, db, action="email", audit=False)
 
     if not await db.get(Profile, target_id):
         return JSONResponse({"error": "no_such_user"}, status_code=404)
