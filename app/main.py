@@ -102,10 +102,19 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
+# Interactive API docs expose the full admin surface; keep them off in prod
+# (any non-localhost APP_BASE_URL) and available locally for development.
+from app.config import settings as _settings
+_is_local = _settings.APP_BASE_URL.startswith("http://localhost") or \
+    _settings.APP_BASE_URL.startswith("http://127.0.0.1")
+
 app = FastAPI(
     title="Developer Activity Tracker",
     lifespan=lifespan,
     swagger_ui_parameters={"withCredentials": True},
+    docs_url="/docs" if _is_local else None,
+    redoc_url="/redoc" if _is_local else None,
+    openapi_url="/openapi.json" if _is_local else None,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
