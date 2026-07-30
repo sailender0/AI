@@ -45,8 +45,12 @@ def _parse_ts(raw: dict, source: str) -> datetime:
 
 def _extract_title(source: str, raw: dict) -> str:
     if source == "teams_subscription":
-        body = raw.get("body", {})
-        return body.get("content", "") if isinstance(body, dict) else str(body)
+        # The correspondent, never the message content. `title` is indexed, shown
+        # in the timeline, exported to CSV/PDF and fed to the AI summariser, so a
+        # body here would archive message text across the whole app. Paired with
+        # the $select in receivers/teams.py, which keeps `body` out of the
+        # response in the first place.
+        return ((raw.get("from") or {}).get("emailAddress") or {}).get("address", "")
     if source == "github":
         return (
             raw.get("pull_request", {}).get("title")

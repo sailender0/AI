@@ -181,6 +181,9 @@ def test_jira_source_event_id():
 
 _TEAMS_MSG = {
     "id": "msg-001",
+    "from": {"emailAddress": {"name": "Priya Nair", "address": "priya.nair@example.com"}},
+    # Present only so the test below can prove it is NOT used as the title. The
+    # $select in receivers/teams.py means Graph doesn't return it in practice.
     "body": {"contentType": "text", "content": "Pushed auth fix to main"},
     "createdDateTime": "2026-06-23T13:00:00Z",
 }
@@ -190,9 +193,17 @@ def test_teams_event_type():
     assert event["event_type"] == "message_sent"
 
 
-def test_teams_title_from_body_content():
+def test_teams_title_is_correspondent_never_body():
+    """title is indexed, exported and AI-summarised — message content must never
+    reach it, even when the payload happens to carry a body."""
     event = normalize(_TEAMS_MSG, source="teams_subscription", profile_id=PROFILE)
-    assert event["title"] == "Pushed auth fix to main"
+    assert event["title"] == "priya.nair@example.com"
+    assert "Pushed auth fix" not in str(event["title"])
+
+
+def test_teams_title_empty_when_sender_missing():
+    event = normalize({"id": "m2"}, source="teams_subscription", profile_id=PROFILE)
+    assert event["title"] == ""
 
 
 def test_teams_source_event_id():
