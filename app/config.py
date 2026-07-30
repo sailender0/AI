@@ -20,11 +20,14 @@ class Settings(BaseSettings):
     AZURE_KEYVAULT_URL: str = ""
 
     # Azure OpenAI
+    # Kill switch: AI_ENABLED=false stops every LLM call and the AI-generating
+    # scheduled jobs. Nothing else in the app changes.
+    AI_ENABLED: bool = True
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_KEY: str = ""
-    AZURE_OPENAI_DEPLOYMENT: str = "gpt-4o"
+    AZURE_OPENAI_DEPLOYMENT: str = "gpt-4.1-mini"
     # Per-1M-token prices for cost logging. UPDATE these together with the
-    # deployment above when you change models. Defaults are gpt-4.1-mini.
+    # deployment above when you change models. Defaults match the deployment above.
     AZURE_OPENAI_PRICE_IN: float = 0.40
     AZURE_OPENAI_PRICE_OUT: float = 1.60
 

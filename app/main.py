@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.storage.mongodb import init_indexes
 from app.storage.postgres import get_db
 from app.storage.redis_client import close_redis
@@ -58,15 +59,16 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
-    # Hourly: run_summary_job generates only for profiles whose LOCAL hour is 23, so
-    # every timezone gets its daily summary at its own 23:00. (docs/adr-0001-timezone.md)
-    scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
-    # Hourly: generates only for profiles whose LOCAL time is Friday 17:00, so every
-    # timezone gets its weekly summary at its own Friday evening. (docs/adr-0001-timezone.md)
-    scheduler.add_job(run_summary_job, "cron", minute=0, args=["weekly"], id="weekly_summary")
-    # Hourly: generates + flags the standup for profiles at their local 09:00, for
-    # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
-    scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
+    if settings.AI_ENABLED:
+        # Hourly: run_summary_job generates only for profiles whose LOCAL hour is 23, so
+        # every timezone gets its daily summary at its own 23:00. (docs/adr-0001-timezone.md)
+        scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
+        # Hourly: generates only for profiles whose LOCAL time is Friday 17:00, so every
+        # timezone gets its weekly summary at its own Friday evening. (docs/adr-0001-timezone.md)
+        scheduler.add_job(run_summary_job, "cron", minute=0, args=["weekly"], id="weekly_summary")
+        # Hourly: generates + flags the standup for profiles at their local 09:00, for
+        # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
+        scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
     # Top of every hour: sends each user's scheduled digest(s) when their local
     # hour matches — lands on exactly HH:00 for whole-hour timezones. Deduped in
     # email_sends. (Half-hour-offset zones, e.g. IST, land on their local :30.)
@@ -75,13 +77,16 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started")
 
-    _catchup_task = asyncio.create_task(run_startup_catchup())
+    if settings.AI_ENABLED:
+        _catchup_task = asyncio.create_task(run_startup_catchup())
 
-    def _log_catchup_error(t: asyncio.Task) -> None:
-        if not t.cancelled() and t.exception():
-            logger.error("run_startup_catchup failed: %s", t.exception(), exc_info=t.exception())
+        def _log_catchup_error(t: asyncio.Task) -> None:
+            if not t.cancelled() and t.exception():
+                logger.error("run_startup_catchup failed: %s", t.exception(), exc_info=t.exception())
 
-    _catchup_task.add_done_callback(_log_catchup_error)
+        _catchup_task.add_done_callback(_log_catchup_error)
+    else:
+        logger.warning("AI_ENABLED=false — LLM calls and AI summary jobs are off")
 
     yield
 

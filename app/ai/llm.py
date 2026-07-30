@@ -39,6 +39,9 @@ _client: AsyncAzureOpenAI | None = None
 
 def _get_client() -> AsyncAzureOpenAI:
     global _client
+    if not settings.AI_ENABLED:
+        # Message reaches the UI verbatim (routes surface str(exc)) — keep it user-facing.
+        raise RuntimeError("Currently all AI features are disabled")
     if _client is None:
         _client = AsyncAzureOpenAI(
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
