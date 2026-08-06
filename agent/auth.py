@@ -1,7 +1,6 @@
 """SSO auth flow — runs inside the pywebview window."""
 import http.server
 import logging
-import platform
 import socket
 import threading
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -12,7 +11,7 @@ from agent.agent import KEYRING_SERVICE, KEYRING_TOKEN_KEY, KEYRING_URL_KEY
 
 log = logging.getLogger(__name__)
 
-_SSO_TIMEOUT = 300  # seconds user has to complete login
+_SSO_TIMEOUT = 300
 
 
 def _free_port() -> int:
@@ -43,20 +42,17 @@ def run_sso_in_window(window, backend: str, device_name: str, on_complete) -> No
 
             if parsed.path == "/auth" and token:
                 _result["token"] = token
-                # Redirect the webview straight to the dashboard
                 self.send_response(302)
                 self.send_header("Location", next_)
                 self.end_headers()
                 _done.set()
             else:
-                # favicon / unknown — 404 and keep looping (fixes single-handle bug)
                 self.send_response(404)
                 self.end_headers()
 
     httpd = http.server.HTTPServer(("localhost", port), _Handler)
 
     def _serve():
-        # Loop until the real callback arrives — handles favicon and retries
         while not _done.is_set():
             httpd.handle_request()
         httpd.server_close()
@@ -89,11 +85,3 @@ def run_sso_in_window(window, backend: str, device_name: str, on_complete) -> No
 
 def is_authenticated() -> bool:
     return bool(keyring.get_password(KEYRING_SERVICE, KEYRING_TOKEN_KEY))
-
-
-def clear_credentials() -> None:
-    for key in (KEYRING_TOKEN_KEY, KEYRING_URL_KEY):
-        try:
-            keyring.delete_password(KEYRING_SERVICE, key)
-        except Exception:
-            pass

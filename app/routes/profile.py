@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.sso import get_profile_from_session, require_profile
 from app.config import settings
-from app.services.activity_query import get_integrations, get_profile_tz
+from app.services.activity_query import get_integrations
 from app.storage.models import Profile
 from app.storage.postgres import get_db
 

@@ -28,8 +28,6 @@ def _load_instructions() -> str:
     )
 
 
-# ponytail: keyword gate (same spirit as the standup gate below) — the live
-# Jira fetch is three Atlassian round-trips, too heavy for every chat message.
 _JIRA_STATE_WORDS = ("jira", "issue", "ticket", "assigned", "sprint",
                      "overdue", "deadline", "backlog", "story point")
 
@@ -59,12 +57,9 @@ def _sanitize_question(text: str) -> str:
     return cleaned.strip()[:1000]
 
 
-# The AI answers in text; charts already exist as Chart.js dashboards. When a
-# question is trend/visual-shaped, point the user at the matching page instead
-# of rendering pixels in chat. ponytail: keyword heuristic — refine if it misfires.
 _CHART_INTENT = ("trend", "chart", "graph", "over time", "breakdown", "visuali",
                  "distribution", "by hour", "by day", "compare", "history", "most")
-_CHART_PAGES = (  # (topic keywords, label, href) — first match wins; order matters
+_CHART_PAGES = (
     (("jira", "sprint", "issue", "ticket", "priority", "overdue", "backlog"),
      "Jira charts", "/jira"),
     (("claude", "token", "copilot", "cursor", "ai tool", "ai-tool"),
@@ -86,8 +81,6 @@ def _chart_link(question: str) -> dict | None:
     return {"label": "Analytics", "href": "/analytics"}
 
 
-# The single-window activity pipeline can't compare two periods, so a token
-# comparison ("this week vs last week") gets its own fetch of both periods.
 _COMPARE_WORDS = ("last week", "last month", "previous week", "previous month",
                   "compare", "comparison", " vs ", "versus",
                   "week over week", "month over month")
@@ -118,16 +111,11 @@ def _scope_to_range(scope: str, tz_name: str = "UTC") -> dict:
     if scope == "week":
         monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
         return {"$gte": day_bounds(monday, tz)[0]}
-    # ponytail: month is a rolling window (now - 30d), not day-aligned, so
-    # day_bounds doesn't apply. Vestigial — scope is ~always "today".
     if scope == "month":
         return {"$gte": (now - timedelta(days=30)).astimezone(timezone.utc)}
-    # today: local midnight → UTC
     return {"$gte": day_bounds(now.strftime("%Y-%m-%d"), tz)[0]}
 
 
-# Strict schema for structured outputs — nullable enums via ["string","null"] + null
-# in the enum; all keys required + additionalProperties:false, as strict mode demands.
 _INTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -144,7 +132,7 @@ _INTENT_SCHEMA = {
 async def _gpt_parse_intent(question: str, today: str, tz_name: str = "UTC") -> dict:
     """Ask GPT to extract date_from, date_to, source, event_type from the question."""
     local_now    = datetime.now(ZoneInfo(tz_name or "UTC"))
-    weekday_name = local_now.strftime("%A")                      # "Tuesday"
+    weekday_name = local_now.strftime("%A")
     yesterday    = (local_now - timedelta(days=1)).strftime("%Y-%m-%d (%A)")
     system_prompt = (
         f"Today is {weekday_name}, {today} (user's local time). Yesterday was {yesterday}.\n"
@@ -171,7 +159,6 @@ def _intent_to_filter(parsed: dict, scope: str, tz_name: str = "UTC") -> dict:
     if date_from:
         try:
             tz = resolve(tz_name)
-            # local-midnight bounds so "yesterday" means the user's actual day, not UTC day
             start, _ = day_bounds(date_from, tz)
             _, end   = day_bounds(date_to or date_from, tz)
             return {"$gte": start, "$lte": end}
@@ -230,8 +217,6 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
                                      tz_name: str = "UTC", question: str = "") -> str:
     lines: list[str] = []
 
-    # Focus time — gap-based blocks, the SAME calc the My Activity page uses
-    # (compute_focus_blocks) so the AI answer and the page never disagree.
     hbs = await device_heartbeats().find(
         {"profile_id": profile_id, "timestamp": time_filter, "idle": False},
         projection={"timestamp": 1, "_id": 0},
@@ -248,8 +233,6 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
         h, m = divmod(focus_min, 60)
         lines.append(f"Focus/coding time: {h}h {m}m (approx)")
 
-    # Claude token usage — keyed by LOCAL date string, derived through the same
-    # IANA tz as everything else (docs/adr-0001-timezone.md).
     rng = _claude_date_range(time_filter, resolve(tz_name))
     if rng:
         date_from, date_to = rng
@@ -271,7 +254,7 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
                 repos[repo] = repos.get(repo, 0) + d.get("input_tokens", 0) + d.get("output_tokens", 0)
             for repo, toks in sorted(repos.items(), key=lambda x: -x[1]):
                 lines.append(f"  {repo}: {toks:,} tokens")
-            hourly = merge_hourly(claude_docs)                  # when tokens were spent
+            hourly = merge_hourly(claude_docs)
             if hourly:
                 lines.append("  tokens by hour of day (local):")
                 for hb in hourly:
@@ -279,7 +262,6 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
                     tot = hb["input_tokens"] + hb["output_tokens"]
                     lines.append(f"    {hr}{ampm}: {tot:,} ({hb['input_tokens']:,} in / {hb['output_tokens']:,} out)")
 
-    # Local commits
     commits = await local_commits().find(
         {"profile_id": profile_id, "timestamp": time_filter},
         projection={"repo": 1, "branch": 1, "message": 1, "timestamp": 1, "_id": 0},
@@ -292,8 +274,6 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
             lines.append(f"  [{tss}] {c.get('repo','?')}/{c.get('branch','?')}: "
                          f"{c.get('message','')[:80]}")
 
-    # AI tools — with real active time per tool (running while not idle), the same
-    # overlap-with-focus-blocks number the My Activity dropdown shows.
     ai_docs = await ai_tool_events().find(
         {"profile_id": profile_id, "timestamp": time_filter},
         projection={"tools": 1, "timestamp": 1, "_id": 0},
@@ -315,15 +295,11 @@ async def _fetch_my_activity_context(profile_id: str, time_filter: dict,
                 else:
                     lines.append(f"  {tool}: detected")
                 tool_periods = periods.get(tool, [])
-                for p in tool_periods[:8]:                       # sessions = when it was active
+                for p in tool_periods[:8]:
                     lines.append(f"    {_fmt_local(p['start'], tz)}–{_fmt_local(p['end'], tz)}")
                 if len(tool_periods) > 8:
                     lines.append(f"    (+{len(tool_periods) - 8} more sessions)")
 
-    # Standup history — ONLY when the question is about standups. Dumping 30 days of
-    # standup text into every request drowns out sparse activity data and skews every
-    # answer toward reciting a standup. ponytail: keyword gate; make it intent-driven
-    # if "standup" ever needs synonyms.
     if "standup" in question.lower():
         standup_docs = await standups().find(
             {"profile_id": profile_id},

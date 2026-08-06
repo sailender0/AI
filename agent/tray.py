@@ -14,7 +14,7 @@ import threading
 
 log = logging.getLogger(__name__)
 
-_stop = threading.Event()  # signals agent thread to stop cleanly
+_stop = threading.Event()
 
 
 def _make_icon(connected: bool):
@@ -40,7 +40,6 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
     _icon        = None
     _agent_thread = None
 
-    # ── Agent ─────────────────────────────────────────────────────────────────
 
     def start_agent(token: str):
         nonlocal _agent_thread
@@ -54,7 +53,7 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
         def _notify(title: str, body: str):
             if _icon:
                 try:
-                    _icon.notify(body, title)      # tray balloon / toast
+                    _icon.notify(body, title)
                 except Exception as e:
                     log.debug("tray notify failed: %s", e)
 
@@ -66,11 +65,7 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
         )
         _agent_thread.start()
 
-    # ── Window ────────────────────────────────────────────────────────────────
 
-    # Start hidden; show after auth check in on_start()
-    # _r cache-busts so WebView2 can never serve a stale cached copy of the page
-    # (_dt=1 is the desktop-mode flag — value must stay "1")
     import time
     initial_url = (f"{backend}/my-activity?_dt=1&_r={int(time.time())}"
                    if is_authenticated() else f"{backend}/")
@@ -81,17 +76,16 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
         height=800,
         min_size=(800, 600),
         text_select=True,
-        hidden=True,          # shown explicitly once ready
+        hidden=True,
     )
 
     def on_closing():
         """Hide to tray instead of closing."""
         window.hide()
-        return False  # cancel the close
+        return False
 
     window.events.closing += on_closing
 
-    # ── Tray ──────────────────────────────────────────────────────────────────
 
     def _show(icon=None, item=None):
         window.show()
@@ -100,7 +94,7 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
         _stop.set()
         if _icon:
             _icon.stop()
-        window.destroy()  # makes webview.start() return
+        window.destroy()
 
     _icon = pystray.Icon(
         "da-agent",
@@ -114,11 +108,9 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
     )
     threading.Thread(target=_icon.run, daemon=True).start()
 
-    # IPC: second instance sends "show" → bring window to front
     if ipc_server:
         ipc_server(lambda: window.show())
 
-    # ── Webview start callback ────────────────────────────────────────────────
 
     def on_start():
         """Runs in a worker thread after webview initialises."""
@@ -129,11 +121,9 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
                 if not startup_mode:
                     window.show()
             else:
-                # Token missing from keyring despite is_authenticated passing — re-auth
                 _do_sso()
         else:
             if startup_mode:
-                # No credentials and launched at startup — wait silently for user to open
                 log.info("Startup mode: no credentials — waiting for user to open app")
             else:
                 _do_sso()
@@ -150,8 +140,6 @@ def main(backend: str, startup_mode: bool = False, ipc_server=None):
 
         run_sso_in_window(window, backend, device_name, on_auth)
 
-    # ── Block main thread in webview event loop ───────────────────────────────
     webview.start(on_start, debug=False)
 
-    # webview.start() returns only when window.destroy() is called (Quit)
     _stop.set()

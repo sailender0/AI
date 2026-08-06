@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -60,26 +60,13 @@ async def lifespan(app: FastAPI):
     await init_indexes()
 
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
-    # Hourly: pulls each profile's chat, mail and meetings for their own local
-    # today. Delegated Chat.Read has no all-chats endpoint, so chat is N+1 per
-    # profile — hourly balances call volume against how stale the calendar gets.
-    # Re-polling is idempotent (ingest dedups on the Graph id).
     scheduler.add_job(run_graph_poll_job, "cron", minute=20, id="graph_poll")
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
     if settings.AI_ENABLED:
-        # Hourly: run_summary_job generates only for profiles whose LOCAL hour is 23, so
-        # every timezone gets its daily summary at its own 23:00. (docs/adr-0001-timezone.md)
         scheduler.add_job(run_summary_job, "cron", minute=59, args=["daily"], id="daily_summary")
-        # Hourly: generates only for profiles whose LOCAL time is Friday 17:00, so every
-        # timezone gets its weekly summary at its own Friday evening. (docs/adr-0001-timezone.md)
         scheduler.add_job(run_summary_job, "cron", minute=0, args=["weekly"], id="weekly_summary")
-        # Hourly: generates + flags the standup for profiles at their local 09:00, for
-        # proactive delivery via the desktop agent. (docs/adr-0002-delivery.md)
         scheduler.add_job(run_standup_job, "cron", minute=30, id="standup_job")
-    # Top of every hour: sends each user's scheduled digest(s) when their local
-    # hour matches — lands on exactly HH:00 for whole-hour timezones. Deduped in
-    # email_sends. (Half-hour-offset zones, e.g. IST, land on their local :30.)
     scheduler.add_job(run_email_digest_job, "cron", minute=0, id="email_digest")
 
     scheduler.start()
@@ -102,8 +89,6 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-# Interactive API docs expose the full admin surface; keep them off in prod
-# (any non-localhost APP_BASE_URL) and available locally for development.
 from app.config import settings as _settings
 _is_local = _settings.APP_BASE_URL.startswith("http://localhost") or \
     _settings.APP_BASE_URL.startswith("http://127.0.0.1")

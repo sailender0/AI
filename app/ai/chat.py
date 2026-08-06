@@ -34,10 +34,8 @@ from app.storage.postgres import AsyncSessionLocal
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_MAX_HISTORY_MSGS = 20  # cap conversation context to prevent unbounded token growth
+_MAX_HISTORY_MSGS = 20
 
-
-# ── Chat conversation endpoints ────────────────────────────────────────────────
 
 @router.get("/api/chat/conversations")
 async def list_conversations(profile_id: str = Depends(require_profile)):
@@ -94,7 +92,7 @@ async def get_conversation_messages(conv_id: str, profile_id: str = Depends(requ
 class AskRequest(BaseModel):
     question: str
     scope: str = "today"
-    tz: str | None = None  # browser IANA timezone (ADR-0001); source of truth for local dates
+    tz: str | None = None
 
 
 @router.post("/api/chat/conversations/{conv_id}/ask/stream")
@@ -105,11 +103,7 @@ async def ask_in_conversation_stream(conv_id: str, body: AskRequest,
         return JSONResponse({"error": "question_required"}, status_code=400)
     question = _sanitize_question(raw_question)
 
-    # Fetch conversation + history, timezone, save user message eagerly
     async with AsyncSessionLocal() as db:
-        # Browser IANA tz is the freshest signal — resolve local dates from it and
-        # persist it so background jobs (summaries, standups) use the same day
-        # boundaries the user sees. (docs/adr-0001-timezone.md)
         profile = await db.get(Profile, profile_id)
         profile_tz = (profile.timezone or "UTC") if profile else "UTC"
         if profile and is_valid_tz(body.tz) and body.tz != profile.timezone:
@@ -143,7 +137,6 @@ async def ask_in_conversation_stream(conv_id: str, body: AskRequest,
         conv.updated_at = user_created_at
         await db.commit()
 
-    # Fetch activity context using user's local timezone
     today  = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
     parsed = await _gpt_parse_intent(question, today, tz_name)
     time_filter = _intent_to_filter(parsed, body.scope, tz_name)
@@ -228,7 +221,7 @@ async def delete_conversation(conv_id: str, profile_id: str = Depends(require_pr
 
 
 class EmailMsgRequest(BaseModel):
-    message_id: str | None = None   # which assistant message to email; None = most recent
+    message_id: str | None = None
 
 
 async def _assistant_message(db, conv_id: str, profile_id: str, message_id: str | None):

@@ -44,7 +44,6 @@ async def _resolve_profile(actor_id: str | None) -> str | None:
 
 
 def _actor_id(body: dict) -> str | None:
-    # push carries the pusher at top level; MR/issue/note nest it under "user".
     aid = body.get("user_id") or (body.get("user") or {}).get("id")
     return str(aid) if aid else None
 
@@ -58,7 +57,6 @@ async def _process(body: dict):
         return
 
     if object_kind == "push":
-        # One event per commit
         commits = body.get("commits") or []
         if not commits:
             return
@@ -80,8 +78,6 @@ async def gitlab_webhook(
     background_tasks: BackgroundTasks,
     x_gitlab_token: str = Header(default=""),
 ):
-    # Fail closed: an unset secret makes compare_digest("", "") true, which would
-    # accept unauthenticated (spoofable) events. No secret → no webhook.
     secret = settings.GITLAB_WEBHOOK_SECRET
     if not secret or not hmac.compare_digest(x_gitlab_token, secret):
         return JSONResponse({"error": "invalid_token"}, status_code=401)
@@ -146,7 +142,6 @@ async def reregister_gitlab_webhooks(request: Request):
     if not projects:
         return JSONResponse({"error": "No GitLab projects found for this account"}, status_code=400)
 
-    # One identity for the account — events resolve by actor, not project.
     await save_gitlab_identity(profile_id, user_id, username)
 
     hook_payload = {
@@ -166,7 +161,6 @@ async def reregister_gitlab_webhooks(request: Request):
             pid       = project["id"]
             namespace = project.get("path_with_namespace", "")
 
-            # Check if our webhook URL is already registered — avoid duplicates
             existing_hooks = await client.get(
                 f"https://gitlab.com/api/v4/projects/{pid}/hooks",
                 headers=headers,

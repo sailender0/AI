@@ -1,8 +1,8 @@
 """
 Webhook / subscription registration — fires automatically after auth.
 
-FIX (issue #3): Teams subscriptions use a delegated token from the MSAL cache
-so that me/messages is a valid resource (it requires delegated Chat.Read scope).
+Teams subscriptions use a delegated token from the MSAL cache so that
+me/messages is a valid resource (it requires the delegated Chat.Read scope).
 """
 from datetime import datetime, timedelta, timezone
 
@@ -13,9 +13,6 @@ from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
 from app.storage.models import Integration, TeamsIntegration
-# AsyncSessionLocal() is used intentionally here — registration functions are
-# called from background tasks and OAuth callbacks, not FastAPI request handlers,
-# so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 
 
@@ -65,7 +62,7 @@ async def auto_register_teams_subscription(profile_id: str):
             db.add(row)
 
         row.subscription_id = data["id"]
-        row.subscription_expires_at = datetime.fromisoformat(data["expirationDateTime"].replace("Z", "+00:00"))
+        row.subscription_expires_at = datetime.fromisoformat(data["expirationDateTime"])
         row.sync_status = "active"
         await db.commit()
 
@@ -183,7 +180,6 @@ async def _register_gitlab(token: str, profile_id: str):
         logger.warning("GitLab: no projects found for profile %s", profile_id)
         return
 
-    # One identity for the whole account — events resolve by actor, not project.
     await save_gitlab_identity(profile_id, user_id, username)
 
     registered = 0
@@ -192,7 +188,6 @@ async def _register_gitlab(token: str, profile_id: str):
             project_id = project["id"]
             namespace  = project.get("path_with_namespace", "")
 
-            # Skip if our URL is already registered — avoid duplicate webhook deliveries
             existing_hooks_resp = await client.get(
                 f"https://gitlab.com/api/v4/projects/{project_id}/hooks",
                 headers=headers,
@@ -231,7 +226,6 @@ async def _register_gitlab(token: str, profile_id: str):
 
 async def _register_jira(token: str, profile_id: str):
     async with httpx.AsyncClient() as client:
-        # Jira OAuth 2.0 tokens require api.atlassian.com with a cloud ID
         resources_resp = await client.get(
             "https://api.atlassian.com/oauth/token/accessible-resources",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},

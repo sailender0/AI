@@ -31,7 +31,6 @@ async def github_app_callback(
     profile_id = await get_profile_from_session(request)
 
     if not profile_id:
-        # Not logged in — save the installation details and send to login first
         redis = get_redis()
         import secrets
         pending_state = secrets.token_urlsafe(16)
@@ -77,10 +76,6 @@ async def _handle_installation(
         "GitHub App %s for profile %s — installation %s",
         setup_action, profile_id, installation_id,
     )
-    # App install gives us org-wide webhooks but NOT the installer's identity.
-    # Chain into OAuth to capture the GitHub user id (so webhooks resolve to this
-    # profile by actor) and the backfill token. Without this the receiver's
-    # actor-filter would drop this user's events.
     return RedirectResponse(url="/connect/github")
 
 
@@ -145,8 +140,6 @@ async def _upsert_installation(profile_id: str, installation_id: str):
 
 async def _remove_installation(profile_id: str, _installation_id: str):
     async with AsyncSessionLocal() as db:
-        # Remove every github link for this profile (both the install row and the
-        # OAuth identity row keyed on the user id), not just the installation_id.
         await db.execute(
             delete(LinkedIdentity).where(
                 LinkedIdentity.profile_id == profile_id,

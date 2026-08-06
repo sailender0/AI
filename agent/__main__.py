@@ -10,7 +10,7 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-_IPC_PORT = 47823  # fixed local port for single-instance signalling
+_IPC_PORT = 47823
 
 
 def _signal_existing() -> None:
@@ -28,7 +28,7 @@ def _bind_instance_lock() -> socket.socket | None:
     No SO_REUSEADDR: on Windows it lets two sockets bind the same port,
     which is exactly the hole that allowed duplicate instances."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):  # Windows: block bind hijacking
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
     try:
         srv.bind(("localhost", _IPC_PORT))
@@ -54,9 +54,6 @@ def _start_ipc_server(srv: socket.socket, on_show) -> None:
 
 
 if __name__ == "__main__":
-    # Acquire the lock BEFORE the slow imports below — the old code checked for a
-    # peer here but only bound the port seconds later, so two launches in that
-    # window both survived.
     _lock = _bind_instance_lock()
     if _lock is None:
         _signal_existing()

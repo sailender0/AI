@@ -48,17 +48,16 @@ async def list_users(actor: Profile = Depends(require_elevated(*ELEVATED)),
     managers = [{"id": str(p.id), "email": p.email} for p in rows if p.role == "manager"]
     return JSONResponse({
         "is_admin": is_admin,
-        "can_edit": is_admin,                       # role/manager/delete controls
+        "can_edit": is_admin,
         "actor_id": str(actor.id),
         "roles": list(ROLES),
         "all_permissions": list(ALL_PERMISSIONS),
-        "assignable": assignable_permissions(actor),   # what THIS actor may grant to others
+        "assignable": assignable_permissions(actor),
         "managers": managers,
         "users": [
             {"id": str(p.id), "email": p.email, "role": p.role,
              "permissions": granted(p),
              "own_permissions": _own_perms(p),
-             # per-manager delegation allow-list (what THIS manager may assign to reports)
              "assignable_perms": [k for k in ALL_PERMISSIONS if k in (p.assignable_perms or [])],
              "manager_id": str(p.manager_id) if p.manager_id else None,
              "can_edit_perms": can_edit_permissions(actor, p)}
@@ -76,18 +75,18 @@ class PermsBody(BaseModel):
 
 
 class ManagerBody(BaseModel):
-    manager_id: str | None = None      # None / "" unassigns
+    manager_id: str | None = None
 
 
 class BulkPermsBody(BaseModel):
     permissions: list[str]
-    mode: str = "grant"                 # grant (add) | revoke (remove)
+    mode: str = "grant"
 
 
 class BulkAssignBody(BaseModel):
     user_ids: list[str]
     permissions: list[str]
-    mode: str = "grant"                 # grant (add) | revoke (remove)
+    mode: str = "grant"
 
 
 async def _get_target(user_id: str, db: AsyncSession) -> Profile | None:
@@ -123,14 +122,10 @@ async def set_role(user_id: str, body: RoleBody,
     if body.role not in ROLES:
         return JSONResponse({"error": f"bad role: {body.role}"}, status_code=400)
     if user_id == str(actor.id) and body.role != "admin":
-        # ponytail: stops an admin locking themselves out; the env allowlist is
-        # the only other recovery path.
         return JSONResponse({"error": "cannot demote yourself"}, status_code=400)
     target = await _get_target(user_id, db)
     if not target:
         return JSONResponse({"error": "no_such_user"}, status_code=404)
-    # Demoting a manager orphans their reports — null the dangling manager_id so
-    # nobody points at a non-manager (and no report is silently left mis-scoped).
     if target.role == "manager" and body.role != "manager":
         await db.execute(
             update(Profile).where(Profile.manager_id == target.id).values(manager_id=None)
@@ -157,9 +152,6 @@ async def set_permissions(user_id: str, body: PermsBody,
         return JSONResponse({"error": "forbidden"}, status_code=403)
     submitted = set(body.permissions)
     if actor.role != "admin":
-        # A manager may only flip the permissions they're allowed to ASSIGN (held,
-        # minus admin-only ones like attendance_report). Anything else on the target
-        # is preserved as-is rather than dropped.
         allowed, current = set(assignable_permissions(actor)), set(target.permissions or [])
         submitted = (submitted & allowed) | (current - allowed)
     target.permissions = [p for p in ALL_PERMISSIONS if p in submitted]
@@ -193,12 +185,10 @@ async def set_manager(user_id: str, body: ManagerBody,
         return JSONResponse({"error": "no_such_manager"}, status_code=404)
     if mgr.role != "manager":
         return JSONResponse({"error": "target is not a manager"}, status_code=400)
-    # Reject the 2-cycle A→B, B→A. Deeper cycles are impossible with one level.
     if str(mgr.manager_id or "") == user_id:
         return JSONResponse({"error": "would create a manager cycle"}, status_code=400)
 
     target.manager_id = mgr.id
-    # Copy-on-assignment: union the manager's template into the report's own perms.
     merged = set(_own_perms(target)) | set(_own_perms(mgr))
     target.permissions = [p for p in ALL_PERMISSIONS if p in merged]
     await db.commit()
@@ -276,7 +266,6 @@ async def bulk_permissions(body: BulkAssignBody,
 
     delta = {p for p in body.permissions if p in ALL_PERMISSIONS}
     if actor.role != "admin":
-        # A manager can only hand out permissions they're allowed to assign.
         delta &= set(assignable_permissions(actor))
     if not delta:
         return JSONResponse({"ok": True, "mode": body.mode, "changed": 0,
@@ -313,7 +302,7 @@ async def delete_user(user_id: str, actor: Profile = Depends(require_elevated("a
         return JSONResponse({"error": "no_such_user"}, status_code=404)
 
     email = target.email
-    await db.delete(target)   # awaited: cascade may load relationships (async ORM)
+    await db.delete(target)
     await db.commit()
 
     purged = await purge_profile(user_id)
@@ -356,7 +345,6 @@ async def access_log_view(role: str = "", action: str = "",
 
     docs = await access_log().find(query, {"_id": 0}).sort("at", -1).limit(200).to_list(200)
 
-    # One round-trip to resolve any ids the rows didn't store an email for.
     wanted = set()
     for d in docs:
         for k in ("actor_profile_id", "target_profile_id", "report_owner_id", "recipient_profile_id"):
@@ -384,8 +372,6 @@ async def access_log_view(role: str = "", action: str = "",
     for d in docs:
         owner_id = d.get("target_profile_id") or d.get("report_owner_id")
         at = d.get("at")
-        # Mongo hands back naive datetimes in UTC; stamp UTC so the ISO string
-        # carries an offset and the browser converts to the viewer's local time.
         at_iso = at.replace(tzinfo=timezone.utc).isoformat() if at else None
         entries.append({
             "at":          at_iso,

@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from app.ai import llm
-from app.config import settings
 from app.services.timezone import day_bounds, resolve
 from app.storage.models import Integration, Profile, Summary
 from app.storage.mongodb import activity_events
@@ -33,9 +32,8 @@ def _period_bounds(tz_name: str, period_type: str, full_day: bool = False) -> tu
     now = datetime.now(tz)
     if period_type == "daily":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Scheduled job captures the full day (00:00–23:59:59); manual captures up to now
         end = now.replace(hour=23, minute=59, second=59, microsecond=999999) if full_day else now
-    else:  # weekly
+    else:
         start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
         end = now
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -100,9 +98,9 @@ def _is_scheduled_time(period_type: str, local_now: datetime) -> bool:
     if period_type == "daily":
         return local_now.hour == 23
     if period_type == "weekly":
-        return local_now.weekday() == 4 and local_now.hour == 17  # Friday 17:xx
+        return local_now.weekday() == 4 and local_now.hour == 17
     if period_type == "standup":
-        return local_now.hour == 9  # local 09:00
+        return local_now.hour == 9
     return True
 
 
@@ -160,8 +158,6 @@ async def _summarise_profile(
     logger.info("Summary generated — profile=%s period=%s", profile_id, period_type)
 
     async with AsyncSessionLocal() as db:
-        # Anchor window to UTC day boundary so entries stored before/after timezone fix
-        # (e.g. Jun 15 00:00 UTC vs Jun 15 07:00 UTC) are treated as the same period
         if period_type == "daily":
             window_start = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
             window_end   = window_start + timedelta(days=1)
@@ -179,7 +175,6 @@ async def _summarise_profile(
         )).scalars().all()
 
         if existing_rows:
-            # Keep the newest, delete any duplicates created by earlier timezone mismatches
             summary = existing_rows[0]
             for dupe in existing_rows[1:]:
                 await db.delete(dupe)
@@ -219,7 +214,6 @@ async def run_startup_catchup():
         tz         = ZoneInfo(profile.timezone or "UTC")
         now        = datetime.now(tz)
 
-        # ── Missed daily: yesterday ───────────────────────────────────────
         try:
             ydate  = (now - timedelta(days=1)).date()
             ystart = datetime(ydate.year, ydate.month, ydate.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
@@ -245,21 +239,19 @@ async def run_startup_catchup():
         except Exception as exc:
             logger.error("Startup catch-up daily failed for %s: %s", profile_id, exc)
 
-        # ── Missed weekly: last Friday's window ───────────────────────────
         try:
-            dow       = now.weekday()            # 0=Mon … 4=Fri … 6=Sun
-            days_back = (dow - 4) % 7            # days since last Friday
+            dow       = now.weekday()
+            days_back = (dow - 4) % 7
             if days_back == 0 and now.hour < 17:
-                days_back = 7                    # It's Friday but before the 17:00 trigger
+                days_back = 7
 
             if days_back == 0 and now.hour >= 17:
-                # It IS Friday at or past trigger time — current week is the target
                 mon = now.date() - timedelta(days=dow)
             elif days_back > 0:
                 last_fri = now.date() - timedelta(days=days_back)
                 mon      = last_fri - timedelta(days=last_fri.weekday())
             else:
-                continue  # Friday before 17:00 — no missed window yet
+                continue
 
             wstart = datetime(mon.year, mon.month, mon.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
             wend   = wstart + timedelta(days=7)

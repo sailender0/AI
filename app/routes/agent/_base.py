@@ -1,8 +1,8 @@
 """Shared schemas and device auth dependency for agent routes."""
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -30,8 +30,6 @@ async def _get_device(request: Request) -> tuple[Device, str]:
 DeviceCtx = tuple[Device, str]
 
 
-# ── Pydantic schemas ──────────────────────────────────────────────────────────
-
 class HeartbeatPayload(BaseModel):
     active_app:   str = ""
     window_title: str = ""
@@ -58,9 +56,7 @@ class AiEventPayload(BaseModel):
 
 
 class HourlyBucket(BaseModel):
-    # Typed so ints are coerced/rejected at ingest — these values feed timedelta()
-    # and token arithmetic in analytics; an untyped dict let a string hour 500 /today.
-    hour:          int = 0    # local 0–23
+    hour:          int = 0
     input_tokens:  int = 0
     output_tokens: int = 0
 

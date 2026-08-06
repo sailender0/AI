@@ -31,10 +31,7 @@ import psutil
 import requests
 import keyring
 
-# ── Constants ─────────────────────────────────────────────────────────────────
 
-# Windowed exe: every console child (git, code) flashes a visible console
-# window unless suppressed — pass this to every subprocess.run.
 _NO_WINDOW = (
     {"creationflags": subprocess.CREATE_NO_WINDOW}
     if platform.system() == "Windows" else {}
@@ -46,20 +43,16 @@ KEYRING_URL_KEY   = "backend-url"
 
 DEFAULT_BACKEND = os.environ.get("DA_BACKEND", "http://localhost:8000")
 
-HEARTBEAT_INTERVAL  = 30   # seconds
+HEARTBEAT_INTERVAL  = 30
 AI_CHECK_INTERVAL   = 60
-AI_RESEND_INTERVAL  = 120   # re-emit unchanged tool set every 2 min so each local day has an event
+AI_RESEND_INTERVAL  = 120
 EXTENSION_INTERVAL  = 600
 CLAUDE_INTERVAL     = 60
-DISCOVER_INTERVAL   = 180  # scan the home folder for AI-tool data dirs every 3 min
-STANDUP_INTERVAL    = 300  # poll for a deliverable standup every 5 min
-REPO_SCAN_INTERVAL  = 300  # rediscover repos from all process cwds every 5 min
-_MAX_WATCHED_REPOS  = 25   # cap on repos polled for commits (ponytail: bound growth)
+DISCOVER_INTERVAL   = 180
+STANDUP_INTERVAL    = 300
+REPO_SCAN_INTERVAL  = 300
+_MAX_WATCHED_REPOS  = 25
 
-# Known process name keywords → tool name
-# Fallback maps used when the backend is unreachable.
-# The agent fetches live definitions from /api/agent/tool-definitions on startup
-# and refreshes every 6 hours — add new tools there without rebuilding the exe.
 _DEFAULT_PROC_MAP: dict[str, str] = {
     "cursor":        "cursor-ai",
     "windsurf":      "windsurf",
@@ -96,7 +89,6 @@ _DEFAULT_VSCODE_EXT_MAP: dict[str, str] = {
 
 _DEFAULT_AI_KEYWORDS = {"gpt", "llm", "coder", "codex", "assistant", "autocomplete", "intellicode"}
 
-# Live copies — replaced by remote fetch, fall back to defaults above
 AI_PROC_MAP:    dict[str, str] = dict(_DEFAULT_PROC_MAP)
 VSCODE_EXT_MAP: dict[str, str] = dict(_DEFAULT_VSCODE_EXT_MAP)
 _AI_KEYWORDS:   set[str]       = set(_DEFAULT_AI_KEYWORDS)
@@ -122,7 +114,6 @@ def _refresh_tool_definitions(backend: str) -> bool:
         log.debug("Tool definition fetch failed: %s", e)
         return False
 
-# ── Config (OS keyring) ───────────────────────────────────────────────────────
 
 def load_token() -> str | None:
     return keyring.get_password(KEYRING_SERVICE, KEYRING_TOKEN_KEY)
@@ -130,12 +121,6 @@ def load_token() -> str | None:
 def load_backend() -> str:
     return keyring.get_password(KEYRING_SERVICE, KEYRING_URL_KEY) or DEFAULT_BACKEND
 
-def save_credentials(token: str, backend: str) -> None:
-    keyring.set_password(KEYRING_SERVICE, KEYRING_TOKEN_KEY, token)
-    keyring.set_password(KEYRING_SERVICE, KEYRING_URL_KEY, backend)
-    log.info("Credentials saved to OS keyring")
-
-# ── Active window / git repo ──────────────────────────────────────────────────
 
 def _best_cwd(proc: "psutil.Process") -> Path | None:
     try:
@@ -193,8 +178,6 @@ def get_idle_seconds() -> int:
         return 0
 
 
-# Repos under these path segments are never tracked (system dirs, vendored copies).
-# ponytail: substring denylist — cheap; extend if a real repo ever collides.
 _EXCLUDED_REPO_PARTS = ("\\windows\\", "\\program files", "\\programdata\\", "node_modules")
 
 
@@ -231,9 +214,7 @@ def find_git_repo(path: Path | None) -> tuple[str | None, str | None]:
 
 def discover_repos() -> set[Path]:
     """Git repos any running process is sitting in — focus-independent discovery, so
-    commits are tracked no matter which window (VS Code, terminal) is on top.
-    ponytail: scans all process cwds; the loop runs this only every REPO_SCAN_INTERVAL
-    and caps the watched set, so cost stays bounded."""
+    commits are tracked no matter which window (VS Code, terminal) is on top."""
     found: set[Path] = set()
     for proc in psutil.process_iter(["cwd"]):
         try:
@@ -247,7 +228,6 @@ def discover_repos() -> set[Path]:
             pass
     return found
 
-# ── Local git commits ─────────────────────────────────────────────────────────
 
 def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
     try:
@@ -290,15 +270,7 @@ def get_new_commits(repo_path: Path, since_sha: str | None) -> list[dict]:
     except Exception:
         return []
 
-# ── AI tool detection ─────────────────────────────────────────────────────────
 
-# ── Local AI-tool discovery ───────────────────────────────────────────────────
-# Find AI tools by the data they leave in the home folder — no per-tool config.
-# Known dot-dirs map to a clean name; an unknown dot-dir whose name hints at AI is
-# surfaced raw (same idea as the unknown-process heuristic in detect_ai_tools).
-# A tool only counts when its data was written recently, so "installed months ago"
-# isn't reported as active. Usage (tokens/context) is a SEPARATE per-tool reader —
-# discovery gives presence; readers give numbers.
 _AI_DATA_DIRS: dict[str, str] = {
     ".claude":   "claude-code",
     ".codex":    "codex",
@@ -313,7 +285,7 @@ _AI_DATA_DIRS: dict[str, str] = {
 _AI_DIR_KEYWORDS = ("claude", "codex", "cursor", "copilot", "gemini", "gpt",
                     "aider", "windsurf", "codeium", "ollama", "tabnine",
                     "anthropic", "openai", "llm")
-_AI_DATA_FRESH_SECS = 900   # data touched within 15 min → tool is in active use
+_AI_DATA_FRESH_SECS = 900
 
 
 def _tool_name_for_dir(dirname: str) -> str | None:
@@ -332,8 +304,7 @@ def _tool_name_for_dir(dirname: str) -> str | None:
 def _touched_recently(path: Path, cutoff: float, cap: int = 1500) -> bool:
     """True if any file under `path` has mtime >= cutoff. Bounded to `cap` files so a
     huge history dir can't stall the loop; returns on the first fresh file, so an
-    actively-used tool is cheap. ponytail: bounded scan — raise cap only if a real
-    tool dir is larger and its fresh file sorts behind that many idle ones."""
+    actively-used tool is cheap."""
     seen = 0
     for root, _dirs, files in os.walk(path):
         for f in files:
@@ -374,26 +345,22 @@ def discover_local_ai_tools(fresh_secs: int = _AI_DATA_FRESH_SECS) -> list[str]:
 def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
     detected: set[str] = set()
 
-    # 1. Process scan — known tools + unknown heuristic
     try:
         for proc in psutil.process_iter(["name", "cmdline"]):
             try:
                 name = (proc.info["name"] or "").lower().replace(".exe", "")
-                # Known map
                 for keyword, tool in AI_PROC_MAP.items():
                     if keyword in name:
                         detected.add(tool)
                         break
                 else:
-                    # Unknown process — flag if name contains an AI keyword
                     if any(kw in name for kw in _AI_KEYWORDS):
-                        detected.add(name)  # surface raw name
+                        detected.add(name)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except Exception:
         pass
 
-    # 2. VS Code extensions — catches installed tools even if not running as a process
     for ext_id in (installed_extensions or []):
         tool = VSCODE_EXT_MAP.get(ext_id.lower())
         if tool:
@@ -401,7 +368,6 @@ def detect_ai_tools(installed_extensions: list[str] | None = None) -> list[str]:
 
     return sorted(detected)
 
-# ── Claude Code JSONL usage ───────────────────────────────────────────────────
 
 def _repo_from_project_dir(dirname: str) -> str:
     parts = [p for p in re.split(r"-+", dirname) if p]
@@ -422,7 +388,7 @@ def _files_from_content(content) -> list[str]:
     return files
 
 
-_CUTOFF_DAYS = 30  # only read files modified within this window
+_CUTOFF_DAYS = 30
 
 
 def get_claude_usage() -> list[dict]:
@@ -444,7 +410,7 @@ def get_claude_usage() -> list[dict]:
         for jsonl_file in project_dir.rglob("*.jsonl"):
             try:
                 if jsonl_file.stat().st_mtime < cutoff_mtime:
-                    continue  # file untouched for 30+ days — skip
+                    continue
                 with jsonl_file.open("r", encoding="utf-8", errors="replace") as f:
                     for line in f:
                         try:
@@ -503,7 +469,6 @@ def get_claude_usage() -> list[dict]:
         for (date, model, repo), v in agg.items() if v["messages"] > 0
     ]
 
-# ── VS Code extensions ────────────────────────────────────────────────────────
 
 def get_vscode_extensions() -> list[str]:
     for cmd in (["code", "--list-extensions"], ["cursor", "--list-extensions"]):
@@ -523,7 +488,6 @@ def get_vscode_extensions() -> list[str]:
             return sorted(x.name for x in d.iterdir() if x.is_dir() and not x.name.startswith("."))
     return []
 
-# ── HTTP client ───────────────────────────────────────────────────────────────
 
 class AgentClient:
     def __init__(self, token: str, backend: str):
@@ -598,7 +562,6 @@ class AgentClient:
     def ack_standup(self, date: str) -> bool:
         return self._post("/api/agent/standup/ack", {"date": date})
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
 
 def _should_notify(standup: dict | None, last_date: str | None) -> bool:
     """True when there is a pending standup we haven't shown yet."""
@@ -621,7 +584,7 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
     if not client.ping():
         log.warning("Could not reach backend on startup — will retry each heartbeat")
 
-    _refresh_tool_definitions(backend)  # load remote maps immediately on startup
+    _refresh_tool_definitions(backend)
 
     last_ai_check        = 0.0
     last_ai_sent         = 0.0
@@ -649,10 +612,6 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                 on_status(ok)
             log.debug("heartbeat ok=%s app=%s repo=%s idle=%s", ok, app, repo, idle)
 
-            # Repo discovery (scoped Option B): watch the foreground repo AND every
-            # repo a running process sits in (periodic scan) — so commits are tracked
-            # regardless of which window is focused. get_new_commits' today-filter means
-            # a repo with no recent commits posts nothing.
             fg_root = _repo_root(proc_cwd)
             if fg_root:
                 known_shas.setdefault(str(fg_root), None)
@@ -660,16 +619,15 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                 for r in discover_repos():
                     known_shas.setdefault(str(r), None)
                 last_repo_scan = now
-                if len(known_shas) > _MAX_WATCHED_REPOS:  # ponytail: drop oldest keys
+                if len(known_shas) > _MAX_WATCHED_REPOS:
                     for k in list(known_shas)[:-_MAX_WATCHED_REPOS]:
                         known_shas.pop(k, None)
 
-            # Poll every watched repo for new commits.
             for rp_str in list(known_shas):
                 rp = Path(rp_str)
                 r_name, r_branch = find_git_repo(rp)
                 if not r_name:
-                    known_shas.pop(rp_str, None)   # repo vanished or became untrackable
+                    known_shas.pop(rp_str, None)
                     continue
                 for c in get_new_commits(rp, known_shas.get(rp_str)):
                     client.commit(r_name, r_branch, c)
@@ -684,7 +642,6 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                 except Exception:
                     pass
 
-            # VS Code extensions (check before AI tools so extensions feed into detection)
             if now - last_extension_check >= EXTENSION_INTERVAL:
                 exts = get_vscode_extensions()
                 if exts != last_extensions:
@@ -693,16 +650,10 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                     last_extensions = exts
                 last_extension_check = now
 
-            # Local AI-tool discovery — find tools by their home data dirs (every
-            # DISCOVER_INTERVAL; the fs scan is heavier than the process scan).
             if now - last_discover_check >= DISCOVER_INTERVAL:
                 discovered_tools = discover_local_ai_tools()
                 last_discover_check = now
 
-            # AI tools — process scan + installed extensions + local-data discovery.
-            # Re-send on change OR every AI_RESEND_INTERVAL: a continuously-running
-            # tool emits no change event across midnight, so without the periodic
-            # resend it silently drops off the new day's active-tools view.
             if now - last_ai_check >= AI_CHECK_INTERVAL:
                 tools = sorted(set(detect_ai_tools(last_extensions)) | set(discovered_tools))
                 if tools != last_ai_tools or now - last_ai_sent >= AI_RESEND_INTERVAL:
@@ -712,12 +663,10 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                     last_ai_sent  = now
                 last_ai_check = now
 
-            # Tool definitions — refresh from server every 6 hours
             if now - last_tool_def_check >= 21600:
                 _refresh_tool_definitions(backend)
                 last_tool_def_check = now
 
-            # Claude usage — full scan, stateless
             if now - last_claude_check >= CLAUDE_INTERVAL:
                 entries = get_claude_usage()
                 if entries:
@@ -726,7 +675,6 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
                     log.info("Claude: %d entry(s) %s tokens", len(entries), f"{total:,}")
                 last_claude_check = now
 
-            # Standup delivery — poll for a pending standup, toast it once (ADR-0002)
             if on_notify and now - last_standup_check >= STANDUP_INTERVAL:
                 standup = client.get_pending_standup()
                 if _should_notify(standup, last_standup_date):
@@ -739,7 +687,6 @@ def run(token: str, backend: str, on_status=None, stop_event=None, on_notify=Non
         except Exception as e:
             log.error("Loop error: %s", e)
 
-        # Sleep in small increments so stop_event is checked promptly
         for _ in range(HEARTBEAT_INTERVAL):
             if stop_event and stop_event.is_set():
                 break

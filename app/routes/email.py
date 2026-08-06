@@ -30,16 +30,15 @@ from app.storage.postgres import AsyncSessionLocal, get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Kinds a manager/admin may pull for ANOTHER user (privacy-reviewed subset).
 _CROSS_USER_KINDS = {"my_day", "analytics"}
 _FREQUENCIES = {"daily", "weekdays", "weekly"}
 
 
 class EmailRequest(BaseModel):
     kind: str
-    date: str | None = None       # YYYY-MM-DD local; None = today / current week
-    user_id: str | None = None    # elevated only: whose report (report owner). None = self
-    to_user_id: str | None = None # elevated only: recipient app user. None = the actor (self)
+    date: str | None = None
+    user_id: str | None = None
+    to_user_id: str | None = None
 
 
 async def _run(kind: str, profile_id: str, to: str, date: str | None = None,
@@ -90,9 +89,6 @@ async def _resolve_recipient(to_user_id: str | None, actor: Profile, owner_id: s
         if not recip:
             raise HTTPException(404, "no_such_recipient")
 
-    # Audit any send that crosses a person boundary — someone else's report, or
-    # a report going to someone other than the actor. Only a pure self→self send
-    # (own report to own inbox, the self-service page) stays out of the trail.
     if owner_id != str(actor.id) or str(recip.id) != str(actor.id):
         owner = await db.get(Profile, uuid.UUID(owner_id))
         try:
@@ -144,7 +140,6 @@ async def send_email_report(
 ):
     if body.kind not in SUPPORTED_KINDS:
         return JSONResponse({"error": f"unsupported kind: {body.kind}"}, status_code=400)
-    # audit=False: _resolve_recipient writes the single email_delivery row (with recipient).
     target_id = await _resolve_report_access(body, actor, db, action="email", audit=False)
 
     if not await db.get(Profile, target_id):
@@ -154,19 +149,15 @@ async def send_email_report(
     if not recipient.email:
         return JSONResponse({"error": "no_email_on_recipient"}, status_code=400)
 
-    # Report DATA is target_id's; mail is DELIVERED to `recipient` (defaults to the
-    # actor) and SENT FROM the actor's mailbox (delegated Graph token).
     background_tasks.add_task(_run, body.kind, target_id, recipient.email, body.date, str(actor.id))
     return JSONResponse({"status": "queued", "to": recipient.email})
 
 
-# ── Scheduled digests ──────────────────────────────────────────────────────────
-
 class PreferenceBody(BaseModel):
     kind: str
-    frequency: str = "daily"   # daily | weekdays | weekly | off
-    hour: int = 9              # local hour 0-23
-    weekday: int = 4           # Fri (matches the app's weekly-summary cadence), used when weekly
+    frequency: str = "daily"
+    hour: int = 9
+    weekday: int = 4
 
 
 @router.get("/api/email/preferences")
@@ -258,7 +249,7 @@ async def run_email_digest_job():
                     "date": date_str, "sent_at": datetime.now(timezone.utc),
                 })
             except DuplicateKeyError:
-                continue  # already sent this kind today
+                continue
 
             if await _run(pref.kind, profile_id, profile.email):
                 logger.info("digest '%s' sent to %s", pref.kind, profile_id)

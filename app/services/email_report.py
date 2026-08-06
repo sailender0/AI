@@ -119,7 +119,6 @@ def _device_body(data: dict) -> str:
     parts = [f"<p><b>Focus/coding time:</b> {h}h {m}m</p>"]
     if tools:
         parts.append(f"<p><b>AI tools:</b> {html.escape(', '.join(tools))}</p>")
-    # Per-repo Claude token usage (input / output)
     cu = data.get("claude_usage", [])
     if cu:
         items = "".join(

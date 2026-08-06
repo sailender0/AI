@@ -38,7 +38,6 @@ def _date_bounds(date_str: str, tz_name: str) -> tuple[datetime, datetime, str]:
     tzinfo     = resolve(tz_name)
     start, end = day_bounds(date_str, tzinfo)
     local_date = datetime.strptime(date_str, "%Y-%m-%d")
-    # Monday standup label says "Friday"
     today_wd   = datetime.now(tzinfo).weekday()
     label      = "Friday" if (today_wd == 0 and date_str == yesterday_date(tz_name)) \
                  else local_date.strftime("%A, %b %-d")
@@ -49,7 +48,6 @@ async def _build_context(profile_id: str, start: datetime, end: datetime, yest_d
     ts_filter = {"$gte": start, "$lt": end}
     lines: list[str] = []
 
-    # Focus time
     hbs = await device_heartbeats().find(
         {"profile_id": profile_id, "timestamp": ts_filter, "idle": False},
         projection={"git_repo": 1, "timestamp": 1, "_id": 0},
@@ -62,7 +60,6 @@ async def _build_context(profile_id: str, start: datetime, end: datetime, yest_d
         if repos:
             lines.append(f"Repos with active coding: {', '.join(repos)}")
 
-    # Local commits
     commits = await local_commits().find(
         {"profile_id": profile_id, "timestamp": ts_filter},
         projection={"repo": 1, "branch": 1, "message": 1, "files_changed": 1, "_id": 0},
@@ -75,7 +72,6 @@ async def _build_context(profile_id: str, start: datetime, end: datetime, yest_d
                 f"{c.get('message','')[:120]} ({c.get('files_changed',0)} files)"
             )
 
-    # Webhook events
     events = await activity_events().find(
         {"profile_id": profile_id, "occurred_at": ts_filter},
         projection={"source": 1, "event_type": 1, "title": 1, "_id": 0},
@@ -85,7 +81,6 @@ async def _build_context(profile_id: str, start: datetime, end: datetime, yest_d
         for e in events:
             lines.append(f"  [{e.get('source')}] {e.get('event_type','')}: {(e.get('title') or '')[:100]}")
 
-    # Claude usage (keyed by local date string)
     claude_docs = await claude_usage().find(
         {"profile_id": profile_id, "date": yest_date}
     ).to_list(50)
@@ -93,7 +88,6 @@ async def _build_context(profile_id: str, start: datetime, end: datetime, yest_d
         repos = sorted({d.get("repo","") for d in claude_docs if d.get("repo")})
         lines.append(f"\nClaude Code used on: {', '.join(repos) or 'unknown repo'}")
 
-    # AI tools
     ai_docs = await ai_tool_events().find(
         {"profile_id": profile_id, "timestamp": ts_filter},
         projection={"tools": 1, "_id": 0},
@@ -115,7 +109,6 @@ async def generate(profile_id: str, db: AsyncSession, target_date: str | None = 
     date_str   = target_date or yesterday_date(tz_name)
     start, end, day_label = _date_bounds(date_str, tz_name)
 
-    # Cache hit
     cached = await standups().find_one({"profile_id": profile_id, "date": date_str})
     if cached:
         gen_at = cached.get("generated_at")

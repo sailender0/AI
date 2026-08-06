@@ -27,9 +27,7 @@ from app.storage.postgres import AsyncSessionLocal
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_INSIGHTS_TTL = 600  # seconds — the digest is an LLM call; keep it off the per-page-load path
-# ponytail: in-process cache, single web process (see deploy topology). Swap for
-# Redis/Mongo only if the web app ever runs multi-process.
+_INSIGHTS_TTL = 600
 _insights_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -113,7 +111,6 @@ async def _build_insights(profile_id: str, tz_name: str) -> dict:
     today = now.date()
     cards: list[dict] = []
 
-    # 1. Jira — overdue / due-soon from the live assigned snapshot
     assigned = await fetch_assigned(profile_id)
     if assigned:
         overdue, due_soon = _jira_due_buckets(assigned, today)
@@ -124,7 +121,6 @@ async def _build_insights(profile_id: str, tz_name: str) -> dict:
             cards.append({"icon": "🟠", "level": "info", "href": "/jira",
                           "text": f"Jira due within 3 days ({len(due_soon)}): {_keys_phrase(due_soon)}"})
 
-    # 2. Claude token spike vs last week (±30%)
     rng = period_ranges("week", today)
     (tf, tt), (lf, lt) = rng["this"], rng["last"]
     this_tok = await token_total(profile_id, tf, tt)
@@ -136,9 +132,6 @@ async def _build_insights(profile_id: str, tz_name: str) -> dict:
                           "href": "/my-activity/ai-tools",
                           "text": f"Claude tokens {'up' if pct > 0 else 'down'} {abs(pct):.0f}% vs last week"})
 
-    # 3. Afternoon check-in (after 1pm local, so we don't nag every morning):
-    #    either an idle nudge, or — from 4pm — an end-of-day "wrap up your standup"
-    #    summary of what shipped today. The two are mutually exclusive by nature.
     if now.hour >= 13:
         ft = await _tool_get_focus_time(profile_id, tz_name, {"period": "today"})
         commits   = ft.get("local_commits", 0)
@@ -148,7 +141,7 @@ async def _build_insights(profile_id: str, tz_name: str) -> dict:
         if not commits and not prs and not issues and focus_min < 30:
             cards.append({"icon": "💤", "level": "info", "href": "/my-activity",
                           "text": "No commits and little focus time logged today"})
-        elif now.hour >= 16:                              # end-of-day wrap
+        elif now.hour >= 16:
             phrase = _shipped_phrase(commits, prs, issues)
             if phrase:
                 cards.append({"icon": "📝", "level": "info", "href": "/",

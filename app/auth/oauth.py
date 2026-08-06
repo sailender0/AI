@@ -14,10 +14,6 @@ from app.auth.sso import get_profile_from_session
 from app.auth.token_store import decrypt_token, encrypt_token
 from app.config import settings
 from app.storage.models import GitHubIntegration, GitLabIntegration, Integration, JiraIntegration
-# AsyncSessionLocal() is used intentionally here — oauth_callback and
-# get_valid_token are called from request handlers and background tasks that
-# manage their own session lifetime. Depends(get_db) is not available outside
-# FastAPI's dependency injection chain.
 from app.storage.postgres import AsyncSessionLocal
 from app.storage.redis_client import get_redis
 
@@ -49,8 +45,6 @@ _OAUTH_CONFIGS = {
         "token_url": "https://auth.atlassian.com/oauth/token",
         "client_id": lambda: settings.JIRA_CLIENT_ID,
         "client_secret": lambda: settings.JIRA_CLIENT_SECRET,
-        # offline_access is required for Atlassian to issue a refresh token —
-        # without it the integration dies 1h after connecting.
         "scopes": "read:jira-work read:jira-user manage:jira-webhook offline_access",
     },
 }
@@ -140,8 +134,6 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
         row.sync_status = "active"
         await db.commit()
 
-    # For Jira, fetch the user's account ID and store as LinkedIdentity
-    # so incoming webhooks can be resolved to this profile
     if app == "jira" and access_token:
         import logging as _log
         async with httpx.AsyncClient() as client:
@@ -174,9 +166,6 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
                     await db.commit()
                     _log.getLogger(__name__).info("Saved Jira LinkedIdentity: %s -> %s", account_id, profile_id)
 
-    # For GitHub, store the user's numeric id as a LinkedIdentity so incoming
-    # webhooks resolve to THIS profile by actor (sender.id). Without it, the
-    # actor-filter in the webhook receiver drops every event for this user.
     if app == "github" and access_token:
         async with httpx.AsyncClient() as client:
             me_resp = await client.get(
@@ -235,8 +224,6 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
         )
 
         if needs_refresh and not row.refresh_token_enc:
-            # expired with no way to refresh — a dead token is worse than none;
-            # flag it so /api/me surfaces the broken connection in the UI
             row.sync_status = "error"
             await db.commit()
             return None
