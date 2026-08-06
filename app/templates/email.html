@@ -5,7 +5,6 @@
 {% block content %}
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-  <!-- LEFT — Send (pick report + date, preview, send) -->
   <div class="card p-5 space-y-3">
     <div class="flex items-center justify-between">
       <h2 class="text-sm font-semibold" style="color:var(--text-1)">Send a report</h2>
@@ -22,7 +21,7 @@
         <option value="analytics">Analytics</option>
         <option value="standup">Standup</option>
       </select>
-      <!-- Device Activity toggle: single day vs weekly per-day breakdown -->
+
       <div id="device-toggle" class="flex items-center gap-4 mt-2" style="display:none">
         <label class="text-xs flex items-center gap-1" style="color:var(--text-2)">
           <input type="radio" name="device-view" value="device_activity" checked onchange="onKindChange()"> Day
@@ -53,7 +52,6 @@
       style="background:var(--chrome);color:var(--chrome-text)">Send to my email</button>
   </div>
 
-  <!-- RIGHT — Schedule -->
   <div class="card p-5 space-y-3">
     <div class="flex items-center justify-between">
       <h2 class="text-sm font-semibold" style="color:var(--text-1)">Schedule</h2>

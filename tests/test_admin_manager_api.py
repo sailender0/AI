@@ -43,19 +43,16 @@ def _db(get=None, rows=None):
     return db
 
 
-# ─────────────────── assign manager + copy-on-assignment ───────────────────
-
 async def test_assign_manager_copies_template():
     admin = _p(ADMIN, "admin")
     report = _p(REP, "user", perms=["email_report"])
     mgr = _p(MGR, "manager", perms=["consolidated_report", "export_analytics"])
-    db = _db(get=[report, mgr])   # first _get_target(target), then _get_target(mgr)
+    db = _db(get=[report, mgr])
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(admin, db) as c:
             r = await c.patch(f"/api/user-management/users/{REP}/manager", json={"manager_id": str(MGR)})
     assert r.status_code == 200
     assert report.manager_id == MGR
-    # kept its own email_report AND gained both of the manager's template perms
     assert set(report.permissions) == {"email_report", "consolidated_report", "export_analytics"}
 
 
@@ -69,7 +66,7 @@ async def test_cannot_report_to_self():
 
 async def test_manager_target_must_be_a_manager():
     admin = _p(ADMIN, "admin")
-    db = _db(get=[_p(REP, "user"), _p(STRAY, "user")])   # "manager" is actually a user
+    db = _db(get=[_p(REP, "user"), _p(STRAY, "user")])
     async with await _client(admin, db) as c:
         r = await c.patch(f"/api/user-management/users/{REP}/manager", json={"manager_id": str(STRAY)})
     assert r.status_code == 400
@@ -77,7 +74,6 @@ async def test_manager_target_must_be_a_manager():
 
 async def test_rejects_two_cycle():
     admin = _p(ADMIN, "admin")
-    # MGR2 already reports to REP; assigning MGR2 as REP's manager would loop.
     db = _db(get=[_p(REP, "user"), _p(MGR2, "manager", manager_id=REP)])
     async with await _client(admin, db) as c:
         r = await c.patch(f"/api/user-management/users/{REP}/manager", json={"manager_id": str(MGR2)})
@@ -95,8 +91,6 @@ async def test_unassign_manager():
     assert report.manager_id is None
 
 
-# ─────────────────── bulk team grant / revoke ───────────────────
-
 async def test_bulk_grant_is_additive():
     admin = _p(ADMIN, "admin")
     mgr = _p(MGR, "manager")
@@ -108,7 +102,7 @@ async def test_bulk_grant_is_additive():
             r = await c.post(f"/api/user-management/managers/{MGR}/team-permissions",
                              json={"permissions": ["consolidated_report"], "mode": "grant"})
     assert r.status_code == 200 and r.json()["count"] == 2
-    assert "email_report" in r1.permissions and "consolidated_report" in r1.permissions  # kept + gained
+    assert "email_report" in r1.permissions and "consolidated_report" in r1.permissions
     assert r2.permissions == ["consolidated_report"]
 
 
@@ -126,12 +120,10 @@ async def test_bulk_revoke_removes_only_named():
 
 
 async def test_bulk_assign_selected_users_authorised_per_user():
-    # Manager grants a permission to two selected ids — but one isn't their report,
-    # so it's skipped. Server authorises each target with can_edit_permissions.
-    mgr = _p(MGR, "manager", assignable=["consolidated_report"])   # allowed to delegate this
+    mgr = _p(MGR, "manager", assignable=["consolidated_report"])
     mine = _p(REP, "user", manager_id=MGR, perms=[])
     not_mine = _p(STRAY, "user", manager_id=MGR2, perms=[])
-    db = _db(get=[mine, not_mine])   # _get_target called once per id
+    db = _db(get=[mine, not_mine])
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(mgr, db) as c:
             r = await c.post("/api/user-management/bulk-permissions",
@@ -140,7 +132,7 @@ async def test_bulk_assign_selected_users_authorised_per_user():
     d = r.json()
     assert r.status_code == 200 and d["changed"] == 1 and d["skipped"] == 1
     assert mine.permissions == ["consolidated_report"]
-    assert not_mine.permissions == []          # untouched — not this manager's report
+    assert not_mine.permissions == []
 
 
 async def test_bulk_bad_mode_rejected():
@@ -151,8 +143,6 @@ async def test_bulk_bad_mode_rejected():
                          json={"permissions": ["consolidated_report"], "mode": "nuke"})
     assert r.status_code == 400
 
-
-# ─────────────────── manager permission-edit clamp ───────────────────
 
 async def test_manager_edits_own_report_permissions():
     mgr = _p(MGR, "manager", assignable=["consolidated_report"])
@@ -167,7 +157,6 @@ async def test_manager_edits_own_report_permissions():
 
 
 async def test_manager_cannot_grant_outside_allowlist():
-    # Allow-list is consolidated only; granting attendance too → attendance dropped.
     mgr = _p(MGR, "manager", assignable=["consolidated_report"])
     report = _p(REP, "user", manager_id=MGR, perms=[])
     db = _db(get=report)
@@ -176,12 +165,10 @@ async def test_manager_cannot_grant_outside_allowlist():
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
                               json={"permissions": ["consolidated_report", "attendance_report"]})
     assert r.status_code == 200
-    assert report.permissions == ["consolidated_report"]   # attendance not in allow-list
+    assert report.permissions == ["consolidated_report"]
 
 
 async def test_manager_cannot_delegate_outside_their_allowlist():
-    # Manager HOLDS attendance (own use) but their assign allow-list is consolidated
-    # only — so they can't hand attendance to a report even while submitting it.
     mgr = _p(MGR, "manager", perms=["attendance_report"], assignable=["consolidated_report"])
     report = _p(REP, "user", manager_id=MGR, perms=[])
     db = _db(get=report)
@@ -190,7 +177,7 @@ async def test_manager_cannot_delegate_outside_their_allowlist():
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
                               json={"permissions": ["attendance_report", "consolidated_report"]})
     assert r.status_code == 200
-    assert report.permissions == ["consolidated_report"]   # attendance not in allow-list → dropped
+    assert report.permissions == ["consolidated_report"]
 
 
 async def test_admin_can_still_assign_attendance():
@@ -202,7 +189,7 @@ async def test_admin_can_still_assign_attendance():
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
                               json={"permissions": ["attendance_report"]})
     assert r.status_code == 200
-    assert report.permissions == ["attendance_report"]     # admin is unrestricted
+    assert report.permissions == ["attendance_report"]
 
 
 async def test_manager_bulk_clamped_to_allowlist():
@@ -212,7 +199,7 @@ async def test_manager_bulk_clamped_to_allowlist():
     async with await _client(mgr, db) as c:
         r = await c.post("/api/user-management/bulk-permissions",
                          json={"user_ids": [str(REP)], "permissions": ["attendance_report"], "mode": "grant"})
-    assert r.status_code == 200 and r.json()["changed"] == 0   # attendance not in allow-list
+    assert r.status_code == 200 and r.json()["changed"] == 0
 
 
 async def test_admin_sets_manager_assignable_list():
@@ -238,7 +225,7 @@ async def test_set_assignable_rejects_non_manager():
 
 async def test_manager_cannot_edit_non_report():
     mgr = _p(MGR, "manager")
-    stray = _p(STRAY, "user", manager_id=MGR2)   # not this manager's report
+    stray = _p(STRAY, "user", manager_id=MGR2)
     db = _db(get=stray)
     async with await _client(mgr, db) as c:
         r = await c.patch(f"/api/user-management/users/{STRAY}/permissions",

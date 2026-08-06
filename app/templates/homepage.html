@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Developer Activity Tracker</title>
   <script>
-    // Prevent flash of wrong theme (same behavior as the app shell)
     (function(){
       const s = localStorage.getItem('theme') || 'dark';
       const dark = s === 'dark' || (s === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -14,18 +13,16 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-  <!-- Tailwind is compiled ahead of time into app.css (npm run css) — no CDN compiler.
-       Tokens come from app.css too. This page deliberately does NOT extend base.html:
-       it's the logged-out landing page and must not carry the app sidebar/chat shell. -->
+
   <link rel="stylesheet" href="/static/app.css"/>
   <style>
-    /* Landing-page accent only — the rest of the tokens are inherited from app.css. */
+
     :root            { --accent:#6366F1; --accent-2:#818CF8; }
     [data-theme="light"] { --accent:#4F46E5; --accent-2:#6366F1; }
     body { margin:0; overflow-x:hidden; }
     a { text-decoration:none; color:inherit; }
 
-    /* Ambient glow behind the hero */
+
     .glow {
       position:absolute; inset:0; z-index:0; pointer-events:none; overflow:hidden;
     }
@@ -74,7 +71,7 @@
   </style>
 </head>
 <body>
-  <!-- Nav -->
+
   <header class="relative z-10">
     <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
       <div class="flex items-center gap-2.5">
@@ -88,7 +85,6 @@
     </div>
   </header>
 
-  <!-- Hero -->
   <section class="relative">
     <div class="glow"></div>
     <div class="relative z-10 max-w-6xl mx-auto px-6 pt-16 pb-20 text-center">
@@ -114,40 +110,39 @@
     </div>
   </section>
 
-  <!-- Features -->
   <section id="features" class="relative z-10 max-w-6xl mx-auto px-6 pb-8">
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <!-- Overview -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
         <h3 class="font-semibold mb-1.5">Overview</h3>
         <p class="text-sm" style="color:var(--text-2)">This week's activity at a glance — everything you shipped, rolled into one summary.</p>
       </div>
-      <!-- My Day -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
         <h3 class="font-semibold mb-1.5">My Day</h3>
         <p class="text-sm" style="color:var(--text-2)">A daily breakdown of commits, reviews, and tickets so nothing gets lost by Friday.</p>
       </div>
-      <!-- Analytics -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
         <h3 class="font-semibold mb-1.5">Analytics</h3>
         <p class="text-sm" style="color:var(--text-2)">Trends across commits, tickets, and reviews — see where your time actually goes.</p>
       </div>
-      <!-- Ask AI -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/><path d="M5 19l.9 2 .9-2 2-.9-2-.9L5 15l-.9 2-2 .9z"/></svg></div>
         <h3 class="font-semibold mb-1.5">Ask AI</h3>
         <p class="text-sm" style="color:var(--text-2)">Ask about your work in plain English — "what did I ship last sprint?" — and get an answer.</p>
       </div>
-      <!-- Device Activity -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 20h8M12 18v2"/></svg></div>
         <h3 class="font-semibold mb-1.5">Device Activity</h3>
         <p class="text-sm" style="color:var(--text-2)">A lightweight desktop agent captures local dev work the APIs never see.</p>
       </div>
-      <!-- Email Report -->
+
       <div class="card reveal">
         <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>
         <h3 class="font-semibold mb-1.5">Email Report</h3>
@@ -156,7 +151,6 @@
     </div>
   </section>
 
-  <!-- Connectors -->
   <section class="relative z-10 max-w-6xl mx-auto px-6 py-14 text-center reveal">
     <p class="text-xs uppercase tracking-wider mb-5" style="color:var(--text-3)">Works with your stack</p>
     <div class="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 font-medium" style="color:var(--text-2)">
@@ -164,7 +158,6 @@
     </div>
   </section>
 
-  <!-- CTA footer -->
   <section class="relative z-10 max-w-6xl mx-auto px-6 pb-24">
     <div class="card reveal text-center" style="padding:3rem 1.5rem">
       <h2 class="text-2xl font-bold mb-3">See your week the moment you sign in.</h2>
@@ -178,7 +171,6 @@
   </section>
 
   <script>
-    // Scroll-reveal — one observer, no library. ponytail: IntersectionObserver, upgrade only if we need scroll timelines.
     const io = new IntersectionObserver((entries) => {
       entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
     }, { threshold: 0.12 });

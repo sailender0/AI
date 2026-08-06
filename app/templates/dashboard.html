@@ -10,10 +10,8 @@
 
 <div id="main-content" class="hidden flex-1 flex flex-col gap-5 min-h-0">
 
-  <!-- Standup card — always visible, expanded before 11am, chip after -->
   <div x-data="standupCard()" x-init="init()">
 
-    <!-- Collapsed chip (shown after 11am or after dismiss) -->
     <div x-show="!expanded" class="flex items-center gap-2">
       <button @click="expand()"
         class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition hover:opacity-80"
@@ -22,7 +20,6 @@
       </button>
     </div>
 
-    <!-- Expanded card -->
     <div x-show="expanded"
       x-transition:enter="transition ease-out duration-150"
       x-transition:enter-start="opacity-0 -translate-y-1"
@@ -30,7 +27,6 @@
       class="card p-4"
       style="border:1px solid var(--border);background:var(--surface)">
 
-      <!-- Header row -->
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <span style="color:var(--text-1);font-size:.85rem;font-weight:600">Daily Standup</span>
@@ -50,22 +46,18 @@
         </div>
       </div>
 
-      <!-- Staleness warning -->
       <div x-show="stale && text" class="flex items-center gap-1.5 mb-2 text-xs" style="color:#fb923c">
         ⚠ Generated at <span x-text="generatedAtLabel"></span> — data may be incomplete
         <button @click="regenerate()" class="underline ml-1" style="color:#fb923c">Refresh</button>
       </div>
 
-      <!-- Loading -->
       <div x-show="loading && !text" class="flex items-center gap-2 py-2">
         <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:var(--text-3)"></div>
         <span class="text-xs" style="color:var(--text-3)">Generating your standup…</span>
       </div>
 
-      <!-- Error -->
       <div x-show="error" class="text-xs py-1" style="color:#f87171" x-text="error"></div>
 
-      <!-- Editable text -->
       <textarea x-show="text && !loading"
         x-model="text"
         @input="saveDraft()"
@@ -73,7 +65,6 @@
         class="w-full text-sm resize-none rounded-md p-2 focus:outline-none"
         style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border);line-height:1.6;font-family:inherit"></textarea>
 
-      <!-- Footer -->
       <div x-show="text && !loading" class="flex items-center justify-between mt-2">
         <span class="text-xs" style="color:var(--text-3)" x-text="generatedAtLabel ? 'Generated ' + generatedAtLabel : ''"></span>
         <button @click="copy()"
@@ -84,7 +75,6 @@
     </div>
   </div>
 
-  <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setStatsPeriod('today')"
       class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
@@ -92,16 +82,14 @@
       class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
   </div>
 
-  <!-- KPI row -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="metric-cards"></div>
 
-  <!-- Stacked Chart — full width -->
   <div class="card p-5" id="chart-card" style="height:340px;display:flex;flex-direction:column;box-shadow:0 0 0 1px var(--border),0 4px 20px rgba(0,0,0,0.07)">
     <div class="flex items-center justify-between mb-1">
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color:var(--text-1)">Activity</span>
         <span id="chart-sub" class="text-xs" style="color:var(--text-3)"></span>
-        <!-- Week picker — panel is built by weekPicker() in app.js -->
+
         <div style="position:relative;z-index:10">
           <div class="flex gap-0.5 p-0.5 rounded-lg" style="background:var(--surface-2);border:1px solid var(--border)">
             <button id="range-default" onclick="setRangeDefault()"
@@ -119,7 +107,6 @@
     </div>
   </div>
 
-  <!-- Jira: My Work (live) — hidden unless Jira is connected -->
   <div class="card p-5 hidden" id="jira-assigned-card">
     <div class="flex items-center justify-between mb-4">
       <h2 class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-1)">
@@ -130,17 +117,16 @@
       <button onclick="loadAssigned()" class="text-xs text-gray-400 hover:text-gray-100">Refresh</button>
     </div>
 
-    <!-- KPI strip: open / in progress / due soon / points -->
     <div id="jira-kpis" class="flex flex-wrap rounded-lg mb-4" style="background:var(--surface-2);border:1px solid var(--border)"></div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <!-- urgency-sorted issue list -->
+
       <div class="lg:col-span-2">
         <div id="assigned-list" class="overflow-y-auto" style="max-height:300px">
           <p class="text-xs" style="color:var(--text-3)">Loading…</p>
         </div>
       </div>
-      <!-- mini breakdowns -->
+
       <div class="space-y-4">
         <div>
           <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By status</p>
@@ -154,7 +140,6 @@
     </div>
   </div>
 
-  <!-- Activity Timeline — full width below chart -->
   <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
@@ -182,7 +167,7 @@
 
 {% block scripts %}
 <style>
-  /* Page-specific only — .chart-tab, .period-btn, .pk-* and @keyframes spin now live in app.css */
+
   #chart-card { transition: box-shadow 0.3s ease; }
   [data-theme="light"] #chart-card { box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,0.08) !important; }
   #activity-chart { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }

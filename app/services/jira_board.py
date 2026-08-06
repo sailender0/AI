@@ -12,8 +12,6 @@ from app.auth.oauth import get_valid_token, mark_integration_error
 def issue_row(issue: dict) -> dict:
     """Pure mapper: a /search/jql issue -> one 'assigned to me' panel row."""
     f = issue.get("fields") or {}
-    # ponytail: 10016/10020 are the common story-points/sprint field ids; if a
-    # site differs, discover the real ids via GET /rest/api/3/field.
     sprints = f.get("customfield_10020") or []
     active = next((s.get("name") for s in sprints
                    if isinstance(s, dict) and s.get("state") == "active"), None)
@@ -56,8 +54,6 @@ async def fetch_assigned(profile_id: str) -> dict | None:
             params={
                 "jql": "assignee = currentUser() AND statusCategory != Done"
                        " ORDER BY priority DESC, updated DESC",
-                # ponytail: one page of 50; paginate with nextPageToken if
-                # anyone actually has 50+ open issues.
                 "maxResults": 50,
                 "fields": "summary,status,priority,issuetype,duedate,created,"
                           "customfield_10016,customfield_10020",
@@ -68,8 +64,6 @@ async def fetch_assigned(profile_id: str) -> dict | None:
         if r.status_code != 200:
             return None
 
-        # momentum KPI — open-issues JQL can't see finished work, so ask the
-        # count endpoint; None (tile shows "—") when Atlassian errors
         done = await client.post(
             f"https://api.atlassian.com/ex/jira/{site['id']}/rest/api/3/search/approximate-count",
             headers=headers,

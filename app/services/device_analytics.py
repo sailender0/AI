@@ -56,8 +56,6 @@ def tool_active_minutes(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[s
     focus-block end, so a tool running right now counts up to the latest heartbeat.
     Intersecting with focus blocks means idle/offline time is never counted, and the
     per-tool total can never exceed total_focus_min shown on the page.
-    ponytail: O(intervals × blocks) nested scan — both are tiny per day; upgrade to a
-    sweep line only if a day ever has thousands of either.
     """
     if not focus_blocks:
         return {}
@@ -89,9 +87,9 @@ def _tool_presence_intervals(ai_docs: list[dict], end_cap: datetime) -> dict[str
         tools = set(d.get("tools", []))
         for tool in tools - open_since.keys():
             open_since[tool] = t
-        for tool in list(open_since.keys() - tools):   # tool disappeared → close its interval
+        for tool in list(open_since.keys() - tools):
             intervals.setdefault(tool, []).append((open_since.pop(tool), t))
-    for tool, start in open_since.items():             # still running → cap at last activity
+    for tool, start in open_since.items():
         intervals.setdefault(tool, []).append((start, end_cap))
     return intervals
 
@@ -119,7 +117,7 @@ def tool_active_periods(ai_docs: list[dict], focus_blocks: list[dict]) -> dict[s
         segs.sort()
         merged: list[list] = []
         for s, e in segs:
-            if merged and s <= merged[-1][1]:          # touching/contiguous → extend
+            if merged and s <= merged[-1][1]:
                 merged[-1][1] = max(merged[-1][1], e)
             else:
                 merged.append([s, e])
@@ -146,11 +144,10 @@ def session_token_totals(periods: list[dict], day_hourly: list[dict],
                          day_start: datetime) -> list[dict]:
     """Split each local hour's input/output tokens across the claude-code sessions it
     overlaps (proportional to overlap; an hour touching no session goes to the nearest
-    one) so every session's totals reconcile to the day total.
-    ponytail: hour buckets can misdate by ±1h on DST days — negligible for usage."""
+    one) so every session's totals reconcile to the day total."""
     if not periods:
         return []
-    start0 = day_start.astimezone(timezone.utc).replace(tzinfo=None)   # naive-UTC, matches _isoZ
+    start0 = day_start.astimezone(timezone.utc).replace(tzinfo=None)
     sess = [[datetime.strptime(p["start"], "%Y-%m-%dT%H:%M:%SZ"),
              datetime.strptime(p["end"],   "%Y-%m-%dT%H:%M:%SZ")] for p in periods]
     totals = [{"input": 0.0, "output": 0.0} for _ in sess]
@@ -166,7 +163,7 @@ def session_token_totals(periods: list[dict], day_hourly: list[dict],
             for i, ov in overlaps:
                 totals[i]["input"]  += tin  * ov / tot
                 totals[i]["output"] += tout * ov / tot
-        else:                                              # no session this hour → nearest
+        else:
             mid = h_start + timedelta(minutes=30)
             i = min(range(len(sess)),
                     key=lambda k: abs((sess[k][0] + (sess[k][1] - sess[k][0]) / 2 - mid).total_seconds()))
@@ -177,8 +174,6 @@ def session_token_totals(periods: list[dict], day_hourly: list[dict],
 
 
 def _isoZ(dt: datetime) -> str:
-    # Normalize to UTC naive before formatting — Motor may return tz-aware datetimes
-    # which would produce "+00:00Z" (malformed) if we just append "Z".
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -242,17 +237,11 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
     ).to_list(100)
     claude_summary, _ = aggregate_claude(claude_docs)
 
-    # If claude usage exists for the day, ensure claude-code shows up in active_tools
-    # regardless of whether ai_tool_events captured it (agent may not restart daily).
     if claude_docs:
         tools_seen.add("claude-code")
 
-    # Real active minutes per tool — overlap of detection windows with focus blocks.
     tool_active_min = tool_active_minutes(ai_docs, focus_blocks)
-    # Same overlap, kept as individual sessions so the tool dropdown can list ranges.
     active_periods = tool_active_periods(ai_docs, focus_blocks)
-    # Option C — attribute per-hour Claude tokens to each claude-code session.
-    # Skipped for days with no hourly data (pre-rebuild) so old rows don't show 0/0.
     cc_periods = active_periods.get("claude-code")
     day_hourly = merge_hourly(claude_docs)
     if cc_periods and day_hourly:
@@ -271,7 +260,6 @@ async def build_activity_today(profile_id: str, tzinfo, the_date: str, device_id
         sort=[("timestamp", -1)],
     ).limit(50).to_list(50)
 
-    # Bug fix: restrict to last 6 hours so stale yesterday repo doesn't show
     now = datetime.now(timezone.utc)
     last_hb = await device_heartbeats().find_one(
         {"profile_id": profile_id, "timestamp": {"$gte": now - timedelta(hours=6)}},
@@ -308,11 +296,10 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
     Served by GET /agent/activity/week and reused by the email report."""
     now = datetime.now(timezone.utc)
     week_end_str = (datetime.strptime(week_start_str, "%Y-%m-%d") + timedelta(days=7)).strftime("%Y-%m-%d")
-    w_start, _   = day_bounds(week_start_str, tzinfo)   # UTC start of the local Monday
-    w_end,   _   = day_bounds(week_end_str, tzinfo)     # UTC start of the following Monday
+    w_start, _   = day_bounds(week_start_str, tzinfo)
+    w_end,   _   = day_bounds(week_end_str, tzinfo)
     week_start   = week_start_str
 
-    # Serve from cache for completed past weeks
     is_past = w_end < now - timedelta(hours=1)
     if is_past:
         cached = await week_summaries().find_one(
@@ -325,7 +312,6 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
 
     ts_filter = {"$gte": w_start, "$lt": min(w_end, now)}
 
-    # Heartbeats — group by LOCAL date (bug fix: was grouping by UTC)
     hbs = await device_heartbeats().find(
         {"profile_id": profile_id, "timestamp": ts_filter, "idle": False},
         projection={"timestamp": 1, "_id": 0},
@@ -354,7 +340,6 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
     ).to_list(200)
     claude_summary, total_tokens = aggregate_claude(claude_docs)
 
-    # Per-day breakdown — group docs by date, aggregate each day independently
     day_buckets: dict[str, list] = {}
     for doc in claude_docs:
         dk = doc.get("date", "")
@@ -368,7 +353,6 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
         claude_by_day[dk] = summary
         day_tokens[dk] = day_total
 
-    # Patch ai_tokens into already-built week_data
     for d in week_data:
         d["ai_tokens"] = day_tokens.get(d["date"], 0)
 
@@ -392,9 +376,7 @@ async def build_activity_week(profile_id: str, tzinfo, week_start_str: str) -> d
     if claude_docs:
         tools_seen.add("claude-code")
 
-    # Real active minutes per tool across the week (overlap with all focus blocks).
     tool_active_min = tool_active_minutes(ai_docs, all_blocks)
-    # Same, but per local day, so the day chips can show each tool's active time.
     tool_active_by_day = {
         dk: tool_active_minutes(docs, blocks_by_day.get(dk, []))
         for dk, docs in ai_by_day.items()

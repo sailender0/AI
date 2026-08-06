@@ -12,10 +12,6 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-# Feature keys an admin can grant/revoke per user. Authorization logic lives in
-# app/auth/rbac.py. DEFAULT_PERMISSIONS are granted to a new profile automatically
-# (default-on, admin revokes); anything in ALL_PERMISSIONS but NOT in DEFAULT is
-# opt-in — off until an admin grants it (e.g. consolidated_report).
 DEFAULT_PERMISSIONS = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
 ALL_PERMISSIONS = DEFAULT_PERMISSIONS + ["consolidated_report", "attendance_report"]
 
@@ -32,19 +28,12 @@ class Profile(Base):
     email = Column(String, unique=True, nullable=False)
     timezone = Column(String, default="UTC")
     teams_user_id = Column(String)
-    role = Column(String, nullable=False, default="user")   # user | manager | admin
+    role = Column(String, nullable=False, default="user")
     permissions = Column(JSON, nullable=False, default=lambda: list(DEFAULT_PERMISSIONS))
-    # Manager-only, admin-controlled: which permissions THIS manager may assign to
-    # their reports. Separate from `permissions` (their own usage). Default empty —
-    # a manager can delegate nothing until an admin turns it on.
     assignable_perms = Column(JSON, nullable=False, default=list)
-    # A user reports to at most one manager (admin-assigned). Deleting the manager
-    # nulls this rather than the report (SET NULL) — reports outlive their manager.
     manager_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
-    # Self-referential: manager (one) ⇄ reports (many). passive_deletes lets the DB
-    # SET NULL handle a manager delete instead of the ORM loading every report.
     manager = relationship("Profile", remote_side=[id], backref="reports", passive_deletes=True)
 
     linked_identities = relationship("LinkedIdentity", back_populates="profile", cascade="all, delete-orphan")
@@ -61,7 +50,7 @@ class LinkedIdentity(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
-    provider = Column(String, nullable=False)          # entra, github, gitlab, jira
+    provider = Column(String, nullable=False)
     tenant_id = Column(String)
     workspace_label = Column(String)
 
@@ -89,15 +78,12 @@ class Integration(Base):
     last_synced_at = Column(DateTime(timezone=True))
     workspace = Column(String)
 
-    # Teams Graph subscription
     subscription_id = Column(String)
     subscription_expires_at = Column(DateTime(timezone=True))
 
-    # Jira
     jira_webhook_id = Column(String)
     jira_webhook_expires_at = Column(DateTime(timezone=True))
 
-    # GitHub
     github_hook_id = Column(String)
 
     profile = relationship("Profile", back_populates="integrations")
@@ -129,7 +115,7 @@ class Summary(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
-    period_type = Column(String, nullable=False)       # daily | weekly
+    period_type = Column(String, nullable=False)
     period_start = Column(DateTime(timezone=True), nullable=False)
     period_end = Column(DateTime(timezone=True), nullable=False)
     content = Column(Text, nullable=False)
@@ -175,7 +161,7 @@ class ChatMessage(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("chat_conversations.id"), nullable=False)
-    role = Column(String(20), nullable=False)   # user | assistant
+    role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -188,7 +174,7 @@ class Device(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
     name = Column(String(100), nullable=False)
-    platform = Column(String(20))              # windows | macos | linux
+    platform = Column(String(20))
     last_seen = Column(DateTime(timezone=True))
     registered_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -201,7 +187,7 @@ class DeviceToken(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False)
-    token_hash = Column(String(64), nullable=False, unique=True)  # SHA-256 hex
+    token_hash = Column(String(64), nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     device = relationship("Device", back_populates="tokens")
@@ -213,10 +199,10 @@ class EmailPreference(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     profile_id = Column(UUID(as_uuid=True), ForeignKey("profiles.id"), nullable=False)
-    kind = Column(String, nullable=False)          # my_day | my_activity | analytics | standup
-    frequency = Column(String, nullable=False, default="daily")   # daily | weekdays | weekly
-    hour = Column(Integer, nullable=False, default=9)              # local hour 0-23
-    weekday = Column(Integer, nullable=False, default=4)           # 4=Fri (weekly cadence), used when weekly
+    kind = Column(String, nullable=False)
+    frequency = Column(String, nullable=False, default="daily")
+    hour = Column(Integer, nullable=False, default=9)
+    weekday = Column(Integer, nullable=False, default=4)
     enabled = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 

@@ -9,8 +9,8 @@ from app.storage.models import Integration, Profile
 from app.storage.mongodb import activity_events
 
 
-HEARTBEAT_INTERVAL = 30    # seconds between agent heartbeats
-FOCUS_GAP_SECONDS  = 300   # gap > 5 min = new focus block
+HEARTBEAT_INTERVAL = 30
+FOCUS_GAP_SECONDS  = 300
 
 
 def compute_focus_blocks(heartbeats: list[dict]) -> list[dict]:
@@ -151,8 +151,6 @@ async def trend_rows(profile_id: str, start: datetime, tz_name: str,
     }
     group_id.update({"src": "$source", "type": "$event_type"} if by_event_type
                     else {"source": "$source"})
-    # Deliberately unsorted: the caller pivots these into dicts keyed by a
-    # precomputed label list, so any order Mongo returns them in is fine.
     return await activity_events().aggregate([
         {"$match": {"profile_id": profile_id, "occurred_at": {"$gte": start}}},
         {"$group": {"_id": group_id, "count": {"$sum": 1}}},
@@ -288,10 +286,6 @@ async def get_integrations(profile_id: str, db: AsyncSession):
     connected = {}
     errors = {}
     for source in ["github", "gitlab", "jira", "teams_subscription"]:
-        # A live Integration row (with a token) is the source of truth. A bare
-        # LinkedIdentity from App-install alone (OAuth not yet finished) used to
-        # count github as connected, which hid the "Install" button and left the
-        # user silently broken after an incomplete reinstall.
         is_conn = status_map.get(source) in ("active", "error")
         connected[source] = is_conn
         errors[source] = status_map.get(source) == "error"

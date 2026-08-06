@@ -12,9 +12,6 @@ from fastapi import APIRouter
 
 from app.ai import chat, insights, tools
 
-# Re-exports so existing `from app.ai.query import X` imports (tests + main) keep
-# working. Only the names actually imported elsewhere — add one back when a caller
-# needs it; endpoint handlers reach the app via `router`, not by name.
 from app.ai.context import (  # noqa: F401
     _claude_date_range, _format_jira_live, _intent_to_filter, _map_event_type,
     _period_label, _sanitize_question, _scope_to_range,

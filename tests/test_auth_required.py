@@ -16,7 +16,6 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://t")
 
 
-# (method, path, body) — require a signed-in session cookie
 SESSION_ROUTES = [
     ("GET",   "/api/github/stats",       None),
     ("GET",   "/api/jira/stats",         None),
@@ -40,7 +39,6 @@ SESSION_ROUTES = [
     ("POST",  "/api/email/send",         {"kind": "standup"}),
 ]
 
-# (method, path, body) — require a device Bearer token
 DEVICE_ROUTES = [
     ("POST", "/api/agent/heartbeat",         {}),
     ("POST", "/api/agent/commit",            {"repo": "r", "branch": "b", "sha": "s", "message": "m"}),
@@ -52,7 +50,6 @@ DEVICE_ROUTES = [
     ("POST", "/api/agent/standup/ack",       {"date": "2026-07-07"}),
 ]
 
-# public — must NOT require auth
 PUBLIC_ROUTES = [
     ("GET", "/health"),
     ("GET", "/api/agent/tool-definitions"),

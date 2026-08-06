@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
-    # Fail closed on an unset secret: an empty key makes the HMAC forgeable by
-    # anyone, so a blank GITHUB_WEBHOOK_SECRET must reject, not accept.
     if not settings.GITHUB_WEBHOOK_SECRET:
         return False
     if not signature or not signature.startswith("sha256="):
@@ -61,7 +59,6 @@ _GITHUB_TYPE_MAP = {
     "issues": "issue_updated",
     "pull_request_review": "pr_review",
     "issue_comment": "comment",
-    # pull_request → left as None so normalizer derives it from action
 }
 
 
@@ -73,10 +70,10 @@ async def _process(body: dict, event_type: str):
     profile_id = await _resolve_profile(actor_id)
     logger.info("GitHub event=%s actor_id=%s profile_id=%s", event_type, actor_id, profile_id)
     if not profile_id:
-        return                                          # actor isn't one of our users → not our data
-    mapped = _GITHUB_TYPE_MAP.get(event_type)          # None = let normalizer decide
+        return
+    mapped = _GITHUB_TYPE_MAP.get(event_type)
     if mapped is None and event_type != "pull_request":
-        mapped = event_type                             # unknown types pass through as-is
+        mapped = event_type
     event = normalize(body, source="github", profile_id=profile_id, event_type=mapped)
     await ingest(event)
 

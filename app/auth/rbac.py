@@ -120,8 +120,6 @@ def authorize_report(permission: str, actor_role: str, actor_permissions: list[s
     Raises 403 otherwise. Pure — the DB/audit work lives in report_target().
     """
     if not target_id or target_id == actor_id:
-        # Own data: admin always; anyone else needs the permission (a manager's own
-        # access is now restrictable — team powers live in the cross-user branch).
         if actor_role == "admin" or permission in actor_permissions:
             return False
         raise HTTPException(403, "forbidden")
@@ -147,13 +145,10 @@ async def report_target(permission: str, kind: str, user_id: str | None,
         target_uuid = uuid.UUID(str(user_id))
     except ValueError:
         raise HTTPException(404, "no_such_user")
-    # 404 rather than 403: the actor IS allowed to read users, this one isn't real.
     target = await db.get(Profile, target_uuid)
     if not target:
         raise HTTPException(404, "no_such_user")
 
-    # A manager is scoped to their direct reports; admin reaches anyone. This is the
-    # server-side clamp — the client can pass any user_id, but a non-report is 403.
     if actor.role != "admin" and str(target.manager_id or "") != actor_id:
         raise HTTPException(403, "forbidden")
 
@@ -172,7 +167,6 @@ async def report_target(permission: str, kind: str, user_id: str | None,
             "at":                datetime.now(timezone.utc),
         })
     except Exception as exc:
-        # Never fail the request on an audit write, but make the gap loud.
         logger.error("access_log write failed (%s %s of %s by %s): %s",
                      action, kind, target_uuid, actor_id, exc)
     return str(target_uuid)

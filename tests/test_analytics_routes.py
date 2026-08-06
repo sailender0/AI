@@ -71,7 +71,6 @@ async def test_today_empty_returns_zeroed_shape():
 
 
 async def test_today_focus_computed_from_heartbeats():
-    # a continuous 20-minute run of 30s heartbeats -> one 19-minute focus block
     t0 = datetime(2026, 7, 1, 3, 0, tzinfo=timezone.utc)
     hbs = [{"timestamp": t0 + timedelta(seconds=s)} for s in range(0, 20 * 60, 30)]
     app = _app()

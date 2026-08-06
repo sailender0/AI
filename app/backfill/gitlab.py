@@ -54,8 +54,6 @@ def issue_to_event(item: dict, profile_id: str, namespace: str) -> dict:
     )
 
 
-# ── Fetch (live API — smoke-test with a real token; contract unverified in CI) ──
-
 async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dict]:
     """Pull commits, MRs and issues updated since `since` across the user's
     projects and map them to normalized events. Project discovery mirrors

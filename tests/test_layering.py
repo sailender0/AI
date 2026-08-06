@@ -16,8 +16,6 @@ import pytest
 
 APP = pathlib.Path(__file__).resolve().parent.parent / "app"
 
-# app/main.py is the composition root: wiring routers into the FastAPI app is
-# exactly its job, so it is the one module allowed to import app.routes.
 COMPOSITION_ROOT = "app.main"
 
 
@@ -32,7 +30,6 @@ def _modules() -> dict[str, pathlib.Path]:
 def _imports(path: pathlib.Path) -> list[tuple[str, tuple[str, ...], int]]:
     """(module, imported names, lineno) for every `from app... import ...`, including
     function-local ones — a lazy import is still a dependency."""
-    # utf-8-sig: a couple of files in this repo carry a BOM.
     tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     return [(n.module, tuple(a.name for a in n.names), n.lineno) for n in ast.walk(tree)
             if isinstance(n, ast.ImportFrom) and n.module and n.module.startswith("app")]
@@ -68,9 +65,6 @@ def test_no_import_cycles_between_modules():
             deps |= _resolve(mod, names, mods)
         edges[name] = deps - {name}
 
-    # app.webhooks.registration -> app.auth.oauth predates this refactor and is
-    # already broken at runtime by a function-local import in oauth.py. Dropped by
-    # name rather than tolerating any cycle, so a NEW one still fails the test.
     edges["app.webhooks.registration"].discard("app.auth.oauth")
 
     try:

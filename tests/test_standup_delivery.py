@@ -65,6 +65,5 @@ async def test_ack_clears_flag():
 
 
 async def test_pending_unauthenticated_returns_401():
-    # no override -> real _get_device runs; no Bearer header -> 401 before any DB
     r = await _req(_app(authed=False), "GET", "/standup/pending")
     assert r.status_code == 401

@@ -92,7 +92,6 @@ async def init_indexes():
         sparse=True,
     )
 
-    # Agent collections
     await device_heartbeats().create_index([("profile_id", 1), ("timestamp", -1)])
     await device_heartbeats().create_index([("profile_id", 1), ("device_id", 1), ("timestamp", -1)])
 
@@ -106,11 +105,9 @@ async def init_indexes():
     await week_summaries().create_index(
         [("profile_id", 1), ("week_start", 1)], unique=True
     )
-    # Scheduled-email dedupe: at most one digest per (profile, kind, local date)
     await email_sends().create_index(
         [("profile_id", 1), ("kind", 1), ("date", 1)], unique=True
     )
 
-    # Cross-user access audit: query by target ("who viewed me") and by actor.
     await access_log().create_index([("target_profile_id", 1), ("at", -1)])
     await access_log().create_index([("actor_profile_id", 1), ("at", -1)])

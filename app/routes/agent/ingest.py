@@ -151,8 +151,6 @@ async def receive_vscode_extensions(
     return {"ok": True}
 
 
-# ── Proactive standup delivery (agent pulls) — docs/adr-0002-delivery.md ───────
-
 class StandupAck(BaseModel):
     date: str
 

@@ -22,22 +22,19 @@ def test_single_heartbeat_is_zero_minutes():
 
 
 def test_continuous_run_is_one_block():
-    # 30s heartbeats for 20 minutes → one block spanning 19m30s → 19 min (floored)
     blocks = compute_focus_blocks(_hbs(*range(0, 20 * 60, 30)))
     assert len(blocks) == 1
     assert blocks[0]["duration_min"] == 19
 
 
 def test_gap_over_five_minutes_splits_blocks():
-    # two runs separated by a 10-minute idle gap
-    first  = list(range(0, 5 * 60, 30))              # 0..4:30
-    second = [s + 15 * 60 for s in range(0, 5 * 60, 30)]  # starts 10 min after first ends
+    first  = list(range(0, 5 * 60, 30))
+    second = [s + 15 * 60 for s in range(0, 5 * 60, 30)]
     blocks = compute_focus_blocks(_hbs(*first, *second))
     assert len(blocks) == 2
 
 
 def test_gap_within_threshold_stays_one_block():
-    # a 5-minute gap (== FOCUS_GAP_SECONDS, within +HEARTBEAT_INTERVAL tolerance) does not split
     blocks = compute_focus_blocks(_hbs(0, 30, 30 + 300))
     assert len(blocks) == 1
 

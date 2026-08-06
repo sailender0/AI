@@ -47,8 +47,6 @@ def _col(docs):
     return C()
 
 
-# ── Source mapping ────────────────────────────────────────────────────────────
-
 def test_chat_and_meeting_and_call_map_to_row_types():
     assert row_type(_evt(source="teams_chat")) == "chat"
     assert row_type(_evt(source="outlook_calendar")) == "meeting"
@@ -67,11 +65,8 @@ def test_unrelated_sources_are_ignored():
         assert row_type(_evt(source=src)) is None
 
 
-# ── Local-day bounds ──────────────────────────────────────────────────────────
-
 def test_month_bounds_are_local_and_half_open():
     start, end = month_bounds("2026-07", "Asia/Kolkata")
-    # IST is UTC+5:30, so a local July starts on 30 June 18:30 UTC.
     assert start == datetime(2026, 6, 30, 18, 30, tzinfo=timezone.utc)
     assert end == datetime(2026, 7, 31, 18, 30, tzinfo=timezone.utc)
 
@@ -86,15 +81,13 @@ def test_day_bounds_span_one_local_day():
     assert (end - start).total_seconds() == 86400
 
 
-# ── Month grid ────────────────────────────────────────────────────────────────
-
 @pytest.mark.asyncio
 async def test_month_counts_dots_per_day_and_collects_people(monkeypatch):
     docs = [
         _evt(when="2026-07-28T09:00:00+00:00"),
         _evt(when="2026-07-28T17:00:00+00:00"),
         _evt(when="2026-07-29T10:00:00+00:00", title="Priya Nair", user_id="oid-priya"),
-        _evt(source="github", when="2026-07-28T11:00:00+00:00"),  # ignored
+        _evt(source="github", when="2026-07-28T11:00:00+00:00"),
     ]
     monkeypatch.setattr("app.services.calendar_activity.activity_events", lambda: _col(docs))
     out = await build_month(PROFILE, "2026-07", "UTC")
@@ -113,8 +106,6 @@ async def test_month_buckets_by_local_day_not_utc(monkeypatch):
     out = await build_month(PROFILE, "2026-07", "Asia/Kolkata")
     assert list(out["days"]) == ["2026-07-29"]
 
-
-# ── Day timeline ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_day_returns_one_row_per_message_oldest_first(monkeypatch):

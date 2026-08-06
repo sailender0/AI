@@ -20,10 +20,10 @@ from app.auth.rbac import (
 )
 
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
-MGR   = uuid.UUID("00000000-0000-0000-0000-0000000000b0")   # a manager
-MGR2  = uuid.UUID("00000000-0000-0000-0000-0000000000b1")   # a different manager
-REP   = uuid.UUID("00000000-0000-0000-0000-0000000000c0")   # reports to MGR
-STRAY = uuid.UUID("00000000-0000-0000-0000-0000000000c1")   # reports to MGR2
+MGR   = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
+MGR2  = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+REP   = uuid.UUID("00000000-0000-0000-0000-0000000000c0")
+STRAY = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 
 
 def _p(pid, role, manager_id=None, perms=None, email="x@x.com"):
@@ -51,8 +51,6 @@ def _audit():
     return col
 
 
-# ─────────────────────────── report_target: cross-user clamp ───────────────────────────
-
 async def test_admin_pulls_any_users_report():
     admin, target = _p(ADMIN, "admin"), _p(STRAY, "user", manager_id=MGR2)
     with patch("app.auth.rbac.access_log", return_value=_audit()):
@@ -65,7 +63,7 @@ async def test_manager_pulls_direct_report():
     with patch("app.auth.rbac.access_log", return_value=_audit()) as al:
         out = await report_target("export_my_day", "my_day", str(REP), mgr, _db_get(report))
     assert out == str(REP)
-    al.return_value.insert_one.assert_awaited_once()   # cross-user access is audited
+    al.return_value.insert_one.assert_awaited_once()
 
 
 async def test_manager_blocked_from_non_report():
@@ -77,7 +75,6 @@ async def test_manager_blocked_from_non_report():
 
 
 async def test_manager_pulls_own_report_is_self_path():
-    # B: own access needs the permission — a manager keeps defaults unless admin revokes.
     mgr = _p(MGR, "manager", perms=["export_my_day"])
     db = _db_get(None)
     out = await report_target("export_my_day", "my_day", str(MGR), mgr, db)
@@ -86,7 +83,7 @@ async def test_manager_pulls_own_report_is_self_path():
 
 
 async def test_manager_own_report_denied_when_permission_revoked():
-    mgr = _p(MGR, "manager", perms=[])          # admin revoked export_my_day
+    mgr = _p(MGR, "manager", perms=[])
     with pytest.raises(HTTPException) as e:
         await report_target("export_my_day", "my_day", str(MGR), mgr, _db_get(None))
     assert e.value.status_code == 403
@@ -119,8 +116,6 @@ async def test_report_target_unknown_user_is_404():
     assert e.value.status_code == 404
 
 
-# ─────────────────────────── visible_profiles: row scope ───────────────────────────
-
 async def test_admin_sees_all_rows():
     admin = _p(ADMIN, "admin")
     everyone = [admin, _p(MGR, "manager"), _p(REP, "user", manager_id=MGR)]
@@ -132,7 +127,7 @@ async def test_manager_sees_self_plus_reports():
     mgr = _p(MGR, "manager")
     reports = [_p(REP, "user", manager_id=MGR)]
     rows = await visible_profiles(mgr, _db_scalars(reports))
-    assert rows[0] is mgr                     # self first
+    assert rows[0] is mgr
     assert reports[0] in rows
     assert len(rows) == 2
 
@@ -142,10 +137,8 @@ async def test_user_sees_only_self_no_db():
     db = _db_scalars([])
     rows = await visible_profiles(user, db)
     assert rows == [user]
-    db.execute.assert_not_called()            # a plain user never queries others
+    db.execute.assert_not_called()
 
-
-# ─────────────────────────── can_edit_permissions: who edits whom ───────────────────────────
 
 def test_admin_edits_anyone_including_managers():
     admin = _p(ADMIN, "admin")

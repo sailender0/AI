@@ -10,7 +10,6 @@ import os
 import subprocess
 import sys
 
-# Ensure the project root is on the path when run as a script
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sqlalchemy import text
@@ -59,7 +58,6 @@ def main() -> None:
         asyncio.run(_create_all())
         _run(["alembic", "stamp", "head"])
     else:
-        # Existing DB (with or without Alembic): apply pending migrations
         print("[migrate] Running alembic upgrade head")
         _run(["alembic", "upgrade", "head"])
 

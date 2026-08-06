@@ -47,7 +47,7 @@ def _resolve_period(period: str, tz_name: str, today: date | None = None) -> tup
             return r["this"]
         if period == f"last_{gran}":
             return r["last"]
-    return period_ranges("week", today)["this"]        # unknown → this week
+    return period_ranges("week", today)["this"]
 
 
 def _period_ts_filter(frm: str, to: str, tz_name: str) -> dict:
@@ -57,8 +57,6 @@ def _period_ts_filter(frm: str, to: str, tz_name: str) -> dict:
     _, end   = day_bounds(to, tz)
     return {"$gte": start, "$lte": end}
 
-
-# ── Tool bodies — each a thin wrapper over a fetch we already have ──────────────
 
 async def _tool_get_activity(profile_id, tz_name, args) -> dict:
     frm, to = _resolve_period(args.get("period", "this_week"), tz_name)
@@ -187,7 +185,7 @@ async def _run_tool(name: str, args: dict, profile_id: str, tz_name: str) -> dic
         return {"error": f"unknown tool: {name}"}
     try:
         return await fn(profile_id, tz_name, args)
-    except Exception as exc:                            # a tool failure shouldn't kill the turn
+    except Exception as exc:
         logger.warning("tool %s failed: %s", name, exc)
         return {"error": str(exc)}
 

@@ -9,8 +9,6 @@ from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
 from app.storage.models import GitHubIntegration, Integration, JiraIntegration, TeamsIntegration
-# AsyncSessionLocal() is used intentionally here — renewal jobs are APScheduler
-# background tasks, not FastAPI requests, so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.registration import auto_register_teams_subscription, auto_register_webhook
 
@@ -38,8 +36,6 @@ async def renew_teams_subscriptions():
             continue
         try:
             new_expiry = (datetime.now(timezone.utc) + timedelta(minutes=55)).isoformat()
-            # First session closes before the HTTP call so no connection is held
-            # during network I/O. A second session handles the write after.
             async with httpx.AsyncClient() as client:
                 resp = await client.patch(
                     f"https://graph.microsoft.com/v1.0/subscriptions/{row.subscription_id}",
@@ -82,8 +78,6 @@ async def renew_jira_webhooks():
         if not token:
             continue
         try:
-            # OAuth tokens only work via api.atlassian.com with a cloud id —
-            # same as registration/backfill; a site-URL call would just 401.
             headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             async with httpx.AsyncClient() as client:
                 res = await client.get(

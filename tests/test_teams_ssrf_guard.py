@@ -15,10 +15,10 @@ def test_legit_message_resources_pass():
 
 
 def test_ssrf_shapes_rejected():
-    assert not _safe_resource("me/messages?$top=999&$select=body")   # query exfil
-    assert not _safe_resource("../users/victim/messages/1")          # traversal
-    assert not _safe_resource("https://evil.tld/steal")              # absolute scheme
-    assert not _safe_resource("/etc/passwd")                         # absolute path
-    assert not _safe_resource("me/mailFolders/inbox")                # not a message path
-    assert not _safe_resource("")                                    # empty
-    assert not _safe_resource("me/messages/" + "A" * 300)            # oversized
+    assert not _safe_resource("me/messages?$top=999&$select=body")
+    assert not _safe_resource("../users/victim/messages/1")
+    assert not _safe_resource("https://evil.tld/steal")
+    assert not _safe_resource("/etc/passwd")
+    assert not _safe_resource("me/mailFolders/inbox")
+    assert not _safe_resource("")
+    assert not _safe_resource("me/messages/" + "A" * 300)

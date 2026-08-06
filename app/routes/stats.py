@@ -23,12 +23,6 @@ async def get_jira_assigned(profile_id: str = Depends(require_profile)):
     return JSONResponse(data)
 
 
-# ── Per-source stats ──────────────────────────────────────────────────────────
-# The four /api/<source>/stats endpoints are one query shape with different
-# labels/regexes; this table + _source_stats replaces the hand-rolled copies.
-# "metrics": KPI tiles (None = source has no tile block — Jira's KPIs come live
-# from /api/jira/assigned). "series": chart datasets + per-repo breakdowns.
-
 _STATS = {
     "github": {
         "metrics": [("Pull Requests", r"^pr_(?!review$)"), ("Commits", r"^commit"),

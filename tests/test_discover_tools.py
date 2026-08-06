@@ -10,7 +10,7 @@ def test_known_dirs_get_clean_names():
 
 
 def test_unknown_ai_named_dir_surfaces_raw():
-    assert _tool_name_for_dir(".mygptcli") == "mygptcli"   # matches "gpt"
+    assert _tool_name_for_dir(".mygptcli") == "mygptcli"
     assert _tool_name_for_dir(".copilot-cache") == "copilot-cache"
 
 

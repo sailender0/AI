@@ -20,9 +20,9 @@ async def test_email_sends_unique_index_blocks_duplicate(mongo_db):
            "sent_at": datetime.now(timezone.utc)}
     col = email_sends()
     try:
-        await col.insert_one(dict(doc))                     # first claim succeeds
+        await col.insert_one(dict(doc))
         with pytest.raises(DuplicateKeyError):
-            await col.insert_one(dict(doc))                 # same (profile,kind,date) rejected
-        await col.insert_one({**doc, "date": "2026-07-09"})  # a different day is allowed
+            await col.insert_one(dict(doc))
+        await col.insert_one({**doc, "date": "2026-07-09"})
     finally:
         await col.delete_many({"profile_id": pid})

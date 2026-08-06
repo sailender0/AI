@@ -182,8 +182,6 @@ async def get_week_breakdown(start: str = None, end: str = None,
     if not days_list:
         return JSONResponse({"days": []})
 
-    # Natural order (sort=None): the per-source "first 15" slice below is defined
-    # by insertion order, so imposing a sort here would change which items show.
     all_events = await find_events(
         profile_id,
         start=days_list[0].astimezone(timezone.utc),

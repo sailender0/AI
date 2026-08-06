@@ -23,7 +23,7 @@ async def test_expired_token_without_refresh_marks_error(pg_session):
         await db.flush()
         row = JiraIntegration(
             profile_id=p.id,
-            access_token_enc="enc-doesnt-matter",   # never decrypted: None returned first
+            access_token_enc="enc-doesnt-matter",
             refresh_token_enc=None,
             token_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
             sync_status="active",
@@ -42,7 +42,6 @@ async def test_expired_token_without_refresh_marks_error(pg_session):
         assert await get_valid_token(pid, "jira") is None
         assert await status() == "error", "dead token must be surfaced, not silent"
 
-        # the live-API probe path: a provider 401 flags the row the same way
         async with Session() as db:
             (await db.get(Integration, iid)).sync_status = "active"
             await db.commit()

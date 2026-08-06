@@ -5,10 +5,8 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Jira deadline strip — hidden unless something is overdue or due today -->
   <div id="due-strip" class="hidden rounded-xl p-4" style="background:#78350f18;border:1px solid #b45309"></div>
 
-  <!-- Week range header -->
   <div onclick="toggleCalendar()" id="week-header"
     class="inline-flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition select-none"
     style="background:var(--surface-2);border:1px solid var(--border)">
@@ -19,11 +17,9 @@
     </svg>
   </div>
 
-  <!-- Calendar — two-panel layout -->
   <div class="card p-5" id="cal-card" style="max-width:580px">
     <div class="flex gap-5">
 
-      <!-- Left: month day grid -->
       <div style="flex:1;min-width:0">
         <div class="flex items-center justify-between mb-3">
           <span id="month-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
@@ -52,10 +48,8 @@
         <div id="cal-grid"></div>
       </div>
 
-      <!-- Divider -->
       <div style="width:1px;background:var(--border);flex-shrink:0"></div>
 
-      <!-- Right: year + month picker -->
       <div style="width:192px;flex-shrink:0;display:flex;flex-direction:column">
         <div class="flex items-center justify-between mb-3">
           <span id="year-label" class="text-sm font-semibold" style="color:var(--text-1)"></span>
@@ -87,7 +81,6 @@
     </div>
   </div>
 
-  <!-- Day header + generate button -->
   <div class="flex items-center gap-3">
     <span id="day-badge"
       class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
@@ -114,16 +107,13 @@
     </div>
   </div>
 
-  <!-- AI Summary -->
   <div class="card p-6">
     <h2 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-3)">AI Summary</h2>
     <p id="summary-content" class="text-sm leading-relaxed whitespace-pre-wrap" style="color:var(--text-1)">Loading…</p>
   </div>
 
-  <!-- Per-source stats -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="today-stats"></div>
 
-  <!-- Activity timeline -->
   <div class="card p-6">
     <h2 class="text-sm font-semibold mb-4" style="color:var(--text-1)">Activity Timeline</h2>
     <div id="events-list" class="space-y-2"></div>

@@ -12,22 +12,18 @@ PID = "11111111-1111-1111-1111-111111111111"
 
 
 def _key(ev: dict) -> tuple:
-    # The dedup index is (profile_id, source, source_event_id, event_type);
-    # title is asserted too so display stays consistent across both paths.
     return (ev["source_event_id"], ev["event_type"], ev["title"])
 
-
-# ── GitHub ──────────────────────────────────────────────────────────────────
 
 def test_github_commit_dedup_parity():
     sha, msg = "abc123deadbeef", "Fix the auth bug\n\nlong body here"
     webhook = {
         "repository": {"full_name": "org/repo"},
-        "after": sha,                                  # webhook keys on head sha
+        "after": sha,
         "head_commit": {"message": msg},
         "commits": [{"id": sha, "message": msg}],
     }
-    live = normalize(webhook, "github", PID, event_type="commit")  # receiver maps push->commit
+    live = normalize(webhook, "github", PID, event_type="commit")
     rest = {"sha": sha, "commit": {"message": msg, "author": {"date": "2026-07-01T10:00:00Z"}}}
     assert _key(github.commit_to_event(rest, PID, "org/repo")) == _key(live)
 
@@ -35,7 +31,7 @@ def test_github_commit_dedup_parity():
 def test_github_pr_opened_parity():
     webhook = {"action": "opened", "repository": {"full_name": "org/repo"},
                "pull_request": {"id": 555, "title": "Add feature", "merged": False}}
-    live = normalize(webhook, "github", PID, event_type=None)      # normalizer derives pr_opened
+    live = normalize(webhook, "github", PID, event_type=None)
     rest = {"id": 555, "title": "Add feature", "state": "open", "merged_at": None}
     back = github.pull_to_event(rest, PID, "org/repo")
     assert back["event_type"] == "pr_opened"
@@ -55,18 +51,15 @@ def test_github_pr_merged_parity():
 def test_github_issue_parity():
     webhook = {"repository": {"full_name": "org/repo"},
                "issue": {"id": 777, "title": "Broken link"}}
-    live = normalize(webhook, "github", PID, event_type="issue_updated")  # receiver maps issues->issue_updated
+    live = normalize(webhook, "github", PID, event_type="issue_updated")
     rest = {"id": 777, "title": "Broken link", "state": "open"}
     assert not github.is_pull_request(rest)
     assert _key(github.issue_to_event(rest, PID, "org/repo")) == _key(live)
 
 
 def test_github_issues_list_flags_prs():
-    # /issues returns PRs too; they must route to pull_to_event, not issue.
     assert github.is_pull_request({"id": 1, "pull_request": {"url": "..."}})
 
-
-# ── GitLab ──────────────────────────────────────────────────────────────────
 
 def test_gitlab_commit_parity():
     sha, msg = "deadbeefcafe", "Initial commit\n\ndetails"
@@ -84,7 +77,7 @@ def test_gitlab_mr_parity():
     rest = {"id": 900, "iid": 3, "title": "My MR", "updated_at": "2026-07-01T11:00:00Z"}
     back = gitlab.mr_to_event(rest, PID, "grp/proj")
     assert back["event_type"] == "merge_request"
-    assert _key(back) == _key(live)          # global id, not iid
+    assert _key(back) == _key(live)
 
 
 def test_gitlab_issue_parity():
@@ -95,14 +88,12 @@ def test_gitlab_issue_parity():
     assert _key(gitlab.issue_to_event(rest, PID, "grp/proj")) == _key(live)
 
 
-# ── Jira ────────────────────────────────────────────────────────────────────
-
 def test_jira_issue_parity():
     issue = {"id": "10042", "key": "PROJ-1",
              "fields": {"summary": "Login broken", "project": {"key": "PROJ"},
                         "updated": "2026-07-01T12:00:00.000+0000"}}
     webhook = {"webhookEvent": "jira:issue_updated", "user": {"accountId": "a"}, "issue": issue}
-    live = normalize(webhook, "jira", PID, event_type="jira:issue_updated")  # receiver passes webhookEvent
+    live = normalize(webhook, "jira", PID, event_type="jira:issue_updated")
     back = jira.issue_to_event(issue, PID)
     assert _key(back) == _key(live)
     assert back["workspace"] == live["workspace"] == "PROJ"

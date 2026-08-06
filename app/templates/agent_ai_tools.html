@@ -5,15 +5,12 @@
 {% block content %}
 <div x-data="aiToolsPage()" x-init="init()" class="space-y-5">
 
-  <!-- Back link -->
   <a href="/my-activity"
      class="inline-flex items-center gap-1.5 text-xs hover:opacity-70 transition-opacity"
      style="color:var(--text-3)">&#8592; Back to Device Activity</a>
 
-  <!-- Pickers — mode fixed by entry point (Today → day, Week → week) -->
   <div class="flex flex-wrap items-center gap-3">
 
-    <!-- Day pickers -->
     <div x-show="mode==='day'" class="flex items-center gap-1.5">
       <button @click="prevDay()"
               class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70"
@@ -29,7 +26,6 @@
               style="background:var(--chrome);color:var(--chrome-text)">&#8592; Today</button>
     </div>
 
-    <!-- Week pickers -->
     <div x-show="mode==='week'" class="flex items-center gap-1.5">
       <button @click="prevWeek()"
               class="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:opacity-70"
@@ -46,7 +42,6 @@
               style="background:var(--chrome);color:var(--chrome-text)">&#8592; This Week</button>
     </div>
 
-    <!-- Model filter -->
     <div class="ml-auto" x-show="allModels.length > 0">
       <select x-model="modelFilter"
               class="text-xs rounded-lg px-3 py-1.5"
@@ -59,17 +54,14 @@
     </div>
   </div>
 
-  <!-- Empty state -->
   <div x-show="!loading && (mode==='day' ? filteredRepos.length === 0 : weekDaysFiltered.every(d => d.repos.length === 0))"
        class="rounded-xl py-16 text-center" style="background:var(--surface);border:1px solid var(--border)">
     <p class="text-sm" style="color:var(--text-3)">No AI tool data for this period</p>
     <p class="text-xs mt-1" style="color:var(--text-3)">Token usage appears once Claude Code syncs (~60s)</p>
   </div>
 
-  <!-- Loading -->
   <div x-show="loading" class="text-xs py-4 text-center" style="color:var(--text-3)">Loading…</div>
 
-  <!-- Summary cards -->
   <div x-show="mode==='day' ? filteredRepos.length > 0 : weekDaysFiltered.some(d => d.repos.length > 0)"
        class="grid grid-cols-4 gap-4">
     <div class="rounded-xl p-4" style="background:var(--surface);border:1px solid var(--border)">
@@ -93,7 +85,6 @@
     </div>
   </div>
 
-  <!-- DAY MODE: per-project cards -->
   <div x-show="mode==='day' && filteredRepos.length > 0" class="space-y-4">
     <template x-for="repo in filteredRepos" :key="repo.repo">
       <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
@@ -150,12 +141,10 @@
     </template>
   </div>
 
-  <!-- WEEK MODE: day-by-day accordion -->
   <div x-show="mode==='week' && !loading" class="space-y-3">
     <template x-for="dayData in weekDaysFiltered" :key="dayData.date">
       <div class="rounded-xl overflow-hidden" style="background:var(--surface);border:1px solid var(--border)">
 
-        <!-- Day header -->
         <div class="flex items-center gap-3 px-5 py-3 cursor-pointer select-none"
              style="background:var(--surface-2)"
              @click="dayExpanded[dayData.date] = !dayExpanded[dayData.date]">
@@ -173,12 +162,11 @@
                 x-text="dayExpanded[dayData.date] ? '▲' : '▼'"></span>
         </div>
 
-        <!-- Day content -->
         <div x-show="dayExpanded[dayData.date]" class="p-5">
           <template x-if="dayData.repos.length === 0 && dayData.otherTools.length === 0">
             <p class="text-sm py-2" style="color:var(--text-3)">No activity</p>
           </template>
-          <!-- Non-Claude tools detected this day -->
+
           <template x-if="dayData.otherTools.length > 0">
             <div class="flex flex-wrap gap-2 mb-4">
               <template x-for="tool in dayData.otherTools" :key="tool">
@@ -197,7 +185,7 @@
             <div class="space-y-5">
               <template x-for="repo in dayData.repos" :key="repo.repo">
                 <div>
-                  <!-- Repo header -->
+
                   <div class="flex items-center gap-3 mb-3">
                     <span class="font-mono text-sm font-bold px-2 py-1 rounded"
                           style="background:var(--surface-2);color:var(--text-1)" x-text="repo.repo"></span>
@@ -211,13 +199,13 @@
                       </p>
                     </div>
                   </div>
-                  <!-- Proportion bar vs day total -->
+
                   <div class="h-1.5 rounded-full mb-3 overflow-hidden" style="background:var(--surface-2)">
                     <div class="h-full rounded-full"
                          style="background:linear-gradient(to right,#fdba74,#c2410c)"
                          :style="'width:' + Math.max(2, (repo.input_tokens+repo.output_tokens) / Math.max(1,dayData.totalTokens) * 100) + '%'"></div>
                   </div>
-                  <!-- Models -->
+
                   <div class="space-y-2 mb-3">
                     <p class="text-xs font-semibold" style="color:var(--text-3)">BY MODEL</p>
                     <template x-for="m in repo.models" :key="m.model">
@@ -238,7 +226,7 @@
                       </div>
                     </template>
                   </div>
-                  <!-- Files -->
+
                   <template x-if="repo.files && repo.files.length">
                     <div>
                       <p class="text-xs font-semibold mb-1.5" style="color:var(--text-3)">FILES TOUCHED</p>
@@ -261,7 +249,6 @@
     </template>
   </div>
 
-  <!-- Model summary table (when filtering by a specific model) -->
   <div x-show="!modelFilter && allModels.length > 1"
        class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
     <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">MODEL SUMMARY</p>

@@ -5,7 +5,6 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
-# Import all models so autogenerate can detect them
 import app.storage.models  # noqa: F401
 from app.storage.models import Base
 

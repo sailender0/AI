@@ -4,7 +4,7 @@ desktop agent launch twice (duplicate windows/tray icons).
 """
 import agent.__main__ as entry
 
-entry._IPC_PORT = 47999  # keep clear of a live agent holding the real port
+entry._IPC_PORT = 47999
 
 
 def test_second_bind_fails_while_first_holds():

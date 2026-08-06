@@ -6,10 +6,8 @@
 {% block content %}
 <div class="flex h-full min-h-0">
 
-  <!-- ── Left panel: conversation list ───────────────────────── -->
   <div class="flex flex-col shrink-0" style="width:256px;border-right:1px solid var(--border);background:var(--surface)">
 
-    <!-- Header -->
     <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border)">
       <span class="text-sm font-semibold" style="color:var(--text-1)">Chats</span>
       <button onclick="newChat()" title="New chat"
@@ -21,16 +19,13 @@
       </button>
     </div>
 
-    <!-- List -->
     <div id="conv-list" class="flex-1 overflow-y-auto py-2 px-2">
       <p id="conv-empty" class="text-xs text-center py-8" style="color:var(--text-3)">No conversations yet</p>
     </div>
   </div>
 
-  <!-- ── Right: chat area ─────────────────────────────────────── -->
   <div class="flex-1 flex flex-col min-w-0 min-h-0">
 
-    <!-- Welcome / empty state -->
     <div id="welcome-state" class="flex-1 flex flex-col items-center justify-center p-8">
       <div class="w-14 h-14 rounded-2xl bg-indigo-600 text-chrome flex items-center justify-center mb-5" style="box-shadow:0 0 0 8px rgba(0,0,0,0.12)">
         <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -49,14 +44,12 @@
       </div>
     </div>
 
-    <!-- Active chat -->
     <div id="chat-state" class="hidden flex-1 flex flex-col min-h-0">
       <div id="messages-area" class="flex-1 overflow-y-auto px-6 py-6">
-        <!-- message bubbles appended here -->
+
       </div>
     </div>
 
-    <!-- ── Input bar (always shown) ────────────────────────────── -->
     <div class="shrink-0 px-4 pb-4 pt-2" style="border-top:1px solid var(--border)">
 
       <div class="flex items-end gap-3 rounded-xl px-4 py-3" style="background:var(--surface-2);border:1px solid var(--border-strong)">
@@ -133,7 +126,7 @@
     color: var(--text-1); white-space: pre-wrap; word-break: break-word;
   }
 
-  /* typing dots */
+
   .typing-dot {
     width: 7px; height: 7px; border-radius: 50%; background: var(--text-2);
     animation: tdot 1.2s infinite;

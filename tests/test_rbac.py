@@ -16,7 +16,7 @@ def _auth(role, perms, target):
 
 def test_self_with_permission_is_allowed_and_not_cross_user():
     assert _auth("user", ["export_my_day"], None) is False
-    assert _auth("user", ["export_my_day"], ACTOR) is False   # explicit self id
+    assert _auth("user", ["export_my_day"], ACTOR) is False
 
 
 def test_self_without_permission_is_forbidden():
@@ -30,11 +30,10 @@ def test_admin_self_bypasses_permission():
 
 
 def test_manager_self_needs_permission():
-    # B: a manager's OWN access is gated by their own list (admin can restrict them).
     with pytest.raises(HTTPException) as e:
         _auth("manager", [], None)
     assert e.value.status_code == 403
-    assert _auth("manager", ["export_my_day"], None) is False   # has it → allowed
+    assert _auth("manager", ["export_my_day"], None) is False
 
 
 def test_cross_user_requires_elevated():
@@ -59,18 +58,15 @@ def test_granted_admin_holds_all():
 
 
 def test_granted_manager_gated_by_own_list():
-    # B: managers are no longer auto-all — they hold exactly their own list.
     assert granted(_P("manager", ["export_my_day"])) == ["export_my_day"]
     assert granted(_P("manager", [])) == []
 
 
 def test_assignable_is_the_managers_admin_set_allowlist():
-    # What a manager HOLDS is irrelevant to what they can ASSIGN — only the
-    # admin-configured allow-list matters. Here they hold attendance but can't assign it.
     mgr = _P("manager", ["attendance_report"], assignable=["export_my_day", "consolidated_report"])
     assert assignable_permissions(mgr) == ["export_my_day", "consolidated_report"]
     assert "attendance_report" not in assignable_permissions(mgr)
-    assert assignable_permissions(_P("manager", ["email_report"])) == []   # default: assign nothing
+    assert assignable_permissions(_P("manager", ["email_report"])) == []
     assert assignable_permissions(_P("admin", [])) == list(ALL_PERMISSIONS)
     assert assignable_permissions(_P("user", [])) == []
 
@@ -78,7 +74,6 @@ def test_assignable_is_the_managers_admin_set_allowlist():
 def test_granted_user_filters_to_known_permissions():
     assert granted(_P("user", ["export_my_day", "bogus"])) == ["export_my_day"]
 
-    # cross-user is still role-based — a manager reaches reports without the permission
     assert _auth("manager", [], OTHER) is True
 
 
@@ -89,11 +84,11 @@ def test_can_edit_permissions_admin_edits_anyone():
 
 def test_manager_edits_only_direct_reports():
     mgr = _P("manager", [], id="m")
-    report = _P("user", [], id="u", manager_id="m")   # reports to m
+    report = _P("user", [], id="u", manager_id="m")
     stranger = _P("user", [], id="v", manager_id="other")
     assert can_edit_permissions(mgr, report) is True
     assert can_edit_permissions(mgr, stranger) is False
-    assert can_edit_permissions(mgr, mgr) is False       # not their own report
+    assert can_edit_permissions(mgr, mgr) is False
 
 
 def test_plain_user_cannot_edit_permissions():

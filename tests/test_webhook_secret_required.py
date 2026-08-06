@@ -27,7 +27,6 @@ def _blank_secrets(monkeypatch):
 
 async def test_github_blank_secret_rejects():
     async with _client() as c:
-        # A forged signature computed against an empty key must not be accepted.
         r = await c.post("/webhook/github", json={"zen": "x"},
                          headers={"X-Hub-Signature-256": "sha256=" + "0" * 64,
                                   "X-GitHub-Event": "ping"})

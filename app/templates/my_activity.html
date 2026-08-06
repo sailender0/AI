@@ -23,7 +23,6 @@
 {% else %}
 <div x-data="activityApp()" x-init="init()" class="space-y-5">
 
-  <!-- Status bar -->
   <div class="flex items-center gap-3 text-xs" style="color:var(--text-3)">
     <span class="flex items-center gap-1.5">
       <span class="w-2 h-2 rounded-full"
@@ -48,7 +47,6 @@
     </span>
   </div>
 
-  <!-- Tab switcher -->
   <div class="flex gap-1 p-1 rounded-lg w-fit" style="background:var(--surface-2)">
     <button @click="tab='today'"
             class="px-4 py-1.5 rounded-md text-sm font-medium transition-colors"
@@ -62,10 +60,8 @@
     </button>
   </div>
 
-  <!-- ── TODAY ── -->
   <div x-show="tab==='today'" class="space-y-5">
 
-    <!-- Date navigation bar -->
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-sm font-semibold" style="color:var(--text-1)"
             x-text="selectedDate === todayStr ? 'Today &middot; ' + formatFullDate(todayStr) : formatFullDate(selectedDate)"></span>
@@ -87,7 +83,6 @@
       </div>
     </div>
 
-    <!-- Hero stats -->
     <div class="grid grid-cols-3 gap-4">
       <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
         <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
@@ -110,7 +105,6 @@
 
     <div class="grid grid-cols-2 gap-4">
 
-      <!-- Focus blocks timeline -->
       <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
         <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">FOCUS BLOCKS</p>
         <div x-show="focusBlocks.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
@@ -132,7 +126,6 @@
         </div>
       </div>
 
-      <!-- Local commits -->
       <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
         <p class="text-xs font-semibold mb-4" style="color:var(--text-2)">LOCAL COMMITS</p>
         <div x-show="commits.length === 0" class="text-sm py-6 text-center" style="color:var(--text-3)">
@@ -164,7 +157,6 @@
 
     </div>
 
-    <!-- AI tools today -->
     <div x-show="aiToolRows.length > 0"
          class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
       <div class="flex items-center justify-between mb-4">
@@ -176,13 +168,13 @@
       <div class="grid gap-3">
         <template x-for="t in aiToolRows" :key="t.name">
           <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
-            <!-- Clickable header row — click to expand/collapse detail -->
+
             <div class="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
                  style="background:var(--surface-2)"
                  @click="toolExpanded[t.name] = !toolExpanded[t.name]">
               <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :style="'background:' + t.color"></span>
               <span class="text-sm font-semibold" style="color:var(--text-1)" x-text="t.name"></span>
-              <!-- Total tokens badge for claude-code -->
+
               <span x-show="t.totalTokens > 0"
                     class="text-xs px-1.5 py-0.5 rounded font-mono"
                     style="background:var(--surface);color:var(--text-2)"
@@ -192,10 +184,10 @@
               <span class="ml-auto text-xs" style="color:var(--text-3)"
                     x-text="toolExpanded[t.name] ? '&#9650;' : '&#9660;'"></span>
             </div>
-            <!-- Expanded detail panel -->
+
             <div x-show="toolExpanded[t.name]" class="px-4 pb-4 pt-3 space-y-3"
                  style="background:var(--surface)">
-              <!-- Timeline — active segments across the working day -->
+
               <template x-if="t.periods && t.periods.length && timelineTicks.length">
                 <div>
                   <div class="relative mb-1" style="height:13px">
@@ -217,7 +209,7 @@
                   </div>
                 </div>
               </template>
-              <!-- Active sessions — exact ranges the tool ran while you were active -->
+
               <template x-if="t.periods && t.periods.length">
                 <div class="space-y-1.5">
                   <p class="text-xs font-semibold" style="color:var(--text-3)">ACTIVE SESSIONS</p>
@@ -239,7 +231,7 @@
                   </template>
                 </div>
               </template>
-              <!-- Per-repo token + file breakdown (claude-code with data) -->
+
               <template x-if="t.repos && t.repos.length">
                 <div class="space-y-4">
                   <template x-for="r in t.repos" :key="r.repo">
@@ -276,7 +268,7 @@
                   </template>
                 </div>
               </template>
-              <!-- claude-code detected but not synced -->
+
               <template x-if="t.name === 'claude-code' && (!t.repos || !t.repos.length)">
                 <p class="text-xs" style="color:var(--text-3)">
                   Detected active &middot; token data syncs every 5 min
@@ -290,10 +282,8 @@
 
   </div>
 
-  <!-- ── WEEK ── -->
   <div x-show="tab==='week'" class="space-y-5">
 
-    <!-- Week navigation bar -->
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-sm font-semibold" style="color:var(--text-1)"
             x-text="selectedWeek === currentWeekStr ? 'This Week &middot; ' + weekRangeLabel() : 'Week of ' + weekRangeLabel()"></span>
@@ -316,7 +306,6 @@
       </div>
     </div>
 
-    <!-- Week hero stats -->
     <div class="grid grid-cols-3 gap-4">
       <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
         <p class="text-xs font-medium mb-1" style="color:var(--text-3)">FOCUS TIME</p>
@@ -337,7 +326,6 @@
       </div>
     </div>
 
-    <!-- Daily chart — Mon to Sun, dual bars (focus + tokens) -->
     <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs font-semibold" style="color:var(--text-2)">MON – SUN &mdash; click any day to see details</p>
@@ -352,7 +340,6 @@
         </div>
       </div>
 
-      <!-- Legend -->
       <div class="flex gap-4 mb-5 text-xs" style="color:var(--text-3)">
         <span class="flex items-center gap-1.5">
           <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#6366f1"></span> Focus time
@@ -362,31 +349,30 @@
         </span>
       </div>
 
-      <!-- Chart: always 7 columns Mon–Sun -->
       <div class="relative" style="height:160px">
-        <!-- Grid lines -->
+
         <div class="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
           <div style="border-top:1px dashed var(--border);opacity:0.5"></div>
           <div style="border-top:1px dashed var(--border);opacity:0.5"></div>
           <div style="border-top:1px dashed var(--border);opacity:0.5"></div>
           <div></div>
         </div>
-        <!-- Bars + labels -->
+
         <div class="flex items-end gap-1.5 h-full relative z-10">
           <template x-for="day in weekAllDays" :key="day.date">
             <div class="flex-1 flex flex-col items-center gap-0 cursor-pointer group"
                  style="height:100%"
                  @click="jumpToDay(day.date)">
-              <!-- Token micro-label above bars -->
+
               <div class="flex-1 flex items-end justify-center w-full pb-0.5">
                 <span x-show="day.ai_tokens > 0"
                       class="text-xs font-mono leading-none"
                       style="color:#e07b39;font-size:9px;letter-spacing:-0.02em"
                       x-text="formatTokens(day.ai_tokens)"></span>
               </div>
-              <!-- Dual bars -->
+
               <div class="w-full flex items-end gap-0.5" style="height:108px">
-                <!-- Focus bar -->
+
                 <div class="flex-1 group-hover:opacity-100 transition-all duration-700"
                      :style="'height:' + (chartReady && weekMaxFocus > 0 ? Math.max(day.focus_min > 0 ? 6 : 0, (day.focus_min / weekMaxFocus) * 108) : 0) + 'px;' +
                              'border-radius:4px 4px 0 0;' +
@@ -394,7 +380,7 @@
                              'opacity:' + (isToday(day.date) ? '1' : '0.5') + ';' +
                              'transition:height 0.7s cubic-bezier(0.34,1.2,0.64,1);' +
                              (isToday(day.date) ? 'box-shadow:0 -4px 14px rgba(99,102,241,0.45)' : '')"></div>
-                <!-- Token bar -->
+
                 <div class="flex-1 group-hover:opacity-100 transition-all duration-700"
                      :style="'height:' + (chartReady && weekMaxTokens > 0 ? Math.max(day.ai_tokens > 0 ? 6 : 0, (day.ai_tokens / weekMaxTokens) * 108) : 0) + 'px;' +
                              'border-radius:4px 4px 0 0;' +
@@ -403,7 +389,7 @@
                              'transition:height 0.7s cubic-bezier(0.34,1.2,0.64,1) 0.05s;' +
                              (isToday(day.date) ? 'box-shadow:0 -4px 14px rgba(224,123,57,0.45)' : '')"></div>
               </div>
-              <!-- Day label -->
+
               <div class="w-full text-center pt-1.5" style="height:40px">
                 <div class="text-xs font-semibold"
                      :style="isToday(day.date) ? 'color:var(--text-1)' : 'color:var(--text-3)'"
@@ -417,7 +403,6 @@
       </div>
     </div>
 
-    <!-- Token comparison — this vs last (week / month) -->
     <div class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
       <div class="flex items-center justify-between mb-4">
         <p class="text-xs font-semibold" style="color:var(--text-2)">CLAUDE TOKENS — THIS VS LAST</p>
@@ -445,7 +430,6 @@
       <p class="text-xs text-center mt-3" x-html="cmpDeltaLabel"></p>
     </div>
 
-    <!-- Week AI tools — aggregated -->
     <div x-show="weekAiToolRows.length > 0"
          class="rounded-xl p-5" style="background:var(--surface);border:1px solid var(--border)">
       <div class="flex items-center justify-between mb-4">

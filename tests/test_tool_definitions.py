@@ -12,6 +12,6 @@ async def test_tool_definitions_returns_object_not_string():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/api/agent/tool-definitions")
     assert r.status_code == 200
-    data = r.json()                       # a str here == the double-encode bug is back
+    data = r.json()
     assert isinstance(data, dict), "endpoint double-encoded the body into a JSON string"
     assert "ollama" in data.get("proc_map", {})

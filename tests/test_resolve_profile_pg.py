@@ -16,7 +16,6 @@ async def test_resolve_profile_matches_actor_and_drops_unknown(pg_session):
     Session = pg_session
     gh_id = f"gh-{uuid4().hex[:8]}"
 
-    # ── seed: a profile that has connected GitHub as actor `gh_id` ──
     async with Session() as db:
         prof = Profile(entra_id=f"e{uuid4()}", email=f"u{uuid4()}@t")
         db.add(prof)
@@ -31,9 +30,7 @@ async def test_resolve_profile_matches_actor_and_drops_unknown(pg_session):
     try:
         from app.webhooks.receivers.github import _resolve_profile
 
-        # known actor → its owning profile
         assert await _resolve_profile(gh_id) == profile_id
-        # actor nobody connected → None (the event would be dropped)
         assert await _resolve_profile(f"nobody-{uuid4().hex[:8]}") is None
     finally:
         async with Session() as db:

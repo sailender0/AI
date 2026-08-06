@@ -10,7 +10,7 @@ from app.services.email_report import render
 def test_standup_render_escapes_and_labels():
     subject, html_body = render("standup", {"standup": "Did <x> & more", "period": "Friday"})
     assert "Friday" in subject
-    assert "&lt;x&gt;" in html_body and "<x>" not in html_body   # escaped
+    assert "&lt;x&gt;" in html_body and "<x>" not in html_body
 
 
 def test_device_activity_render_per_repo_tokens():
@@ -21,8 +21,8 @@ def test_device_activity_render_per_repo_tokens():
     })
     assert "device activity" in subject and "2026-07-07" in subject
     assert "1h 35m" in html_body
-    assert "12,000 in / 3,000 out" in html_body                      # per-repo in/out
-    assert "&lt;bug&gt;" in html_body and "<bug>" not in html_body   # escaped
+    assert "12,000 in / 3,000 out" in html_body
+    assert "&lt;bug&gt;" in html_body and "<bug>" not in html_body
 
 
 def test_device_activity_week_render_per_day():
@@ -34,7 +34,7 @@ def test_device_activity_week_render_per_day():
         "commits_by_day": {"2026-07-06": 2},
     })
     assert "week of 2026-07-06" in subject
-    assert "Mon" in html_body and "1h 0m" in html_body               # 2026-07-06 is a Monday
+    assert "Mon" in html_body and "1h 0m" in html_body
     assert "10 in / 5 out" in html_body
     assert "claude-code" in html_body
 
@@ -48,8 +48,8 @@ def test_my_day_render_has_summary_kpi_timeline():
                     "event_type": "commit", "title": "fix <auth>"}],
     })
     assert "Summary" in html_body and "Totals" in html_body and "Activity timeline" in html_body
-    assert "GitHub" in html_body and ">3<" in html_body                 # KPI count
-    assert "&lt;feature&gt;" in html_body and "&lt;auth&gt;" in html_body   # escaped
+    assert "GitHub" in html_body and ">3<" in html_body
+    assert "&lt;feature&gt;" in html_body and "&lt;auth&gt;" in html_body
     assert "Your day" in subject
 
 
@@ -63,7 +63,7 @@ def test_analytics_render_has_summary_and_timeline():
     })
     assert "2026-07-06" in subject
     assert "GitHub" in html_body and "Summary" in html_body and "Activity timeline" in html_body
-    assert "GitLab" in html_body   # from the timeline event
+    assert "GitLab" in html_body
 
 
 def test_unknown_kind_raises():

@@ -30,8 +30,6 @@ def issue_to_event(issue: dict, profile_id: str) -> dict:
     )
 
 
-# ── Fetch (live API — smoke-test with a real token; contract unverified in CI) ──
-
 async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dict]:
     """Resolve the cloud id, then page issues assigned to the user updated since
     `since`. Uses /search/jql with nextPageToken pagination — the legacy /search
@@ -51,7 +49,7 @@ async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dic
 
         params = {"jql": jql, "maxResults": 100,
                   "fields": "summary,project,updated,duedate,status,priority,assignee,issuetype"}
-        while len(events) < 1000:                # ponytail: cap 1000 issues/backfill
+        while len(events) < 1000:
             r = await client.get(f"{base}/search/jql", headers=headers, params=params)
             if r.status_code != 200:
                 break

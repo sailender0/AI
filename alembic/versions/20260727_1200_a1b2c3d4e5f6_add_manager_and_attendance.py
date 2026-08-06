@@ -34,7 +34,6 @@ def upgrade() -> None:
         )
         op.create_index("ix_profiles_manager_id", "profiles", ["manager_id"])
 
-    # Rename the role on live profiles (idempotent — no-op once done).
     op.execute("UPDATE profiles SET role = 'manager' WHERE role = 'supervisor'")
 
 

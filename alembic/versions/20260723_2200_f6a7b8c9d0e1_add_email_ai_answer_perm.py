@@ -21,7 +21,6 @@ _ALL = '["email_report","export_my_day","export_analytics","email_ai_answer"]'
 
 
 def upgrade() -> None:
-    # Backfill: append the new key to any profile missing it (idempotent).
     op.execute(
         "UPDATE profiles "
         "SET permissions = permissions::jsonb || '[\"email_ai_answer\"]'::jsonb "

@@ -50,7 +50,7 @@ def _page_js(html: str) -> str:
             parts.append(body)
         elif m.group(1).startswith("/static/"):
             path = STATIC / m.group(1)[len("/static/"):]
-            if path != APP_JS and path.exists():   # app.js is prepended by the caller
+            if path != APP_JS and path.exists():
                 parts.append(path.read_text(encoding="utf-8"))
     js = "\n;\n".join(parts)
     js = re.sub(r"\{\{.*?\}\}", "0", js, flags=re.S)
@@ -75,7 +75,7 @@ def _node_check(node: str, source: str) -> str | None:
 def test_all_templates_compile():
     env = Environment(loader=FileSystemLoader(TEMPLATES))
     for tpl in sorted(TEMPLATES.glob("*.html")):
-        env.get_template(tpl.name)  # raises TemplateSyntaxError on failure
+        env.get_template(tpl.name)
 
 
 def test_app_js_is_valid(node):
@@ -87,7 +87,6 @@ def test_template_does_not_clash_with_app_js(node, tpl: Path):
     js = _page_js(tpl.read_text(encoding="utf-8"))
     if not js.strip():
         pytest.skip("no page script")
-    # Same global scope the browser gives them.
     err = _node_check(node, APP_JS.read_text(encoding="utf-8") + "\n;\n" + js)
     assert err is None, f"{tpl.name} clashes with app.js: {err}"
 

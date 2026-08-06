@@ -6,7 +6,6 @@
 {% block content %}
 <div class="flex h-full min-h-0">
 
-  <!-- ── Left nav ── -->
   <div class="shrink-0 overflow-y-auto py-4" style="width:220px;border-right:1px solid var(--border);background:var(--surface)">
     <div class="px-3 space-y-0.5">
       <button onclick="showPanel('faq')" id="nav-faq" class="help-nav active">
@@ -52,12 +51,9 @@
     </div>
   </div>
 
-  <!-- ── Right content ── -->
   <div class="flex-1 min-w-0 overflow-y-auto" id="help-scroll">
     <div style="padding:2rem 3rem 4rem">
 
-
-<!-- ═══════════ FAQ ═══════════ -->
 <div id="panel-faq" class="help-panel">
   <h2 class="panel-title">Frequently Asked Questions</h2>
   <p class="panel-desc">Click a question to expand the answer.</p>
@@ -78,8 +74,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — GITHUB ═══════════ -->
 <div id="panel-new-github" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#f9731622;color:#f97316">GH</span><h2 class="panel-title" style="margin:0">Connect GitHub</h2></div>
   <p class="panel-desc">One-time setup. The app installs a GitHub App and registers a webhook — every future push, PR, or review appears within seconds.</p>
@@ -110,8 +104,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — GITLAB ═══════════ -->
 <div id="panel-new-gitlab" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#10b98122;color:#10b981">GL</span><h2 class="panel-title" style="margin:0">Connect GitLab</h2></div>
   <p class="panel-desc">Connects via OAuth 2.0. After you authorise, the app automatically registers webhooks on every GitLab project you belong to so commits, merge requests, issues, comments, pipelines, and tag pushes arrive in real time.</p>
@@ -151,8 +143,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — JIRA ═══════════ -->
 <div id="panel-new-jira" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#06b6d422;color:#06b6d4">JR</span><h2 class="panel-title" style="margin:0">Connect Jira</h2></div>
   <p class="panel-desc">Connects via Atlassian OAuth. Ticket updates and comments appear in your feed as you work in Jira.</p>
@@ -182,8 +172,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — TEAMS ═══════════ -->
 <div id="panel-new-teams" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#8b5cf622;color:#8b5cf6">MS</span><h2 class="panel-title" style="margin:0">Connect Microsoft Teams</h2></div>
   <p class="panel-desc">Teams connects automatically when you sign in with Microsoft — no extra steps. The app registers a Graph subscription in the background.</p>
@@ -212,8 +200,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — DASHBOARD ═══════════ -->
 <div id="panel-page-dashboard" class="help-panel hidden">
   <h2 class="panel-title">Dashboard</h2>
   <p class="panel-desc">Your central overview — weekly KPI totals across all tools, a stacked bar chart of daily activity, and a live event timeline. Everything updates automatically when new events arrive.</p>
@@ -275,8 +261,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — MY DAY ═══════════ -->
 <div id="panel-page-myday" class="help-panel hidden">
   <h2 class="panel-title">My Day</h2>
   <p class="panel-desc">A full breakdown of one specific day — AI summary, per-tool event counts, and a detailed chronological timeline. Works for today and any past date.</p>
@@ -345,8 +329,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — DIGEST ═══════════ -->
 <div id="panel-page-digest" class="help-panel hidden">
   <h2 class="panel-title">Analytics (Weekly Summary)</h2>
   <p class="panel-desc">AI-generated summaries for any past week plus a full day-by-day activity breakdown. Auto-generates every Friday at 11 PM in your local timezone.</p>
@@ -391,8 +373,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — ASK AI ═══════════ -->
 <div id="panel-page-ai" class="help-panel hidden">
   <h2 class="panel-title">Ask AI</h2>
   <p class="panel-desc">A conversational assistant that answers questions about your developer activity in natural language. Ask like you would a colleague.</p>
@@ -440,8 +420,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — GITHUB ═══════════ -->
 <div id="panel-page-github" class="help-panel hidden">
   <h2 class="panel-title">GitHub Page</h2>
   <p class="panel-desc">All your GitHub activity by week — commits, PRs, issues, and reviews. Tabs filter the chart by event type; the right panel lists individual events for quick review.</p>
@@ -513,8 +491,6 @@
   <p class="body-text"><strong>Today</strong> groups events by type with an orange left border and a count badge. <strong>History</strong> is a flat chronological list. Both show SHA chips and file name tags on commits.</p>
 </div>
 
-
-<!-- ═══════════ PAGE — GITLAB ═══════════ -->
 <div id="panel-page-gitlab" class="help-panel hidden">
   <h2 class="panel-title">GitLab Page</h2>
   <p class="panel-desc">All your GitLab activity by week — commits, merge requests, issues, comments, pipelines, and tag pushes. Each event type has its own colour so you can tell them apart at a glance.</p>
@@ -594,8 +570,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — JIRA ═══════════ -->
 <div id="panel-page-jira" class="help-panel hidden">
   <h2 class="panel-title">Jira Page</h2>
   <p class="panel-desc">Your Jira work at a glance. The top half is a <strong>live pull from Jira</strong> — what's assigned to you right now, with deadline and workload charts. The lower half is your own recorded activity by week: the ticket-event chart and feed.</p>
@@ -706,8 +680,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — TEAMS ═══════════ -->
 <div id="panel-page-teams" class="help-panel hidden">
   <h2 class="panel-title">Teams Page</h2>
   <p class="panel-desc">Messages you sent and meetings you attended in Microsoft Teams, organised by week. Connects automatically via Microsoft SSO — no separate OAuth step needed.</p>
@@ -758,8 +730,6 @@
   <p class="body-text"><strong>Today</strong> groups your Teams events by type (Message Sent, Meeting) with a purple left border. <strong>History</strong> shows all Teams events for the selected week in order.</p>
 </div>
 
-
-<!-- ═══════════ PAGE — DEVICE ACTIVITY ═══════════ -->
 <div id="panel-page-device" class="help-panel hidden">
   <h2 class="panel-title">Device Activity</h2>
   <p class="panel-desc">Your local coding activity, captured by the desktop agent — focus blocks, local commits, and AI-tool token usage that the GitHub / Jira / Teams APIs never see. This page only works in the <strong>desktop app</strong>; opened in a plain browser it shows a "Desktop app required" notice.</p>
@@ -801,8 +771,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — EMAIL REPORT ═══════════ -->
 <div id="panel-page-email" class="help-panel hidden">
   <h2 class="panel-title">Email Report</h2>
   <p class="panel-desc">Email a summary of your activity to yourself — on demand or on a recurring schedule. Reports always go to <strong>your own</strong> address (delivered through your Microsoft account); there's no way to send them to anyone else.</p>
@@ -846,7 +814,6 @@
     </div>
   </div>
 </div>
-
 
     </div>
   </div>

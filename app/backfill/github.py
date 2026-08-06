@@ -66,8 +66,6 @@ def is_pull_request(issue_item: dict) -> bool:
     return "pull_request" in issue_item
 
 
-# ── Fetch (live API — smoke-test with a real token; contract unverified in CI) ──
-
 async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dict]:
     """Pull commits, issues and PRs updated since `since` across the user's repos
     and map them to normalized events. See docs/adr-0003-backfill.md §Phase-1."""
@@ -87,8 +85,6 @@ async def fetch_events(token: str, profile_id: str, since: datetime) -> list[dic
                                   {"since": since_iso, "state": "all"}):
                 if not is_pull_request(it):
                     events.append(issue_to_event(it, profile_id, full))
-            # /pulls has no `since`; list is newest-updated first, so stop at the
-            # first PR older than the window.
             for pr in await paged(client, f"{_API}/repos/{full}/pulls", headers,
                                   {"state": "all", "sort": "updated", "direction": "desc"}):
                 if parse_iso(pr.get("updated_at")) < since:

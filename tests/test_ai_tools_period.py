@@ -4,7 +4,7 @@ from app.ai.query import _resolve_period
 
 
 def test_named_periods():
-    d = date(2026, 7, 15)   # Wednesday
+    d = date(2026, 7, 15)
     assert _resolve_period("today", "UTC", d)       == ("2026-07-15", "2026-07-15")
     assert _resolve_period("last_7_days", "UTC", d) == ("2026-07-09", "2026-07-15")
     assert _resolve_period("this_week", "UTC", d)   == ("2026-07-13", "2026-07-15")

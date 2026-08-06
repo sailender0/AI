@@ -14,8 +14,6 @@ T_AWARE = datetime(2026, 7, 2, 9, 30, 0, tzinfo=timezone.utc)
 
 
 def test_naive_timestamp_is_read_as_utc_not_local():
-    # The whole reason iso_utc exists: a naive Mongo datetime is UTC by storage
-    # convention, and .isoformat() on it would silently drop the offset.
     assert iso_utc(T_NAIVE) == "2026-07-02T09:30:00+00:00"
     assert iso_utc(T_AWARE) == "2026-07-02T09:30:00+00:00"
     assert iso_utc("not-a-datetime") == "not-a-datetime"
@@ -34,7 +32,6 @@ def test_github_push_shape_and_key_order():
     assert out["sha"] == "abcdef1"
     assert out["files"] == ["a.py", "b.py", "c.py"]
     assert out["occurred_at"] == "2026-07-02T09:30:00+00:00"
-    # /api/events/recent and /api/day-data prepend source; it must come first.
     assert list({"source": e["source"], **out}) == [
         "source", "event_type", "title", "workspace", "occurred_at", "sha", "files"]
 
@@ -64,9 +61,6 @@ def test_missing_fields_degrade_to_empty_strings_not_none():
 def test_title_fallback_only_applies_when_requested():
     e = {"source": "teams_subscription", "event_type": "message",
          "title": "", "occurred_at": T_AWARE}
-    # /api/events/recent + /api/day-data keep the empty title...
     assert serialize_event(e)["title"] == ""
-    # ...but /api/week-breakdown renders the event type instead of a blank row.
     assert serialize_event(e, title_fallback=True)["title"] == "message"
-    # A real title is never overwritten.
     assert serialize_event({**e, "title": "standup"}, title_fallback=True)["title"] == "standup"

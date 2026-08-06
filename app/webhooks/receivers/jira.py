@@ -34,10 +34,6 @@ async def _resolve_profile(account_id: str | None) -> str | None:
             if row:
                 return str(row.profile_id)
 
-        # Fallback: only when EXACTLY ONE active Jira integration exists — an
-        # unambiguous single-tenant deployment. With 2+ tenants, attributing an
-        # unmatched event to a guessed profile cross-contaminates timelines (the
-        # webhook secret is shared, so this path is spoofable) — drop it instead.
         from app.storage.models import Integration
         rows = (
             await db.execute(
@@ -65,12 +61,9 @@ async def jira_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
-    # Jira passes the secret as a query param or Authorization header
     auth = request.headers.get("Authorization", "")
     qs_secret = request.query_params.get("secret", "")
     secret = settings.JIRA_WEBHOOK_SECRET
-    # Fail closed: without a configured secret, compare_digest("", "") is true and
-    # every unauthenticated request would pass. No secret → reject.
     if not secret:
         return JSONResponse({"error": "invalid_secret"}, status_code=401)
     qs_ok = hmac.compare_digest(qs_secret, secret)

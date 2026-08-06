@@ -33,14 +33,12 @@ class _Client:
         return self.pages[p - 1] if p - 1 < len(self.pages) else _Resp(200, [])
 
 
-# ── paged() ─────────────────────────────────────────────────────────────────
-
 async def test_paged_accumulates_until_short_page():
     c = _Client([_Resp(200, [{"i": n} for n in range(100)]),
                  _Resp(200, [{"i": 100}, {"i": 101}])])
     out = await paged(c, "u", {}, {})
     assert len(out) == 102
-    assert c.pages_seen == [1, 2]          # stopped after the short page
+    assert c.pages_seen == [1, 2]
 
 
 async def test_paged_stops_on_error():
@@ -54,8 +52,6 @@ async def test_paged_respects_cap():
     assert len(out) == 300
     assert c.pages_seen == [1, 2, 3]
 
-
-# ── run_backfill() ────────────────────────────────────────────────────────────
 
 async def _fake_fetch(token, profile_id, since):
     _fake_fetch.since = since
@@ -95,8 +91,6 @@ async def test_run_backfill_clamps_days(monkeypatch):
     assert 89 <= (datetime.now(timezone.utc) - _fake_fetch.since).days <= 90
 
 
-# ── ingest() bool + dedup-race hardening ──────────────────────────────────────
-
 _EV = {"_id": "x", "profile_id": PID, "source": "github",
        "event_type": "commit", "source_event_id": "sha1", "title": "t"}
 
@@ -127,8 +121,6 @@ async def test_ingest_returns_false_on_dup():
 
 
 async def test_ingest_survives_duplicate_key_race():
-    # Redis + find_one both miss, but a concurrent insert already landed → the
-    # unique index raises DuplicateKeyError; ingest must swallow it and report dup.
     redis = AsyncMock(exists=AsyncMock(return_value=0), set=AsyncMock())
     col = MagicMock(find_one=AsyncMock(return_value=None),
                     insert_one=AsyncMock(side_effect=DuplicateKeyError("dup")))
