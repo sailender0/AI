@@ -1,10 +1,10 @@
 """Teams call records connector — attribution, meeting skipping, duration."""
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.backfill.teams_calls import call_event, day_params, fetch_call_events
+from tests.graph_fakes import graph_client
 
 PROFILE = "11111111-1111-1111-1111-111111111111"
 ME_OID = "oid-me"
@@ -37,15 +37,72 @@ def test_call_files_under_the_other_participant_with_duration():
     ev = call_event(PROFILE, _record(), _PARTICIPANTS, ME_OID)
     assert ev["title"] == "Dan Okoye"
     assert ev["raw_payload"]["minutes"] == 12
-    # Keyed by address, lowercased — the same key mail and calendar use.
     assert ev["raw_payload"]["people"] == ["dan.okoye@quadrant.com"]
 
 
-def test_scheduled_meetings_are_skipped():
-    """A record with a joinWebUrl is a meeting the calendar connector already
-    stored; writing it again would double every meeting on the day."""
-    assert call_event(PROFILE, _record(joinWebUrl="https://teams.microsoft.com/l/x"),
-                      _PARTICIPANTS, ME_OID) is None
+_JOIN_URL = "https://teams.microsoft.com/l/x"
+
+
+def test_meeting_already_on_your_calendar_is_skipped():
+    """A joinWebUrl the calendar connector already stored would double the day."""
+    assert call_event(PROFILE, _record(joinWebUrl=_JOIN_URL), _PARTICIPANTS,
+                      ME_OID, {_JOIN_URL}) is None
+
+
+def test_meeting_you_were_never_invited_to_is_kept():
+    """Joined by link, or pulled into a call already running: no invite reached
+    your calendar, so nothing else records it. Skipping it lost the call."""
+    ev = call_event(PROFILE, _record(joinWebUrl=_JOIN_URL), _PARTICIPANTS,
+                    ME_OID, set())
+    assert ev is not None and ev["title"] == "Dan Okoye"
+
+
+def test_someone_elses_calendar_does_not_suppress_yours():
+    """known_urls is per profile — an invite Dan accepted is not one you have."""
+    assert call_event(PROFILE, _record(joinWebUrl=_JOIN_URL), _PARTICIPANTS,
+                      ME_OID, {"https://teams.microsoft.com/l/other"}) is not None
+
+
+def _session(oid, name, start, end, role="caller"):
+    return {"startDateTime": start, "endDateTime": end,
+            "segments": [{"startDateTime": start, "endDateTime": end}],
+            role: {"identity": {"user": {"id": oid, "displayName": name}}}}
+
+
+def test_join_time_is_yours_not_the_calls():
+    """Pulled into a call already running, the record's start is somebody else's
+    timing — it read as though you had been there the whole time."""
+    sessions = [_session(THEM_OID, "Dan Okoye", "2026-07-28T14:20:00Z", "2026-07-28T14:32:00Z"),
+                _session(ME_OID, "Sailu", "2026-07-28T14:28:00Z", "2026-07-28T14:32:00Z")]
+    ev = call_event(PROFILE, _record(), _PARTICIPANTS, ME_OID, frozenset(), sessions)
+    assert ev["occurred_at"] == datetime(2026, 7, 28, 14, 28, tzinfo=timezone.utc)
+    assert ev["raw_payload"]["minutes"] == 4
+    assert ev["raw_payload"]["own_times"] is True
+
+
+def test_a_reconnect_reads_as_one_stretch_not_two_calls():
+    """Dropping off and rejoining makes a second session; min/max spans both."""
+    sessions = [_session(ME_OID, "Sailu", "2026-07-28T14:20:00Z", "2026-07-28T14:22:00Z"),
+                _session(ME_OID, "Sailu", "2026-07-28T14:23:00Z", "2026-07-28T14:32:00Z")]
+    ev = call_event(PROFILE, _record(), _PARTICIPANTS, ME_OID, frozenset(), sessions)
+    assert ev["occurred_at"] == datetime(2026, 7, 28, 14, 20, tzinfo=timezone.utc)
+    assert ev["raw_payload"]["minutes"] == 12
+
+
+def test_callee_sessions_count_too():
+    sessions = [_session(ME_OID, "Sailu", "2026-07-28T14:25:00Z", "2026-07-28T14:32:00Z",
+                         role="callee")]
+    ev = call_event(PROFILE, _record(), _PARTICIPANTS, ME_OID, frozenset(), sessions)
+    assert ev["raw_payload"]["minutes"] == 7
+
+
+def test_without_sessions_it_falls_back_to_the_records_own_times():
+    """Sessions can be missing or refused; a call must still land, flagged as
+    the call's timing rather than yours."""
+    ev = call_event(PROFILE, _record(), _PARTICIPANTS, ME_OID)
+    assert ev["occurred_at"] == datetime(2026, 7, 28, 14, 20, tzinfo=timezone.utc)
+    assert ev["raw_payload"]["minutes"] == 12
+    assert ev["raw_payload"]["own_times"] is False
 
 
 def test_a_call_with_only_you_is_dropped():
@@ -59,7 +116,7 @@ def test_missing_end_time_yields_zero_minutes_not_a_crash():
 
 
 def test_day_filter_uses_startdatetime():
-    past = datetime(2026, 8, 1, tzinfo=timezone.utc)      # the day is fully over
+    past = datetime(2026, 8, 1, tzinfo=timezone.utc)
     p = day_params("2026-07-28", now=past)
     assert "startDateTime ge 2026-07-28T00:00:00Z" in p["$filter"]
     assert "startDateTime lt 2026-07-29T00:00:00Z" in p["$filter"]
@@ -73,17 +130,7 @@ def test_today_is_clamped_to_now_never_the_future():
     assert "startDateTime lt 2026-07-28T15:30:00Z" in p["$filter"]
 
 
-# ── Fetch: list then expand ───────────────────────────────────────────────────
-
-def _client(*payloads, status=200):
-    def resp(p):
-        r = MagicMock()
-        r.status_code = status
-        r.json.return_value = p
-        return r
-    c = MagicMock()
-    c.get = AsyncMock(side_effect=[resp(p) for p in payloads])
-    return c
+_client = graph_client
 
 
 @pytest.mark.asyncio
@@ -93,6 +140,7 @@ async def test_fetch_expands_each_record_and_attributes_it():
         {"value": [_record()]},
         {**_record(), "participants_v2": [_p(ME_OID, "Sailu", "sailu@quadrant.com"),
                                           _p(THEM_OID, "Dan Okoye", "dan@quadrant.com")]},
+        {"sessions": []},
     )
     events = await fetch_call_events(client, "tok", {ME_OID: PROFILE}, "2026-07-28")
 
@@ -109,6 +157,7 @@ async def test_both_participants_get_their_own_row():
         {"value": [_record()]},
         {**_record(), "participants_v2": [_p(ME_OID, "Sailu", "sailu@quadrant.com"),
                                           _p(THEM_OID, "Dan Okoye", "dan@quadrant.com")]},
+        {"sessions": []},
     )
     events = await fetch_call_events(
         client, "tok", {ME_OID: PROFILE, THEM_OID: other_profile}, "2026-07-28")
@@ -118,10 +167,21 @@ async def test_both_participants_get_their_own_row():
 
 
 @pytest.mark.asyncio
-async def test_meetings_are_skipped_without_spending_an_expand_call():
-    client = _client({"value": [_record(joinWebUrl="https://teams.microsoft.com/l/x")]})
-    assert await fetch_call_events(client, "tok", {ME_OID: PROFILE}, "2026-07-28") == []
-    assert client.get.await_count == 1     # the list only — no expand
+async def test_meeting_records_are_expanded_then_filtered_per_profile():
+    """Whether to keep a meeting record depends on which profile it is being
+    written for, and that isn't known until participants_v2 comes back — so the
+    expand can no longer be skipped on joinWebUrl alone."""
+    expanded = {**_record(joinWebUrl=_JOIN_URL),
+                "participants_v2": [_p(ME_OID, "Sailu", "sailu@quadrant.com"),
+                                    _p(THEM_OID, "Dan Okoye", "dan@quadrant.com")]}
+    client = _client({"value": [_record(joinWebUrl=_JOIN_URL)]}, expanded, {"sessions": []})
+    kept = await fetch_call_events(client, "tok", {ME_OID: PROFILE}, "2026-07-28")
+    assert len(kept) == 1
+
+    client = _client({"value": [_record(joinWebUrl=_JOIN_URL)]}, expanded, {"sessions": []})
+    dropped = await fetch_call_events(client, "tok", {ME_OID: PROFILE}, "2026-07-28",
+                                      {PROFILE: {_JOIN_URL}})
+    assert dropped == []
 
 
 @pytest.mark.asyncio
@@ -144,7 +204,6 @@ async def test_pstn_participants_have_no_user_identity():
         {"value": [_record()]},
         {**_record(), "participants_v2": [_p(ME_OID, "Sailu", "sailu@quadrant.com"), phone]},
     )
-    # Only you resolve to a user, so there's no counterparty to file it under.
     assert await fetch_call_events(client, "tok", {ME_OID: PROFILE}, "2026-07-28") == []
 
 

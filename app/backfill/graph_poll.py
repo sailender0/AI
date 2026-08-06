@@ -41,13 +41,10 @@ async def run_graph_poll_job():
     call is wrapped so one profile's bad token, throttling or outage never stops
     the sweep — a 429 on mail must not cost everyone their chat rows.
     """
-    # Calls first, and once for the whole tenant rather than per profile: the
-    # records are app-scoped, so one sweep serves everyone. UTC days here — the
-    # calendar converts to each viewer's zone at read time.
     now_utc = datetime.now(timezone.utc)
     for day in poll_days(now_utc):
         try:
-            await run_call_poll(day)
+            logger.info("graph poll: calls %s -> %d new", day, await run_call_poll(day))
         except Exception:
             logger.exception("call poll failed on %s", day)
 
@@ -58,14 +55,14 @@ async def run_graph_poll_job():
         pid = str(profile.id)
         now_local = datetime.now(ZoneInfo(profile.timezone or "UTC"))
         for day in poll_days(now_local):
+            counts = {}
             for name, run in (("chat", backfill_chat_day),
                               ("mail", backfill_mail_day),
                               ("calendar", backfill_calendar_day)):
-                # teams_user_id only matters for chat — it's how we tell your
-                # messages from theirs. Mail and calendar key off the address.
                 if name == "chat" and not profile.teams_user_id:
                     continue
                 try:
-                    await run(pid, day)
+                    counts[name] = await run(pid, day)
                 except Exception:
                     logger.exception("%s poll failed for %s on %s", name, pid, day)
+            logger.info("graph poll: %s %s -> %s", profile.email or pid, day, counts)
