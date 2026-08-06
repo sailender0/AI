@@ -14,7 +14,7 @@
   let selectedDate = _initDate;
 
   const NOW_MK = _today.getFullYear() * 12 + _today.getMonth();
-  const MIN_MK = NOW_MK - 12; // allow 1 year back
+  const MIN_MK = NOW_MK - 12;
 
   function dateFmt(d) { return d.toISOString().slice(0, 10); }
 
@@ -22,11 +22,10 @@
     updateWeekHeader(selectedDate);
     renderCalendar();
     renderMonthPicker();
-    if (data.integrations?.jira) loadDueStrip();   // fire-and-forget: strip is a bonus
+    if (data.integrations?.jira) loadDueStrip();
     await loadDayData(selectedDate);
   }
 
-  // "What's burning today" — live from Jira; stays hidden on a clean day.
   async function loadDueStrip() {
     const el = document.getElementById('due-strip');
     const data = await getJSON('/api/jira/assigned');
@@ -64,7 +63,6 @@
     const nextYear2  = viewMonth === 11 ? viewYear + 1 : viewYear;
     const nextMonth2 = viewMonth === 11 ? 0 : viewMonth + 1;
 
-    // Build cells: overflow-prev + current month + overflow-next
     const cells = [];
     for (let i = startDow - 1; i >= 0; i--)
       cells.push({ day: prevDays - i, month: prevMonth2, year: prevYear2, overflow: true });
@@ -83,7 +81,6 @@
       const rowEl = document.createElement('div');
       rowEl.className = 'cal-row';
 
-      // Highlight the row that contains the selected date
       const rowHasSel = rowCells.some(c =>
         !c.overflow &&
         c.year  === selObj.getFullYear() &&
@@ -235,7 +232,6 @@
     document.getElementById('gen-btn').style.display    = hasEvents ? '' : 'none';
     document.getElementById('dl-btn').style.display     = (hasEvents && hasPerm('export_my_day')) ? '' : 'none';
 
-    // Summary
     const summaryEl = document.getElementById('summary-content');
     if (data.summary) {
       summaryEl.textContent = data.summary;
@@ -247,7 +243,6 @@
       document.getElementById('gen-label').textContent = 'Generate';
     }
 
-    // Stats
     const sc       = data.source_counts || {};
     const evtLabel = isToday ? 'events today' : 'events that day';
     document.getElementById('today-stats').innerHTML = [
@@ -266,7 +261,6 @@
       </div>`).join('');
     initKpiTilt();
 
-    // Timeline
     const list   = document.getElementById('events-list');
     const events = data.events || [];
     if (!events.length) {
@@ -279,7 +273,6 @@
     list.innerHTML = renderTimeline(events);
   }
 
-  // Source colours/labels and repoColor() come from app.js.
 
   const _DY_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _DY_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
@@ -303,6 +296,18 @@
     return { shaHtml, filesHtml };
   }
 
+
+  function chatByPerson(events) {
+    const out = [], seen = {};
+    for (const e of events) {
+      const row = seen[e.title];
+      if (row) { row._n++; row._from = e.occurred_at; continue; }
+      seen[e.title] = { ...e, _n: 1, _from: e.occurred_at };
+      out.push(seen[e.title]);
+    }
+    return out;
+  }
+
   function renderTimeline(events) {
     events = escEvents(events);
     const bySource = events.reduce((acc, e) => {
@@ -319,15 +324,23 @@
       const items = bySource[src];
       const groups = {};
       items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
+      if (src === 'teams_chat') {
+        for (const k in groups) groups[k] = chatByPerson(groups[k]);
+      }
       const feedHtml = Object.entries(groups).map(([et, evts]) => `
         <div class="mb-3">
           <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-semibold" style="color:var(--text-2)">${_dayFmtEventType(et)}</span>
+            <span class="text-xs font-semibold" style="color:var(--text-2)">${
+              src === 'teams_chat' ? 'Conversations' : _dayFmtEventType(et)}</span>
             <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
           </div>
           <div class="commit-feed">${evts.map(it => {
             const avatarColor = repoColor(it.workspace || src || '');
-            const time        = _dayFmtTime(it.occurred_at);
+            const time        = it._n > 1
+              ? `${_dayFmtTime(it._from)} – ${_dayFmtTime(it.occurred_at)}`
+              : _dayFmtTime(it.occurred_at);
+            const count       = it._n > 1
+              ? ` <span style="color:var(--text-3);font-weight:400">· ${it._n} messages</span>` : '';
             const {shaHtml, filesHtml} = _dayCommitExtra(it);
             return `<div class="commit-item">
               <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
@@ -337,7 +350,7 @@
                   ${it.workspace ? `<span class="commit-repo-pill">${_DY_BRANCH} ${it.workspace}</span>` : ''}
                   ${time ? `<span class="commit-time">${_DY_CLOCK} ${time}</span>` : ''}
                 </div>
-                <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title || '—'}${shaHtml}</div>
+                <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title || '—'}${count}${shaHtml}</div>
                 ${(it.status || it.priority) ? `<div class="flex items-center gap-1.5 mt-0.5">${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>` : ''}
                 ${filesHtml}
               </div>
