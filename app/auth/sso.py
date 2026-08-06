@@ -1,12 +1,10 @@
 """
 Entra ID (Azure AD) SSO — MSAL-based auth code flow.
 
-FIX (issue #3): We store the MSAL token cache per user so that
-auto_register_teams_subscription can call acquire_token_silent with
-a delegated token instead of app-only, which is required for
-the me/messages Graph subscription resource.
+The MSAL token cache is stored per user so auto_register_teams_subscription can
+call acquire_token_silent with a delegated token instead of app-only, which is
+what the me/messages Graph subscription resource requires.
 """
-import json
 import logging
 import secrets
 from datetime import datetime, timezone
@@ -24,23 +22,6 @@ from app.storage.redis_client import get_redis
 
 router = APIRouter()
 
-# Delegated scopes. Changing this list invalidates every stored MSAL cache, so
-# users must sign out and back in once before acquire_delegated_token works again.
-# Consent is recorded per exact scope set — add scopes together, not one release
-# at a time, or the tenant re-prompts on each change.
-#   Mail.ReadBasic — mail metadata; structurally cannot return message bodies
-#   Calendars.Read — meeting subject, times, attendees, your own responseStatus
-#   Chat.Read      — individual chat messages (ReadBasic can't reach /messages)
-#
-# Mail.Send is DELIBERATELY ABSENT: it isn't on the app registration, and
-# acquire_token_silent is all-or-nothing — one unconsented scope returns no token
-# at all, which took the read-only activity connectors down with it. /email
-# therefore cannot send until an admin adds Mail.Send; put it back here (and have
-# everyone sign in again) when they do.
-#
-# NOT here either: CallRecords.Read.All has no delegated variant. It is
-# application-only and runs through a separate client-credentials path — putting
-# it in this list would fail the delegated token request outright.
 _GRAPH_SCOPES = ["Mail.ReadBasic", "Calendars.Read", "Chat.Read"]
 
 logger = logging.getLogger(__name__)
@@ -79,10 +60,6 @@ async def acquire_app_token() -> str | None:
     records cannot be read on a user's behalf at all. The `.default` scope means
     "every application permission already consented for this app", which is why
     nothing lists CallRecords here: adding a scope name would be rejected.
-
-    ponytail: no cache. MSAL keeps app tokens in memory for their ~1h lifetime,
-    and this runs hourly from one process. Add a shared cache only if the job
-    ever fans out across workers.
     """
     if not settings.AZURE_CLIENT_SECRET:
         return None
@@ -125,7 +102,7 @@ def _is_local_callback(url: str) -> bool:
     token can't be redirected off-box. Accessing .port forces port validation."""
     try:
         u = urlparse(url)
-        _ = u.port  # raises ValueError on a non-numeric port
+        _ = u.port
     except ValueError:
         return False
     return u.scheme in ("http", "https") and u.hostname in ("localhost", "127.0.0.1")
@@ -135,21 +112,14 @@ def _is_local_callback(url: str) -> bool:
 async def login(request: Request):
     state = secrets.token_urlsafe(16)
     next_url = request.query_params.get("next", "/")
-    # Only allow relative paths to prevent open-redirect
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/"
-    is_desktop    = request.query_params.get("desktop") == "1"
     agent_callback = request.query_params.get("agent_callback", "")
     device_name   = request.query_params.get("device_name", "Desktop")
-    # Validate: agent_callback must be a real localhost URL (no open redirect).
-    # The device token is appended to this URL and the browser redirected to it,
-    # so a spoofed host would leak the token — see _is_local_callback.
     if agent_callback and not _is_local_callback(agent_callback):
         agent_callback = ""
     redis = get_redis()
     await redis.set(f"oauth_state:{state}", next_url, ex=600)
-    if is_desktop:
-        await redis.set(f"oauth_desktop:{state}", "1", ex=600)
     if agent_callback:
         import json as _json
         await redis.set(f"oauth_agent:{state}", _json.dumps({"callback": agent_callback, "device": device_name}), ex=600)
@@ -169,10 +139,8 @@ async def auth_callback(request: Request, code: str, state: str):
     next_url = await redis.get(f"oauth_state:{state}")
     if not next_url:
         return {"error": "invalid_state"}
-    is_desktop = await redis.get(f"oauth_desktop:{state}") == "1"
     agent_meta_raw = await redis.get(f"oauth_agent:{state}")
     await redis.delete(f"oauth_state:{state}")
-    await redis.delete(f"oauth_desktop:{state}")
     await redis.delete(f"oauth_agent:{state}")
     agent_meta = {}
     if agent_meta_raw:
@@ -216,10 +184,6 @@ async def auth_callback(request: Request, code: str, state: str):
             db.add(identity)
         else:
             profile.teams_user_id = teams_user_id
-            # Re-apply on every login so a seeded admin can't be locked out.
-            # ponytail: promote-only — demoting on removal would clobber admins
-            # promoted in-app. To remove a seeded admin: drop the env entry AND
-            # demote them on /admin.
             if is_seeded_admin:
                 profile.role = "admin"
         await db.commit()
@@ -227,7 +191,6 @@ async def auth_callback(request: Request, code: str, state: str):
 
     profile_id = str(profile.id)
 
-    # Persist MSAL cache so Teams subscription renewal can use delegated token
     await _save_cache(profile_id, cache)
 
     session_token = secrets.token_urlsafe(32)
@@ -236,8 +199,6 @@ async def auth_callback(request: Request, code: str, state: str):
     is_https  = settings.APP_BASE_URL.startswith("https://")
     safe_next = next_url if (next_url and next_url.startswith("/") and not next_url.startswith("//")) else "/"
 
-    # If desktop agent callback present, generate a device token and redirect
-    # to the local callback server instead of the app page directly.
     if agent_meta.get("callback"):
         import hashlib as _hl
         from app.storage.models import Device, DeviceToken
@@ -254,20 +215,15 @@ async def auth_callback(request: Request, code: str, state: str):
             await db.flush()
             db.add(DeviceToken(device_id=device.id, token_hash=token_hash))
             await db.commit()
-        # Redirect to agent local server with the token
-        # The agent server will then redirect browser to safe_next
         from urllib.parse import urlencode
         params    = urlencode({"token": raw_token, "next": f"{settings.APP_BASE_URL}{safe_next}"})
         cb_url    = f"{agent_meta['callback']}?{params}"
         response  = RedirectResponse(url=cb_url)
         response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
-        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
         return response
 
     response = RedirectResponse(url=safe_next)
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
-    if is_desktop:
-        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
     return response
 
 

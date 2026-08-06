@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 
 from app.auth.sso import get_profile_from_session
 from app.config import settings
+from app.storage.models import Device
+from app.storage.postgres import AsyncSessionLocal
 from app.storage.redis_client import get_redis
 from app.ws_manager import manager as ws_manager
 
@@ -11,11 +14,24 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
+async def _has_agent(profile_id: str) -> bool:
+    """Whether this profile has a desktop agent registered.
+
+    Gates the Device Activity page. Previously a `da_desktop` cookie, which the
+    desktop login only ever set on the one browser it opened — every other
+    browser on the same machine got the "Download & Install" screen while the
+    agent was running and its data was already in the DB.
+    """
+    async with AsyncSessionLocal() as db:
+        return (await db.execute(
+            select(Device.id).where(Device.profile_id == profile_id).limit(1)
+        )).first() is not None
+
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     profile_id = await get_profile_from_session(request)
     if profile_id is None:
-        # Logged out (incl. after /auth/logout, which redirects here) → marketing Homepage.
         return templates.TemplateResponse(request=request, name="homepage.html")
     return templates.TemplateResponse(
         request=request,
@@ -76,19 +92,14 @@ async def gitlab_page(request: Request):
 
 @router.get("/my-activity", response_class=HTMLResponse)
 async def my_activity_page(request: Request):
-    if not await get_profile_from_session(request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
         return RedirectResponse("/auth/login?next=/my-activity&desktop=1")
-    # Treat ?_dt=1 as desktop on the same request (cookie lands on next request otherwise)
-    is_desktop = request.cookies.get("da_desktop") == "1" or request.query_params.get("_dt") == "1"
-    response = templates.TemplateResponse(
+    return templates.TemplateResponse(
         request=request,
         name="my_activity.html",
-        context={"active_page": "my_activity", "is_desktop": is_desktop},
+        context={"active_page": "my_activity", "is_desktop": await _has_agent(profile_id)},
     )
-    if request.query_params.get("_dt") == "1" and request.cookies.get("da_desktop") != "1":
-        is_https = settings.APP_BASE_URL.startswith("https://")
-        response.set_cookie("da_desktop", "1", httponly=False, secure=is_https, samesite="lax", max_age=86400 * 30)
-    return response
 
 
 @router.get("/my-activity/ai-tools", response_class=HTMLResponse)
@@ -97,12 +108,11 @@ async def ai_tools_page(
     date: str = "",
     week: str = "",
 ):
-    if not await get_profile_from_session(request):
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
         return RedirectResponse("/auth/login?next=/my-activity/ai-tools")
-    is_desktop = request.cookies.get("da_desktop") == "1" or request.query_params.get("_dt") == "1"
-    if not is_desktop:
+    if not await _has_agent(profile_id):
         return RedirectResponse("/my-activity")
-    # Determine initial mode and values from query params
     init_mode = "week" if week else "day"
     init_date = date or ""
     init_week = week or ""
@@ -111,7 +121,6 @@ async def ai_tools_page(
         name="agent_ai_tools.html",
         context={
             "active_page": "my_activity",
-            "is_desktop":  is_desktop,
             "init_mode":   init_mode,
             "init_date":   init_date,
             "init_week":   init_week,
