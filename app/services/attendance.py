@@ -15,13 +15,14 @@ import io
 import logging
 from datetime import datetime, timedelta
 
+from app.services.csv_export import csv_safe
 from app.services.timezone import day_bounds, resolve
 from app.storage.mongodb import activity_events
 
 logger = logging.getLogger(__name__)
 
-MAX_SPAN_DAYS = 366          # a year cap keeps the aggregation + grid bounded
-PRESENT_THRESHOLD = 3        # >= this many events in a local day = present
+MAX_SPAN_DAYS = 366
+PRESENT_THRESHOLD = 3
 
 _SOURCE_LABEL = {"teams_subscription": "teams"}
 
@@ -85,12 +86,6 @@ async def build_attendance(profiles: list, start: str, end: str, sources: list[s
     }
 
 
-def _safe(v) -> str:
-    """Neutralise spreadsheet formula injection (emails come from IdP data)."""
-    s = "" if v is None else str(v)
-    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
-
-
 def _day_header(iso: str) -> str:
     """"2026-07-20" -> "Jul 20 (Sun)". The parenthesis stops Excel coercing it to a
     date (which renders as ##### in a narrow column) — it stays plain text."""
@@ -106,5 +101,5 @@ def attendance_csv(data: dict) -> str:
     w.writerow(["User", "Role", *[_day_header(d) for d in data["days"]], "Days present"])
     for row in data["rows"]:
         marks = ["P" if c >= th else "A" for c in row["counts"]]
-        w.writerow([_safe(row["email"]), _safe(row["role"]), *marks, row["present"]])
+        w.writerow([csv_safe(row["email"]), csv_safe(row["role"]), *marks, row["present"]])
     return out.getvalue()

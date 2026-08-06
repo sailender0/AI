@@ -3,7 +3,6 @@
 The focus/AI-tool/token computation lives in app/services/device_analytics.py so
 the AI layer and the email reports can build the same payloads directly.
 """
-import re
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends
@@ -12,7 +11,7 @@ from app.auth.sso import require_profile
 from app.services.device_analytics import (
     build_activity_today, build_activity_week, period_ranges, token_total,
 )
-from app.services.timezone import now_local, resolve, today_str
+from app.services.timezone import is_date, now_local, resolve, today_str
 
 router = APIRouter()
 
@@ -25,7 +24,7 @@ async def activity_today(
     profile_id: str = Depends(require_profile),
 ):
     tzinfo   = resolve(request_tz=tz)
-    the_date = date if (date and re.match(r"^\d{4}-\d{2}-\d{2}$", date)) else today_str(tzinfo)
+    the_date = date if is_date(date) else today_str(tzinfo)
     return await build_activity_today(profile_id, tzinfo, the_date, device_id)
 
 
@@ -34,10 +33,9 @@ async def activity_week(tz: str = "", week_start: str = "",
                         profile_id: str = Depends(require_profile)):
     tzinfo = resolve(request_tz=tz)
 
-    if week_start and re.match(r"^\d{4}-\d{2}-\d{2}$", week_start):
+    if is_date(week_start):
         week_start_str = week_start
     else:
-        # Default: Monday of the current local week (not a rolling 7 days)
         local_now      = now_local(tzinfo)
         week_start_str = (local_now - timedelta(days=local_now.weekday())).strftime("%Y-%m-%d")
     return await build_activity_week(profile_id, tzinfo, week_start_str)

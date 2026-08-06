@@ -1,7 +1,6 @@
 import csv
 import io
 import logging
-import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -10,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.rbac import load_profile, report_target
 from app.services.activity_query import get_profile_tz
+from app.services.csv_export import csv_safe
 from app.services.report_data import (
     fetch_day_events, fetch_week_events, fetch_week_stats, get_summary,
 )
-from app.services.timezone import resolve, today_str
+from app.services.timezone import is_date, resolve, today_str
 from app.storage.models import Profile
 from app.storage.postgres import get_db
 
@@ -21,7 +21,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _INVALID_DATE = {"error": "invalid date"}
 
 
@@ -32,15 +31,7 @@ def _attachment(filename: str) -> dict:
 def _valid_date(s: str) -> bool:
     """Empty (defaulted downstream) or a YYYY-MM-DD string. Keeps a user value out
     of both the Mongo query and the Content-Disposition filename unvalidated."""
-    return not s or bool(_DATE_RE.match(s))
-
-
-def _csv_safe(v) -> str:
-    """Neutralize spreadsheet formula injection: a cell that starts with =, +, -,
-    @ or a control char is evaluated by Excel/Sheets on open. Titles and workspace
-    names come from webhook payloads, so prefix those with a quote to force text."""
-    s = "" if v is None else str(v)
-    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+    return not s or is_date(s)
 
 
 def _fmt_day(dt) -> str:
@@ -114,10 +105,10 @@ def _events_to_csv(events: list) -> str:
             date_str = time_str = ""
         writer.writerow([
             date_str, time_str,
-            _csv_safe(e.get("source", "")),
-            _csv_safe(e.get("event_type", "")),
-            _csv_safe(e.get("workspace", "")),
-            _csv_safe(e.get("title", "")),
+            csv_safe(e.get("source", "")),
+            csv_safe(e.get("event_type", "")),
+            csv_safe(e.get("workspace", "")),
+            csv_safe(e.get("title", "")),
         ])
     return output.getvalue()
 

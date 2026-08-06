@@ -6,7 +6,6 @@ live inside those route modules, which meant email had to lazy-import three
 sibling routes at call time to dodge an import cycle. Nothing in this module
 knows about HTTP.
 """
-import re
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -15,17 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.activity_query import get_profile_tz, week_source_stats
 from app.services.device_analytics import build_activity_today, build_activity_week
 from app.services.standup import generate as generate_standup
-from app.services.timezone import day_bounds, local_date, resolve, today_str
+from app.services.timezone import day_bounds, is_date, local_date, resolve, today_str
 from app.storage.models import Summary
 from app.storage.mongodb import activity_events, local_commits
 
 
-# ── Date helpers ──────────────────────────────────────────────────────────────
-
 def clamp_date(date: str | None, today: str) -> str:
     """A valid past-or-today YYYY-MM-DD, else today. Future dates clamp to today
     (string min works: ISO dates sort chronologically)."""
-    if date and re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+    if is_date(date):
         return min(date, today)
     return today
 
@@ -44,8 +41,6 @@ async def _week_bounds_utc(profile_id: str, week_start: str, db: AsyncSession):
     _, we = day_bounds(last_day.strftime("%Y-%m-%d"), tz)
     return ws, we
 
-
-# ── Raw fetches ───────────────────────────────────────────────────────────────
 
 async def fetch_day_events(profile_id: str, date_str: str, db: AsyncSession):
     tz = resolve(await get_profile_tz(profile_id, db))
@@ -97,12 +92,9 @@ async def get_summary(profile_id: str, period_type: str, date_str: str, db: Asyn
     return row.content if row else ""
 
 
-# ── Per-kind report payloads ──────────────────────────────────────────────────
-
 async def _device_activity_week(profile_id: str, tzinfo, the_date: str, db: AsyncSession) -> dict:
     week_start = week_start_of(the_date)
     week = await build_activity_week(profile_id, tzinfo, week_start)
-    # per-day commit counts (the week payload only carries a total)
     w_start, _ = day_bounds(week_start, tzinfo)
     cdocs = await local_commits().find(
         {"profile_id": profile_id,
@@ -164,8 +156,6 @@ _BUILDERS = {
     "my_day":               _my_day,
 }
 
-# Report kinds the email + preview endpoints accept. Derived, not a second list —
-# a kind you can't build is a kind the API must not advertise.
 SUPPORTED_KINDS = frozenset(_BUILDERS)
 
 
