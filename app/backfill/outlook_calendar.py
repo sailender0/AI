@@ -14,13 +14,14 @@ recorded days earlier. Verified attendance needs callRecord.participants[] —
 application-only CallRecords.Read.All, a separate connector.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
 
 from app.auth.sso import acquire_delegated_token
-from app.backfill import GRAPH, make_event, parse_iso, person_key, walk
+from app.backfill import GRAPH, addr_of, make_event, parse_iso, person_key, walk
 from app.storage.models import Profile
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest
@@ -30,8 +31,6 @@ logger = logging.getLogger(__name__)
 _FIELDS = ("id,subject,start,end,organizer,attendees,responseStatus,"
            "isCancelled,isAllDay,onlineMeeting")
 
-# Graph caps attendee lists at whatever the invite carried; an all-hands can be
-# hundreds. Keep enough to render the roster and drop the rest.
 _MAX_ATTENDEES = 40
 
 
@@ -55,9 +54,21 @@ def headers_for(token: str, tz_name: str) -> dict:
             "Prefer": f'outlook.timezone="{tz_name or "UTC"}"'}
 
 
-def _addr(entry: dict) -> tuple[str, str]:
-    e = (entry or {}).get("emailAddress") or {}
-    return (e.get("address") or "").strip(), (e.get("name") or "").strip()
+def as_utc(raw_ts, tz_name: str) -> datetime:
+    """A Graph start/end -> a real UTC instant.
+
+    The Prefer header makes Graph answer in the user's zone and it sends those
+    times with NO offset ("2026-07-29T07:30:00.0000000"), so parse_iso yields a
+    naive datetime. Stored as-is it was read back as UTC by
+    calendar_activity._local(), putting every meeting out by the whole offset — a
+    07:30 standup rendered at 00:30, and meetings near midnight landed on the
+    wrong day. Every other source stores true UTC; stamp the requested zone on
+    before converting so this one does too.
+    """
+    ts = parse_iso(raw_ts)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=ZoneInfo(tz_name or "UTC"))
+    return ts.astimezone(timezone.utc)
 
 
 def _minutes(event: dict) -> int:
@@ -66,7 +77,8 @@ def _minutes(event: dict) -> int:
     return max(int((end - start).total_seconds() // 60), 0)
 
 
-def meeting_event(profile_id: str, event: dict, self_email: str) -> dict | None:
+def meeting_event(profile_id: str, event: dict, self_email: str,
+                  tz_name: str = "UTC") -> dict | None:
     """One calendarView event -> event dict, or None if it isn't a real meeting."""
     if event.get("isCancelled"):
         return None
@@ -74,14 +86,14 @@ def meeting_event(profile_id: str, event: dict, self_email: str) -> dict | None:
     if not start:
         return None
 
-    org_addr, org_name = _addr(event.get("organizer"))
+    org_addr, org_name = addr_of(event.get("organizer"))
     me = (self_email or "").lower()
 
     attendees, people = [], []
     for entry in (event.get("attendees") or [])[:_MAX_ATTENDEES]:
-        addr, name = _addr(entry)
+        addr, name = addr_of(entry)
         if not addr or addr.lower() == me:
-            continue  # you are not your own counterparty
+            continue
         attendees.append({"id": person_key(addr, addr), "name": name or addr})
         people.append(person_key(addr, addr))
 
@@ -96,19 +108,15 @@ def meeting_event(profile_id: str, event: dict, self_email: str) -> dict | None:
         event_type="meeting",
         source_event_id=str(event["id"]),
         title=event.get("subject") or "(no subject)",
-        occurred_at=parse_iso(start),
+        occurred_at=as_utc(start, tz_name),
         workspace="all-day" if event.get("isAllDay") else None,
         raw={
             "user_id": (organizer or {}).get("id"),
-            "people": list(dict.fromkeys(people)),   # de-duped, order kept
+            "people": list(dict.fromkeys(people)),
             "organizer": organizer,
             "attendees": attendees,
             "minutes": _minutes(event),
-            # Your own RSVP. Other attendees' statuses are only trustworthy on
-            # the organizer's copy of an event, so they are not stored.
             "rsvp": (event.get("responseStatus") or {}).get("response") or "none",
-            # Joins to callRecord.joinWebUrl once the calls connector exists —
-            # that pairing is what turns "scheduled" into "attended".
             "join_url": (event.get("onlineMeeting") or {}).get("joinUrl"),
         },
     )
@@ -123,7 +131,7 @@ async def fetch_meeting_events(client, token: str, profile_id: str, self_email: 
     for event in events:
         if not event.get("id"):
             continue
-        mapped = meeting_event(profile_id, event, self_email)
+        mapped = meeting_event(profile_id, event, self_email, tz_name)
         if mapped:
             out.append(mapped)
     return out

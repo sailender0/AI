@@ -4,7 +4,7 @@ Mail fixtures carry a subject on purpose: Mail.ReadBasic returns subjects, and
 the spec is addresses and times only. If a subject ever reaches an event, these
 fail. Meeting subjects ARE stored — that is the one deliberate exception.
 """
-from unittest.mock import AsyncMock, MagicMock
+from datetime import datetime, timezone
 
 import pytest
 
@@ -13,6 +13,7 @@ from app.backfill.outlook_calendar import day_params as cal_params
 from app.backfill.outlook_calendar import fetch_meeting_events, headers_for
 from app.backfill.outlook_mail import day_params as mail_params
 from app.backfill.outlook_mail import fetch_mail_events, mail_event
+from tests.graph_fakes import graph_client
 
 PROFILE = "11111111-1111-1111-1111-111111111111"
 ME = "sailu@quadrant.com"
@@ -30,8 +31,6 @@ def _mail(sender=ME, to=("priya@quadrant.com",), **over):
     m.update(over)
     return m
 
-
-# ── Mail: direction and filing ────────────────────────────────────────────────
 
 def test_mail_from_you_is_sent_and_files_under_the_recipient():
     ev = mail_event(PROFILE, _mail(sender=ME), ME)
@@ -74,7 +73,13 @@ def test_mail_query_selects_only_metadata():
     assert "lt 2026-07-29T00:00:00Z" in p["$filter"]
 
 
-# ── Meetings ──────────────────────────────────────────────────────────────────
+def test_mail_day_is_the_profiles_local_day_not_a_utc_one():
+    """A local date pasted into a `...Z` literal queries the wrong window: for a
+    zone behind UTC it dropped everything after ~17:00 local until the next day."""
+    p = mail_params("2026-07-28", "America/Los_Angeles")
+    assert "ge 2026-07-28T07:00:00Z" in p["$filter"]
+    assert "lt 2026-07-29T07:00:00Z" in p["$filter"]
+
 
 def _meeting(**over):
     m = {
@@ -138,17 +143,16 @@ def test_calendar_requests_times_in_the_users_timezone():
     assert 'outlook.timezone="Asia/Kolkata"' in headers_for("tok", "Asia/Kolkata")["Prefer"]
 
 
-# ── Fetch ─────────────────────────────────────────────────────────────────────
+def test_meeting_is_stored_as_a_real_utc_instant():
+    """The Prefer header makes Graph send local wall-clock with no offset. Storing
+    that naive value made the reader treat 10:00 PDT as 10:00 UTC and render the
+    meeting 7 hours out — every other source stores true UTC."""
+    ev = meeting_event(PROFILE, _meeting(), ME, "America/Los_Angeles")
+    assert ev["occurred_at"] == datetime(2026, 7, 28, 17, 0, tzinfo=timezone.utc)
+    assert ev["raw_payload"]["minutes"] == 45
 
-def _client(*payloads, status=200):
-    def resp(p):
-        r = MagicMock()
-        r.status_code = status
-        r.json.return_value = p
-        return r
-    c = MagicMock()
-    c.get = AsyncMock(side_effect=[resp(p) for p in payloads])
-    return c
+
+_client = graph_client
 
 
 @pytest.mark.asyncio

@@ -9,44 +9,41 @@ the profile's own address. That is why this is a fresh connector instead of a fi
 to the me/messages webhook path — see the note in services/calendar_activity.py.
 """
 import logging
-from datetime import date, timedelta
 
 import httpx
 from sqlalchemy import select
 
 from app.auth.sso import acquire_delegated_token
-from app.backfill import GRAPH, make_event, parse_iso, person_key, walk
+from app.backfill import (GRAPH, addr_of, graph_ts, make_event, parse_iso,
+                          person_key, walk)
+from app.services.timezone import day_bounds
 from app.storage.models import Profile
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest
 
 logger = logging.getLogger(__name__)
 
-# Everything needed to say "who, and when". No subject, no bodyPreview.
 _FIELDS = "id,from,toRecipients,receivedDateTime,sentDateTime"
 
 
-def day_params(day: str) -> dict:
-    """Query one day of mail.
+def day_params(day: str, tz_name: str = "UTC") -> dict:
+    """Query one local day of mail.
 
     Filtered on receivedDateTime because it is set on every message in the
     mailbox, including the copies in Sent Items — one query covers both
     directions. The mail API supports $select properly, unlike chat.
+
+    `day` is a date in the profile's own zone; day_bounds turns it into the
+    UTC window Graph actually filters on.
     """
-    nxt = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    start, end = day_bounds(day, tz_name)
     return {
         "$top": 50,
         "$select": _FIELDS,
         "$orderby": "receivedDateTime desc",
-        "$filter": (f"receivedDateTime ge {day}T00:00:00Z and "
-                    f"receivedDateTime lt {nxt}T00:00:00Z"),
+        "$filter": (f"receivedDateTime ge {graph_ts(start)} and "
+                    f"receivedDateTime lt {graph_ts(end)}"),
     }
-
-
-def _addr(entry: dict) -> tuple[str, str]:
-    """(address, display name) out of a Graph emailAddress wrapper."""
-    e = (entry or {}).get("emailAddress") or {}
-    return (e.get("address") or "").strip(), (e.get("name") or "").strip()
 
 
 def mail_event(profile_id: str, msg: dict, self_email: str) -> dict | None:
@@ -56,14 +53,14 @@ def mail_event(profile_id: str, msg: dict, self_email: str) -> dict | None:
     belongs to its recipient, or filtering to a colleague would hide half the
     thread — the same rule the chat connector follows.
     """
-    from_addr, from_name = _addr(msg.get("from"))
+    from_addr, from_name = addr_of(msg.get("from"))
     sent_by_me = bool(from_addr) and from_addr.lower() == (self_email or "").lower()
 
     if sent_by_me:
         recipients = msg.get("toRecipients") or []
         if not recipients:
-            return None  # a draft, or a message with only bcc — nothing to show
-        addr, name = _addr(recipients[0])
+            return None
+        addr, name = addr_of(recipients[0])
         event_type, extra = "mail_sent", max(len(recipients) - 1, 0)
         occurred = msg.get("sentDateTime") or msg.get("receivedDateTime")
     else:
@@ -80,18 +77,18 @@ def mail_event(profile_id: str, msg: dict, self_email: str) -> dict | None:
         source="outlook_mail",
         event_type=event_type,
         source_event_id=str(msg["id"]),
-        title=addr,                      # the address IS the row — no subject line
+        title=addr,
         occurred_at=parse_iso(occurred),
-        workspace=name or None,          # display name, when Graph supplies one
+        workspace=name or None,
         raw={"user_id": key, "people": [key], "extra_recipients": extra},
     )
 
 
 async def fetch_mail_events(client, token: str, profile_id: str, self_email: str,
-                            day: str) -> list[dict]:
+                            day: str, tz_name: str = "UTC") -> list[dict]:
     """Every message sent or received on `day`, as event dicts."""
     msgs = await walk(client, f"{GRAPH}/me/messages",
-                      {"Authorization": f"Bearer {token}"}, day_params(day))
+                      {"Authorization": f"Bearer {token}"}, day_params(day, tz_name))
     events = []
     for msg in msgs:
         if not msg.get("id"):
@@ -113,7 +110,6 @@ async def backfill_mail_day(profile_id: str, day: str) -> int:
             select(Profile).where(Profile.id == profile_id)
         )).scalar_one_or_none()
 
-    # Without your own address every message looks incoming, so don't guess.
     if not profile or not profile.email:
         return 0
 
@@ -122,5 +118,6 @@ async def backfill_mail_day(profile_id: str, day: str) -> int:
         return 0
 
     async with httpx.AsyncClient(timeout=30) as client:
-        events = await fetch_mail_events(client, token, profile_id, profile.email, day)
+        events = await fetch_mail_events(client, token, profile_id, profile.email,
+                                         day, profile.timezone or "UTC")
     return sum([await ingest(event) for event in events])

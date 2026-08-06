@@ -1,13 +1,14 @@
 """Event backfill — reconstruct activity from connector REST APIs.
 
-Only the pure REST->event mappers live here for now (github.py, gitlab.py).
-They produce the SAME normalized shape and (source_event_id, event_type) as the
-live webhook path, so app.webhooks.normalizer.ingest() deduplicates a backfilled
-row against its webhook twin via the unique index. See docs/adr-0003-backfill.md.
+The mappers (github.py, gitlab.py, jira.py and the Graph connectors) produce the
+SAME normalized shape and (source_event_id, event_type) as the live webhook path,
+so app.webhooks.normalizer.ingest() deduplicates a backfilled row against its
+webhook twin via the unique index. See docs/adr-0003-backfill.md.
 
-The fetch/runner/route layer talks to live GitHub/GitLab APIs and needs real
-tokens to verify, so it is deferred until creds are available (ADR Phase-1
-remainder). These mappers are the correctness-critical, offline-testable core.
+runner.py drives token -> fetch -> ingest and is reachable from
+POST /api/backfill/{source}; the per-source fetch is injectable so the
+orchestration is testable without a live API. This module holds only what the
+connectors share: pagination, Graph helpers, and the event constructor.
 """
 import logging
 import uuid
@@ -16,11 +17,25 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
+def graph_ts(ts: datetime) -> str:
+    """A UTC instant as the literal Graph's $filter expects.
+
+    Always feed this the output of services.timezone.day_bounds, never a bare
+    date. Graph filters are UTC but the poll asks for a day in the profile's own
+    zone; pasting that date straight into a `...Z` literal queried the wrong
+    window — behind UTC (America/Los_Angeles) everything after ~17:00 local
+    carries tomorrow's UTC date and went unseen until after local midnight, and
+    ahead of UTC (Asia/Kolkata) the early-morning hours carry yesterday's date,
+    which nothing re-polls after 03:00, so those were lost outright.
+    """
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def parse_iso(raw_ts) -> datetime:
     """The same lenient ISO parse the normalizer uses; falls back to now()."""
     if raw_ts:
         try:
-            return datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+            return datetime.fromisoformat(str(raw_ts))
         except ValueError:
             pass
     return datetime.now(timezone.utc)
@@ -29,10 +44,7 @@ def parse_iso(raw_ts) -> datetime:
 async def paged(client, url: str, headers: dict, params: dict, *, cap: int = 10) -> list:
     """GET `url` paging via ?per_page=100&page=N until a short/empty page or cap.
     Works for GitHub and GitLab (both accept page/per_page). `client` is any
-    object with an async .get(url, headers, params) returning .status_code/.json().
-
-    ponytail: cap bounds a runaway backfill at cap*100 items/endpoint; raise cap
-    if a real backfill needs deeper history than ~1000 items per repo/endpoint."""
+    object with an async .get(url, headers, params) returning .status_code/.json()."""
     page, out = 1, []
     while page <= cap:
         r = await client.get(url, headers=headers, params={**params, "per_page": 100, "page": page})
@@ -63,20 +75,24 @@ def person_key(email: str | None, fallback: str) -> str:
     return email.strip().lower() if email and email.strip() else fallback
 
 
+def addr_of(entry: dict) -> tuple[str, str]:
+    """(address, display name) out of a Graph emailAddress wrapper.
+
+    Mail, calendar and every other Graph payload nest a person the same way, so
+    the unwrap lives here rather than once per connector.
+    """
+    e = (entry or {}).get("emailAddress") or {}
+    return (e.get("address") or "").strip(), (e.get("name") or "").strip()
+
+
 async def walk(client, url: str, headers: dict, params: dict | None, *, cap: int = 20) -> list:
     """Follow @odata.nextLink through a Graph collection. Graph bakes the query
     into nextLink, so params go on the first request only.
-
-    ponytail: cap bounds a runaway walk at cap*50 items; raise it if a real day
-    legitimately carries more than ~1000 messages or events.
     """
     out = []
     for _ in range(cap):
         resp = await client.get(url, headers=headers, params=params)
         if resp.status_code != 200:
-            # Log the API error only — code and message, never resp.text, which
-            # on a 200 would carry message bodies. Without this a bad $filter or
-            # a missing scope fails completely silently.
             try:
                 err = (resp.json() or {}).get("error") or {}
                 detail = f'{err.get("code", "?")}: {str(err.get("message", ""))[:200]}'

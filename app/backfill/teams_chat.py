@@ -16,27 +16,25 @@ Do NOT route chat through webhooks.normalizer.normalize(), which stores the whol
 Graph object in raw_payload.
 """
 import logging
-from datetime import date, timedelta
 
 import httpx
 from sqlalchemy import select
 
 from app.auth.sso import acquire_delegated_token
-from app.backfill import GRAPH, make_event, parse_iso, person_key, walk
+from app.backfill import (GRAPH, graph_ts, make_event, parse_iso, person_key,
+                          walk)
+from app.services.timezone import day_bounds
 from app.storage.models import Profile
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest
 
 logger = logging.getLogger(__name__)
 
-# members comes back with the chat list, so resolving a 1:1 counterparty costs no
-# extra request. Graph caps the expansion at 25 members regardless of $top —
-# irrelevant for oneOnOne, and group chats don't use it (see chat_counterparty).
 _CHATS_PARAMS = {"$top": 50, "$expand": "members"}
 
 
-def day_params(day: str) -> dict:
-    """Query one day (YYYY-MM-DD) of messages in a chat.
+def day_params(day: str, tz_name: str = "UTC") -> dict:
+    """Query one local day (YYYY-MM-DD, in the profile's zone) of chat messages.
 
     The range filter has to be on lastModifiedDateTime: createdDateTime supports
     only `lt`, and Graph ignores $filter outright — 200 OK, every message, no
@@ -44,12 +42,12 @@ def day_params(day: str) -> dict:
     createdDateTime when bucketing, since a message written last month and edited
     today lands inside today's window.
     """
-    nxt = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    start, end = day_bounds(day, tz_name)
     return {
-        "$top": 50,  # documented maximum
+        "$top": 50,
         "$orderby": "lastModifiedDateTime desc",
-        "$filter": (f"lastModifiedDateTime gt {day}T00:00:00.000Z and "
-                    f"lastModifiedDateTime lt {nxt}T00:00:00.000Z"),
+        "$filter": (f"lastModifiedDateTime gt {graph_ts(start)} and "
+                    f"lastModifiedDateTime lt {graph_ts(end)}"),
     }
 
 
@@ -66,10 +64,6 @@ def chat_counterparty(chat: dict, msg: dict, self_id: str) -> dict | None:
     You sent it, group    -> None. A group post has no counterparty, and inventing
                              one would put the row under whoever happened to be
                              listed first.
-
-    ponytail: dropping your own group posts loses "you were active in the Design
-    Guild chat at 14:00". Add a null-counterparty row type if that turns out to
-    matter — the data is all here.
     """
     members = _members(chat)
     sender = (msg.get("from") or {}).get("user") or {}
@@ -98,9 +92,9 @@ def chat_message_event(profile_id: str, chat: dict, msg: dict, self_id: str) -> 
     mentions and reactions are dropped here and never stored.
     """
     if msg.get("messageType") != "message" or msg.get("isDeleted"):
-        return None  # systemEventMessage: "X added Y", "call started", chat renamed
+        return None
     if not ((msg.get("from") or {}).get("user")):
-        return None  # bot/app message: from.user is null, from.application is set
+        return None
 
     other = chat_counterparty(chat, msg, self_id)
     if not other or not other["name"]:
@@ -110,34 +104,32 @@ def chat_message_event(profile_id: str, chat: dict, msg: dict, self_id: str) -> 
         profile_id=profile_id,
         source="teams_chat",
         event_type="chat_message",
-        source_event_id=str(msg["id"]),  # message id -> re-polls dedup via the unique index
+        source_event_id=str(msg["id"]),
         title=other["name"],
         occurred_at=parse_iso(msg.get("createdDateTime")),
-        workspace=chat.get("chatType"),  # oneOnOne | group | meeting
-        # Deliberately built, NOT the Graph object. `people` is what the person
-        # filter queries — one array on every event type, so a meeting matches on
-        # any attendee while a chat matches its single counterparty. `user_id` is
-        # who the row displays as. Names collide and get renamed; ids don't.
+        workspace=chat.get("chatType"),
         raw={"user_id": other["id"], "people": [other["id"]],
              "from_self": other["from_self"], "chat_type": chat.get("chatType", "")},
     )
 
 
 async def fetch_chat_events(client, token: str, profile_id: str, self_id: str,
-                            day: str) -> list[dict]:
+                            day: str, tz_name: str = "UTC") -> list[dict]:
     """Every chat message the user sent or received on `day`, as event dicts."""
     headers = {"Authorization": f"Bearer {token}"}
     chats = await walk(client, f"{GRAPH}/me/chats", headers, _CHATS_PARAMS)
+    start, end = day_bounds(day, tz_name)
 
     events = []
     for chat in chats:
         if not chat.get("id"):
             continue
         msgs = await walk(client, f"{GRAPH}/chats/{chat['id']}/messages",
-                          headers, day_params(day))
+                          headers, day_params(day, tz_name))
         for msg in msgs:
-            # Filtered on lastModifiedDateTime, so bucket on createdDateTime.
-            if not str(msg.get("createdDateTime", "")).startswith(day):
+            if not msg.get("createdDateTime"):
+                continue
+            if not start <= parse_iso(msg["createdDateTime"]) < end:
                 continue
             event = chat_message_event(profile_id, chat, msg, self_id)
             if event:
@@ -150,26 +142,23 @@ async def backfill_chat_day(profile_id: str, day: str) -> int:
 
     Returns 0 harmlessly when the scope isn't consented yet: the token comes back
     without Chat.Read, Graph answers 403, and _walk yields nothing.
-
-    ponytail: N+1 Graph calls — schedule it, never call it from a page view.
     """
     async with AsyncSessionLocal() as db:
         profile = (await db.execute(
             select(Profile).where(Profile.id == profile_id)
         )).scalar_one_or_none()
 
-    # teams_user_id is the Entra oid, set from the id_token claim at sign-in.
-    # Without it we can't tell your messages from theirs, so don't guess.
     if not profile or not profile.teams_user_id:
         return 0
 
     token = await acquire_delegated_token(profile_id)
     if not token:
-        return 0  # MSAL cache expired; the user re-grants at next sign-in
+        return 0
 
     async with httpx.AsyncClient(timeout=30) as client:
         events = await fetch_chat_events(client, token, profile_id,
-                                         profile.teams_user_id, day)
+                                         profile.teams_user_id, day,
+                                         profile.timezone or "UTC")
     return sum([await ingest(event) for event in events])
 
 

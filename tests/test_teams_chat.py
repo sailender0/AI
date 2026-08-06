@@ -16,12 +16,11 @@ from app.backfill.teams_chat import (
     day_params,
     fetch_chat_events,
 )
+from tests.graph_fakes import graph_client, graph_resp
 
 PROFILE = "11111111-1111-1111-1111-111111111111"
 SELF = "oid-self"
 OTHER = "oid-userb"
-# People are keyed by address, not oid — mail and calendar never expose an oid,
-# so keying chat on one would file the same colleague under two ids.
 OTHER_KEY = "user.b@example.com"
 SECRET = "the acquisition closes friday"
 
@@ -60,8 +59,6 @@ def _msg(sender=OTHER, name="User B", **over):
     return m
 
 
-# ── Content must never be stored ──────────────────────────────────────────────
-
 def test_body_never_reaches_the_event():
     event = chat_message_event(PROFILE, _ONE_ON_ONE, _msg(), SELF)
     assert SECRET not in str(event)
@@ -73,10 +70,8 @@ def test_title_is_a_person_not_a_message():
     event = chat_message_event(PROFILE, _ONE_ON_ONE, _msg(), SELF)
     assert event["title"] == "User B"
     assert event["occurred_at"].hour == 9
-    assert event["source_event_id"] == "1622853091207"  # dedups re-polls
+    assert event["source_event_id"] == "1622853091207"
 
-
-# ── Rows that aren't user activity ────────────────────────────────────────────
 
 def test_bot_message_dropped():
     bot = _msg()
@@ -94,8 +89,6 @@ def test_system_event_message_dropped():
 def test_deleted_message_dropped():
     assert chat_message_event(PROFILE, _ONE_ON_ONE, _msg(isDeleted=True), SELF) is None
 
-
-# ── Counterparty: who the row is filed under ──────────────────────────────────
 
 def test_their_message_files_under_the_sender():
     who = chat_counterparty(_ONE_ON_ONE, _msg(), SELF)
@@ -127,24 +120,27 @@ def test_your_own_group_post_has_no_counterparty():
     assert chat_message_event(PROFILE, _GROUP, _msg(sender=SELF, name="You"), SELF) is None
 
 
-# ── The query Graph actually honours ──────────────────────────────────────────
-
 def test_filter_and_orderby_name_the_same_property():
     """Graph ignores $filter otherwise — 200 OK with every message, no error."""
     p = day_params("2026-07-28")
     assert "lastModifiedDateTime" in p["$orderby"]
     assert p["$filter"].count("lastModifiedDateTime") == 2
-    # createdDateTime supports only `lt`, so it can't carry the range.
     assert "createdDateTime" not in p["$filter"]
 
 
 def test_day_window_is_half_open():
     p = day_params("2026-07-28")
-    assert "gt 2026-07-28T00:00:00.000Z" in p["$filter"]
-    assert "lt 2026-07-29T00:00:00.000Z" in p["$filter"]
+    assert "gt 2026-07-28T00:00:00Z" in p["$filter"]
+    assert "lt 2026-07-29T00:00:00Z" in p["$filter"]
 
 
-# ── What the hourly sweep re-polls ────────────────────────────────────────────
+def test_day_window_follows_the_profiles_zone():
+    """Ahead of UTC, a local date in a `...Z` literal skipped the early morning
+    entirely — and nothing re-polls a past day, so those messages were lost."""
+    p = day_params("2026-07-28", "Asia/Kolkata")
+    assert "gt 2026-07-27T18:30:00Z" in p["$filter"]
+    assert "lt 2026-07-28T18:30:00Z" in p["$filter"]
+
 
 def test_poll_covers_today_only_during_the_day():
     from datetime import datetime
@@ -158,19 +154,7 @@ def test_poll_also_covers_yesterday_just_after_midnight():
     assert poll_days(datetime(2026, 7, 28, 1, 0)) == ["2026-07-28", "2026-07-27"]
 
 
-# ── Fetch ─────────────────────────────────────────────────────────────────────
-
-def _resp(payload, status=200):
-    r = MagicMock()
-    r.status_code = status
-    r.json.return_value = payload
-    return r
-
-
-def _client(*payloads):
-    c = MagicMock()
-    c.get = AsyncMock(side_effect=[_resp(p) for p in payloads])
-    return c
+_resp, _client = graph_resp, graph_client
 
 
 @pytest.mark.asyncio
@@ -217,5 +201,4 @@ async def test_paging_follows_nextlink_without_resending_params():
     events = await fetch_chat_events(client, "tok", PROFILE, SELF, "2026-07-28")
 
     assert len(events) == 2
-    # The nextLink already carries the query; re-sending params would double it.
     assert client.get.await_args_list[-1].kwargs["params"] is None
