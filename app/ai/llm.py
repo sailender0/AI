@@ -4,8 +4,9 @@ Every LLM call in the app goes through here. Callers pass plain strings
 (system prompt, user content, optional history); this module owns the client,
 the model name, the message envelope, and response extraction.
 
-To swap backend (Azure OpenAI <-> Foundry agent) change the bodies below —
-no route, summarizer, or standup code needs to change.
+To swap backend (Grok, Claude, Gemini, a local model) change the bodies below —
+no route, summarizer, or standup code needs to change. Checklist and the
+per-provider gotchas: docs/swap-llm-provider.md.
 """
 import json
 import logging
@@ -40,7 +41,6 @@ _client: AsyncAzureOpenAI | None = None
 def _get_client() -> AsyncAzureOpenAI:
     global _client
     if not settings.AI_ENABLED:
-        # Message reaches the UI verbatim (routes surface str(exc)) — keep it user-facing.
         raise RuntimeError("Currently all AI features are disabled")
     if _client is None:
         _client = AsyncAzureOpenAI(
@@ -65,7 +65,7 @@ def _log_usage(usage) -> None:
         return
     pt = getattr(usage, "prompt_tokens", 0) or 0
     ct = getattr(usage, "completion_tokens", 0) or 0
-    cached = 0                                    # cached prefix tokens (~0.5x price)
+    cached = 0
     details = getattr(usage, "prompt_tokens_details", None)
     if details is not None:
         cached = getattr(details, "cached_tokens", 0) or 0
@@ -121,7 +121,7 @@ async def answer_stream(
     )
     async for chunk in stream:
         if getattr(chunk, "usage", None):
-            _log_usage(chunk.usage)          # final usage-only chunk (choices == [])
+            _log_usage(chunk.usage)
         delta = chunk.choices[0].delta.content if chunk.choices else None
         if delta:
             yield delta
@@ -154,7 +154,7 @@ async def answer_with_tools(
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return (msg.content or "").strip()
-        msgs.append(msg)                                    # the assistant's tool-call request
+        msgs.append(msg)
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
@@ -172,9 +172,7 @@ async def extract_schema(system: str, user: str, schema: dict, *,
     temperature 0). If the deployment/api-version rejects `json_schema`, falls back to
     plain `json_object` mode so a non-structured-outputs model degrades instead of
     erroring. Returns {} on a refusal / empty content. Raises on invalid JSON —
-    callers decide the fallback.
-    ponytail: the json_object fallback keeps Ask AI working even where structured
-    outputs isn't available; drop it once every deployment is confirmed to support it."""
+    callers decide the fallback."""
     strict = {"type": "json_schema",
               "json_schema": {"name": name, "strict": True, "schema": schema}}
     for response_format in (strict, {"type": "json_object"}):
@@ -193,7 +191,7 @@ async def extract_schema(system: str, user: str, schema: dict, *,
             raise
         _log_usage(resp.usage)
         content = resp.choices[0].message.content
-        return json.loads(content) if content else {}   # content is None on a refusal
+        return json.loads(content) if content else {}
     return {}
 
 

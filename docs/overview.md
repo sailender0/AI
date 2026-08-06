@@ -10,7 +10,7 @@
 
 A personal web application that aggregates your developer activity across **GitHub, GitLab, Jira, and Microsoft Teams** into a single dashboard. It answers the question: *"What did I actually do today/this week?"*
 
-Instead of switching between four tools to reconstruct your work, the app collects all events via webhooks and subscriptions, stores them in a database, and presents them in a unified timeline. An AI layer (GPT-4o) writes daily and weekly summaries and answers natural language questions about your activity.
+Instead of switching between four tools to reconstruct your work, the app collects all events via webhooks and subscriptions, stores them in a database, and presents them in a unified timeline. An AI layer (`gpt-4.1-mini`) writes daily and weekly summaries and answers natural language questions about your activity.
 
 **Primary use cases:**
 - Daily standup prep — what did I do yesterday?
@@ -30,7 +30,7 @@ Instead of switching between four tools to reconstruct your work, the app collec
 | Activity storage | MongoDB (event + device-telemetry documents) |
 | Relational storage | PostgreSQL (users, roles, integrations, AI logs, chat history, devices, email prefs) |
 | Session / cache | Redis |
-| AI | Azure OpenAI — deployment set by `AZURE_OPENAI_DEPLOYMENT` (currently `gpt-4.1-mini`) |
+| AI | Azure OpenAI — deployment set by `AZURE_OPENAI_DEPLOYMENT` (currently `gpt-4.1-mini`). Single seam at `app/ai/llm.py`; to change provider see [swap-llm-provider.md](swap-llm-provider.md) |
 | Scheduling | APScheduler (in-process, persistent jobs) |
 | Real-time | WebSockets (custom `ConnectionManager`) |
 | Auth | Microsoft SSO (MSAL) + roles/permissions (`app/auth/rbac.py`) |
@@ -167,8 +167,9 @@ keyword-gated because it costs three Atlassian round-trips.
 
 **Token costs:**
 - Priced from `AZURE_OPENAI_PRICE_IN` / `AZURE_OPENAI_PRICE_OUT` (USD per 1M
-  tokens), **not** hardcoded — `llm._cost()` reads them. Defaults 0.40 / 1.60
-  match `gpt-4.1-mini`. **Update both when you change the deployment**, or every
+  tokens), **not** hardcoded — `llm._estimate_cost()` reads them. Defaults
+  0.40 / 1.60 match `gpt-4.1-mini`. **Update both when you change the deployment
+  or the provider** ([swap-llm-provider.md](swap-llm-provider.md)), or every
   logged cost is silently wrong.
 - All calls log `prompt_tokens`, `completion_tokens`, `total_tokens`, and `$cost`.
 
@@ -292,8 +293,10 @@ audit-log rows keep their literal `supervisor` value.)
 
 - Focus blocks, AI-tool active time, and Claude Code token usage — all sourced
   from the desktop agent, not from connectors.
-- `is_desktop` gate: set by a `da_desktop` cookie (or `?_dt=1`). The AI-tools
-  sub-page redirects back to `/my-activity` for non-desktop visitors.
+- `is_desktop` gate: true when the logged-in profile has a `devices` row, so the
+  page follows the login, not the browser — any browser on any machine shows the
+  data once an agent is registered. The AI-tools sub-page redirects back to
+  `/my-activity` for profiles with no agent.
 - Week tab carries the token comparison card (two bars + ▲/▼ % delta).
 
 ### Email Report
@@ -498,11 +501,12 @@ app/
 | **GitHub offline gaps** | If app is down when a push fires, the webhook is not replayed. | GitHub retries for a short window; no guaranteed delivery. |
 | **No mobile layout** | UI is desktop-only. No responsive breakpoints. | Personal tool — desktop only. |
 | **No multi-user isolation testing** | Only ever tested with a single user. Multi-user scenarios (shared repos) are untested. | `tests/test_isolation_pg.py` covers per-profile query scoping; real multi-user use is still unexercised. |
-| **Key Vault token path unused** | `_keyvault_encrypt` stores each token as a new secret and never deletes it — unbounded growth, no rotation. | Inactive: `AZURE_KEYVAULT_URL` is unset, so the Fernet path runs. Needs envelope encryption before enabling in prod. |
+| **Key Vault token path unused** ✅ Done | ~~`_keyvault_encrypt` stores each token as a new secret and never deletes it — unbounded growth, no rotation.~~ | Removed. `AZURE_KEYVAULT_URL` was never set in any environment, so the branch had never run; `app/auth/token_store.py` is Fernet-only and `azure-keyvault-secrets`/`azure-identity` are dropped. A future key store needs envelope encryption designed in from the start. |
 | **`SECRET_KEY` re-keys stored tokens** | The Fernet key is derived from `SECRET_KEY`, so changing it makes every stored connector token undecryptable. | Rotating it forces all users to reconnect GitHub/GitLab/Jira. There is no re-encrypt script. |
 | **Chart Y-axis normalisation** | Connector page charts normalise 0–1 relative to busiest day. 1 event all week shows as 1.0. | Tooltips show raw count. |
 | **Redis dependency** | App requires Redis for sessions. If Redis is down, all sessions fail. No fallback. | Run Redis as a service alongside the app. |
-| **Test suite** ✅ Done | 359 passing (4 skipped) across normalizer, routes, services, RBAC, backfill mapping, email rendering, agent ingest, and layering. Run with `pytest tests/ -q`. | — |
+| **Test suite** ✅ Done | 504 passing (4 skipped) across normalizer, routes, services, RBAC, backfill mapping, email rendering, agent ingest, and layering. Run with `pytest tests/ -q`. The 4 skips are the DB-backed integration tests; they need a non-dev Postgres/Mongo — see the `pg_session` docstring in `tests/conftest.py`. | — |
+| **Integration tests never run in CI** | `ci.yml` has no Postgres or Mongo service and never sets `REQUIRE_DB`, so all 4 DB-backed tests skip there permanently — including the cross-tenant chat guard. | Verified manually against a throwaway `activity_tracker_test` DB. Wiring CI needs service containers + `python scripts/migrate.py` + `REQUIRE_DB=1`. |
 | **Help page screenshots** | Help page uses HTML/SVG mockups. Mockups may drift as UI evolves. | Update SVG mockups when major UI changes are made. |
 | **Connector error surfaces** ✅ Done | ~~GitLab / Jira / Teams error states not surfaced.~~ | OAuth failures redirect with `?error=`; webhook failures set `sync_status=error` and show orange banners. |
 | **Webhook rate limiting** ✅ Done | ~~No rate limiting on webhook endpoints.~~ | `slowapi` 200 req/min per IP on all `/webhook/*` routes. |

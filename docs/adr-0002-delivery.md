@@ -38,7 +38,7 @@ first working channel.
    standup; nothing dispatches server-side. A `deliver()` seam only earns its
    place with a **push** channel (email/webhook/Teams). Building a dispatcher
    with one pull implementation is an abstraction with one caller — the trap
-   ADR-0001's ponytail discipline warns against.
+   ADR-0001 warns against.
 
 3. **Agent-toast MVP:**
    - **Scheduled generation** — reuse the hourly-job + local-hour guard pattern
