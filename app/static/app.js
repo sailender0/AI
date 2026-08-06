@@ -1,37 +1,23 @@
-/* ─────────────────────────────────────────────────────────────
-   Shared app script.
-   Base.html's script moved here verbatim, plus the modules that
-   replace code previously copy-pasted across the page templates:
-     SOURCES        — was 8 separate colour/label maps
-     weekPicker()   — was 5 hand-rolled calendars, 3 week-starts
-     chartBase()    — was 5 near-identical Chart.js option blocks
-     renderCommitFeed() — was duplicated in 8 templates
-   ───────────────────────────────────────────────────────────── */
 
-/* ══ Sources ══════════════════════════════════════════════════
-   Single source of truth. Replaces SOURCE_DOT, SOURCE_BADGE,
-   SOURCE_CONFIG, TL_SRC_COLOR, TL_SRC_LABEL, SRC_COLOR,
-   SRC_LABELS, INTG_GRAD and INTG_CLS. Keyed by the `source`
-   value the backend emits. */
+
+
 const SOURCES = {
   github:             { label: 'GitHub', color: '#f97316', hover: '#fb923c', grad: '#f97316,#fb923c', cls: 'kpi-num-github', href: '/github', icon: '⌥' },
   gitlab:             { label: 'GitLab', color: '#10b981', hover: '#34d399', grad: '#10b981,#34d399', cls: 'kpi-num-gitlab', href: '/gitlab', icon: '🦊' },
   jira:               { label: 'Jira',   color: '#06b6d4', hover: '#22d3ee', grad: '#06b6d4,#22d3ee', cls: 'kpi-num-jira',   href: '/jira',   icon: '◈' },
-  // One connector, one entry. Teams and Outlook were separate rows while each had
-  // its own mock page; they now share a single activity calendar, and the Graph
-  // subscription behind them is one thing (me/messages plus chat and calendar).
   teams_subscription: { label: 'Teams / Outlook', color: '#8b5cf6', hover: '#a78bfa', grad: '#8b5cf6,#a78bfa', cls: 'kpi-num-teams', href: '/teams-outlook', icon: '◉' },
 };
-// The analytics/agent pages key Teams as plain "teams". Alias, don't duplicate.
 SOURCES.teams = SOURCES.teams_subscription;
+
+for (const [key, label] of [['teams_chat', 'Teams Chat'], ['teams_call', 'Teams Calls'],
+                            ['outlook_mail', 'Outlook Mail'],
+                            ['outlook_calendar', 'Outlook Calendar']]) {
+  SOURCES[key] = { ...SOURCES.teams_subscription, label, href: '/teams-outlook' };
+}
 
 const SOURCE_ORDER = ['github', 'jira', 'teams_subscription', 'gitlab'];
 const srcOf = s => SOURCES[s] || { label: s, color: '#64748b', hover: '#94a3b8', grad: '#64748b,#94a3b8', cls: '' };
 
-// Back-compat alias: base.html's sidebar used this name.
-const CONNECTOR_META = SOURCES;
-
-/* ══ Event-type labels ════════════════════════════════════════ */
 const _ET_MAP = {
   commit: 'Commits', push: 'Pushes',
   pr_merged: 'PRs merged', pr_opened: 'PRs opened', pr_closed: 'PRs closed', pr_review: 'Reviews',
@@ -45,18 +31,12 @@ function etLabel(et) {
   return _ET_MAP[et] || (et || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/* ══ HTML escaping (XSS guard for innerHTML sinks) ═════════════
-   Activity titles, repo/workspace names, filenames, event types and
-   SHAs all originate from webhook/connector payloads and are rendered
-   via innerHTML across the pages. Escape at the render boundary so
-   injected markup shows as inert text instead of executing. */
+
 function esc(s) {
   return (s == null ? '' : String(s))
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-// Returns escaped COPIES (never mutates the caller's cache) so re-renders on
-// tab switches don't double-escape. Covers every user-controlled event field.
 function escEvents(events) {
   return (events || []).map(it => ({
     ...it,
@@ -68,10 +48,7 @@ function escEvents(events) {
   }));
 }
 
-/* ══ JSON fetch ═══════════════════════════════════════════════
-   Callers used to do `(await res.json()).events || []`, which turns a failed
-   response into an empty list — a 422 then renders as "no activity" instead of
-   an error. That hid a broken week-activity panel indefinitely. Fail loudly. */
+
 async function getJSON(url) {
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
@@ -81,7 +58,6 @@ async function getJSON(url) {
   return res.json();
 }
 
-/* ══ Backfill (ADR-0003) ══════════════════════════════════════ */
 async function backfillNow(source) {
   if (!confirm('Import the last 30 days of ' + source + ' history? This runs in '
              + 'the background; new events appear as they arrive.')) return;
@@ -97,7 +73,6 @@ async function backfillNow(source) {
   }
 }
 
-/* ══ Sidebar ══════════════════════════════════════════════════ */
 function toggleSidebar() {
   const collapsed = document.getElementById('sidebar').classList.contains('collapsed');
   _setSidebar(collapsed ? 'open' : 'collapsed');
@@ -109,7 +84,6 @@ function _setSidebar(state) {
   document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
   const path = document.getElementById('toggle-path');
   if (path) path.setAttribute('d', collapsed ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7');
-  // DA badge becomes the expand button when collapsed (the toggle btn hides with .sidebar-label)
   const badge = document.getElementById('da-badge');
   if (badge) {
     badge.style.cursor = collapsed ? 'pointer' : 'default';
@@ -118,7 +92,6 @@ function _setSidebar(state) {
   }
 }
 
-/* ══ Theme ════════════════════════════════════════════════════ */
 function setTheme(mode) {
   localStorage.setItem('theme', mode);
   _applyTheme(mode);
@@ -162,10 +135,7 @@ function chartColors() {
   };
 }
 
-/* ══ Chart.js shared options ══════════════════════════════════
-   Was re-typed in dashboard/github/gitlab/jira/teams. Spread it and
-   override what a page actually needs:
-     new Chart(ctx, { type:'bar', data, options: chartBase({ stacked:true }) }) */
+
 function chartBase({ stacked = false, onBarClick = null, tooltip = {} } = {}) {
   const cc    = chartColors();
   const light = document.documentElement.getAttribute('data-theme') === 'light';
@@ -198,26 +168,13 @@ function chartBase({ stacked = false, onBarClick = null, tooltip = {} } = {}) {
   };
 }
 
-/* ══ Week picker (Monday-start) ═══════════════════════════════
-   Replaces 5 hand-rolled calendars that had drifted into 3 different
-   week-start conventions. Monday matches the backend everywhere
-   (activity.py, summarizer.py, query.py all use weekday()).
 
-   Usage:
-     const wp = weekPicker({
-       mount:  '#week-picker',    // empty div; the panel renders into it
-       button: '#range-week',     // the "Pick Week ▾" toggle
-       onSelect(mondayIso, label) { ... },
-     });
-     wp.setSelected('2026-07-13');
-*/
 const _PK_MONTHS = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
 
 const isoOf   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const mondayOf = d => { const m = new Date(d); m.setHours(0,0,0,0); const dow = m.getDay(); m.setDate(m.getDate() - (dow === 0 ? 6 : dow - 1)); return m; };
 
-// "Jul 7–11" (Mon–Fri of that week), or "Jun 30–Jul 4" across a month boundary.
 function weekLabel(monday) {
   const mon = new Date(monday), fri = new Date(monday);
   fri.setDate(mon.getDate() + 4);
@@ -227,10 +184,39 @@ function weekLabel(monday) {
     : `${fmt(mon)}–${fmt(fri)}`;
 }
 
-// The current week's Monday + its label — every page needed this.
 function currentWeek() {
   const mon = mondayOf(new Date());
   return { start: isoOf(mon), label: weekLabel(mon) };
+}
+
+function dateRange({ from, to, onChange }) {
+  // Two native <input type="date"> driven as one range. Replaces a hand-rolled
+  // two-month grid: the browser ships the calendar (and, with color-scheme set
+  // in app.css, themes it), so all that's left here is the clamping.
+  const a = document.getElementById(from), b = document.getElementById(to);
+  if (!a || !b) return null;
+  const today = isoOf(new Date());
+  a.max = b.max = today;
+
+  function sync() {
+    b.min = a.value || '';            // end can't precede start
+    a.max = b.value || today;         // start can't follow end, nor be in the future
+    // Fire ONLY when both ends are set. Callers refetch from the server in this
+    // handler, and the grid it replaced likewise reported nothing until a range
+    // was complete — a half-set range would query for a nonsense window.
+    if (a.value && b.value) onChange(a.value, b.value);
+  }
+  a.addEventListener('change', sync);
+  b.addEventListener('change', sync);
+
+  return {
+    set(s, e) {
+      a.value = s || '';
+      b.value = e || '';
+      b.min = a.value;
+      a.max = b.value || today;
+    },
+  };
 }
 
 function weekPicker({ mount, button, onSelect }) {
@@ -259,9 +245,6 @@ function weekPicker({ mount, button, onSelect }) {
     $('label').textContent = `${_PK_MONTHS[month]} ${year}`;
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
-    // Every week whose Monday falls on/before the month's last day — that's
-    // exactly the weeks that intersect this month (the first row may start in
-    // the previous month; its out-of-month days render hidden via .pk-overflow).
     const first = new Date(year, month, 1);
     const last  = new Date(year, month + 1, 0);
     const grid  = $('grid');
@@ -304,19 +287,17 @@ function weekPicker({ mount, button, onSelect }) {
   return { setSelected, open, close, toggle };
 }
 
-/* ══ Commit feed rendering ════════════════════════════════════
-   The .commit-item markup was duplicated across 8 templates. */
-const _FEED_AVATAR_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-function avatarColor(str) {
+
+const _REPO_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
+function repoColor(s) {
   let h = 0;
-  for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return _FEED_AVATAR_COLORS[h % _FEED_AVATAR_COLORS.length];
+  for (const c of (s || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return _REPO_COLORS[h % _REPO_COLORS.length];
 }
 
 const ICON_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
 const ICON_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
 
-// One commit row. `when` is a preformatted time/date string.
 function commitRow(it, { initials = '??', author = 'you', when = '', badge = '', sub = '' } = {}) {
   const shaHtml = it.sha
     ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
@@ -327,7 +308,7 @@ function commitRow(it, { initials = '??', author = 'you', when = '', badge = '',
         it.files.length > 4 ? `<span style="font-size:10px;color:var(--text-3)"> +${it.files.length - 4} more</span>` : ''}</div>`
     : '';
   return `<div class="commit-item">
-    <div class="commit-avatar" style="background:${avatarColor(it.workspace || it.source || '')}">${initials}</div>
+    <div class="commit-avatar" style="background:${repoColor(it.workspace || it.source || '')}">${initials}</div>
     <div class="commit-body">
       <div class="commit-meta">
         <span class="commit-author">${author}</span>
@@ -345,7 +326,6 @@ function commitRow(it, { initials = '??', author = 'you', when = '', badge = '',
 const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
 const fmtDateTime = iso => iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
 
-/* ══ KPI tilt + pulse ═════════════════════════════════════════ */
 function initKpiTilt() {
   document.querySelectorAll('.kpi-tilt-card').forEach(card => {
     card.addEventListener('mousemove', e => {
@@ -375,7 +355,6 @@ function _initPulseDots() {
   });
 }
 
-/* ══ Greeting ═════════════════════════════════════════════════ */
 function getGreeting(email) {
   const hour = new Date().getHours();
   const name = email.split('@')[0].split('.')[0];
@@ -385,13 +364,11 @@ function getGreeting(email) {
   return `Good evening, ${capitalized}`;
 }
 
-/* ══ RBAC ═════════════════════════════════════════════════════ */
 function hasPerm(key) {
-  if (window._role === 'admin') return true;   // only admin implicitly holds all
-  return (window._perms || []).includes(key);  // managers gated by their own list too
+  if (window._role === 'admin') return true;
+  return (window._perms || []).includes(key);
 }
 
-/* ══ Boot ═════════════════════════════════════════════════════ */
 async function initBase() {
   const res = await fetch('/api/me', { credentials: 'include' });
   const data = await res.json();
@@ -405,8 +382,6 @@ async function initBase() {
   document.getElementById('sidebar-logout').classList.remove('hidden');
   document.getElementById('sidebar-email').textContent = data.email;
 
-  // RBAC: expose role/permissions for per-page gating (hasPerm) and reveal
-  // role-gated nav. Server still enforces — this is just to hide dead controls.
   window._role  = data.role || 'user';
   window._perms = data.permissions || [];
   window._email = data.email || '';
@@ -422,7 +397,6 @@ async function initBase() {
   const summaryNav = document.getElementById('nav-summary');
   if (summaryNav && hasPerm('consolidated_report')) summaryNav.classList.remove('hidden');
   document.getElementById('page-greeting').textContent = getGreeting(data.email);
-  // Feed avatar identity, shared by every page's onBaseReady
   const _emailUser = (data.email || '').split('@')[0];
   window._actUserInitials = _emailUser.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
   window._actAuthorName   = _emailUser.split(/[._]/)[0] || _emailUser;
@@ -432,7 +406,6 @@ async function initBase() {
   const ae = document.getElementById('appearance-email');
   if (ae) ae.textContent = data.email;
 
-  // Sidebar connectors
   const container = document.getElementById('sidebar-connectors');
   container.innerHTML = '';
   for (const source of SOURCE_ORDER) {
@@ -450,7 +423,6 @@ async function initBase() {
       </a>`;
   }
 
-  // Save browser timezone before loading any data — ensures all queries use local time
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await fetch('/api/profile/timezone', {
@@ -466,7 +438,6 @@ async function initBase() {
   if (typeof onBaseReady === 'function') onBaseReady(data);
 }
 
-/* ══ WebSocket ════════════════════════════════════════════════ */
 let _wsReconnectTimer = null;
 
 function _connectWS() {
@@ -502,7 +473,6 @@ function _connectWS() {
   ws.onerror = () => ws.close();
 }
 
-/* ══ Global listeners ═════════════════════════════════════════ */
 document.addEventListener('click', e => {
   const menu   = document.getElementById('appearance-menu');
   const avatar = document.getElementById('header-avatar');
@@ -515,10 +485,6 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if ((localStorage.getItem('theme') || 'dark') === 'system') _applyTheme('system');
 });
 
-/* ══ Chat widget (Alpine) ═════════════════════════════════════ */
-// Proactive agent bubble (base.html). No longer a chat — it fetches what needs
-// the user's attention. Full chat lives at /ai. Loads once on init so the bubble
-// badge shows a count without being opened; the server caches the payload 10 min.
 function agentWidget() {
   return {
     open: false,
@@ -538,8 +504,8 @@ function agentWidget() {
       if (this.loading) return;
       this.loading = true;
       try {
-        const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;  // IANA tz (ADR-0001)
-        const qs  = `tz=${encodeURIComponent(tz)}${fresh ? '&fresh=1' : ''}`;  // fresh bypasses the server cache
+        const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const qs  = `tz=${encodeURIComponent(tz)}${fresh ? '&fresh=1' : ''}`;
         const r   = await fetch(`/api/agent/insights?${qs}`, { credentials: 'include' });
         const d   = await r.json();
         this.digest = d.digest || '';
@@ -556,20 +522,10 @@ function agentWidget() {
   };
 }
 
-/* ══ Jira "My Work" — shared by /jira and the dashboard ═══════
-   Always renders the assigned-issues list into #assigned-list (+ count badge);
-   when the host page provides them, also fills #jira-kpis (stat tiles) and the
-   #jira-status-chart / #jira-prio-chart mini bars. Bar colors deliberately
-   match the status/priority chips used across the app (color follows the
-   entity); identity is always carried by the axis text labels, never color
-   alone, so the shared-hue statuses stay readable for CVD users. */
-// Deterministic per-repo/workspace accent, shared by every feed renderer
-const _REPO_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-function repoColor(s) { let h = 0; for (const c of (s || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return _REPO_COLORS[h % _REPO_COLORS.length]; }
 
-let _jiraSiteUrl = localStorage.getItem('jiraSiteUrl') || '';  // survives across pages that never call loadAssigned
+let _jiraSiteUrl = localStorage.getItem('jiraSiteUrl') || '';
 const _PRIO_COLORS = { highest:'#ef4444', high:'#f97316', medium:'#f59e0b', low:'#22c55e', lowest:'#64748b' };
-const _CAT_COLORS  = { new:'#64748b', indeterminate:'#f59e0b', done:'#22c55e' };  // Jira statusCategory keys
+const _CAT_COLORS  = { new:'#64748b', indeterminate:'#f59e0b', done:'#22c55e' };
 const _PRIO_ORDER  = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
 const _chip = (txt, color) => txt ? `<span class="text-xs px-1.5 py-0.5 rounded" style="background:${color}22;color:${color}">${esc(txt)}</span>` : '';
 const _prioChip = p => _chip(p, _PRIO_COLORS[(p || '').toLowerCase()] || '#64748b');
@@ -581,7 +537,6 @@ function _keyLink(key) {
     : `<span class="text-xs font-semibold" style="color:#06b6d4">${k}</span>`;
 }
 
-// due date -> {days, color, label}; null when the issue has no due date
 function _dueInfo(due) {
   if (!due) return null;
   const days = Math.round((new Date(due + 'T00:00:00') - new Date(new Date().toDateString())) / 864e5);
@@ -634,8 +589,6 @@ function _miniBar(canvasId, labels, data, colors, prev, horizontal = true) {
   });
 }
 
-// Due outlook (overdue + next 7 days, vertical) and WIP aging (horizontal,
-// sequential cyan ramp — darker = older). Only render where the page mounts them.
 function _renderJiraExtraCharts(issues) {
   if (document.getElementById('jira-due-chart')) {
     const counts = new Array(8).fill(0);
@@ -668,7 +621,6 @@ function _renderJiraExtraCharts(issues) {
 }
 
 function _renderJiraCharts(issues) {
-  // by status name (top 5), each bar wearing its statusCategory color
   const byStatus = {};
   issues.forEach(i => { const s = i.status || '—'; (byStatus[s] = byStatus[s] || { n: 0, cat: i.status_category }).n++; });
   const sLabels = Object.keys(byStatus).sort((a, b) => byStatus[b].n - byStatus[a].n).slice(0, 5);
@@ -677,7 +629,6 @@ function _renderJiraCharts(issues) {
     sLabels.map(s => _CAT_COLORS[byStatus[s].cat] || '#06b6d4'),
     _jiraStatusChart);
 
-  // by priority, in fixed severity order (unknown names appended)
   const byPrio = {};
   issues.forEach(i => { const p = i.priority || '—'; byPrio[p] = (byPrio[p] || 0) + 1; });
   const pLabels = _PRIO_ORDER.filter(p => byPrio[p])
@@ -699,8 +650,6 @@ async function loadAssigned() {
   }
   _jiraSiteUrl = data.site_url || _jiraSiteUrl;
   if (data.site_url) localStorage.setItem('jiraSiteUrl', data.site_url);
-  // overdue first, then soonest due; no due date last (stable sort keeps the
-  // server's priority ordering within each group)
   const issues = (data.issues || []).slice().sort((a, b) => {
     const da = _dueInfo(a.due_date), db = _dueInfo(b.due_date);
     return (da ? da.days : Infinity) - (db ? db.days : Infinity);
@@ -733,7 +682,6 @@ async function loadAssigned() {
   }).join('');
 }
 
-/* ══ Go ═══════════════════════════════════════════════════════ */
 _setSidebar(localStorage.getItem('sidebar') || 'open');
 _updateThemeBtns(localStorage.getItem('theme') || 'dark');
 initBase();

@@ -20,6 +20,12 @@
 
 /* ── Design tokens ─────────────────────────────── */
 :root {
+  /* Tells the browser to render its OWN widgets dark — the calendar panel and
+     picker indicator of <input type="date">/<input type="week">, plus default
+     scrollbars and form controls. Without it those stay light-on-dark and look
+     broken against the theme; no amount of CSS on the input itself reaches
+     inside the native picker. Must track [data-theme] below, not the OS. */
+  color-scheme:   dark;
   --bg:           #09090B;
   --surface:      #111115;
   --surface-2:    #18181C;
@@ -39,6 +45,7 @@
   --chrome-text:  #e2e8f0;
 }
 [data-theme="light"] {
+  color-scheme:   light;
   --bg:           #F4F4F6;
   --surface:      #FFFFFF;
   --surface-2:    #F0F0F4;

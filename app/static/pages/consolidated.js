@@ -1,4 +1,3 @@
-  // Consolidated report page. esc() is global from app.js.
   let crStart = null, crEnd = null, crCal = null, crLast = null;
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const crIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -7,7 +6,8 @@
   const crFmt = s => { const [y, m, d] = s.split('-').map(Number); return `${MON[m - 1]} ${d}`; };
 
   function onBaseReady() {
-    crCal = RangeCalendar(document.getElementById('cr-cal'), {
+    crCal = dateRange({
+      from: 'cr-from', to: 'cr-to',
       onChange: (s, e) => { crStart = s; crEnd = e; crUpdateLabel(); },
     });
     document.getElementById('cr-presets').addEventListener('click', e => {
@@ -16,7 +16,7 @@
       b.setAttribute('aria-pressed', 'true');
       const p = b.dataset.preset;
       const custom = document.getElementById('cr-custom');
-      if (p === 'custom') { custom.style.display = 'block'; crCal.setRange(crStart, crEnd); return; }
+      if (p === 'custom') { custom.style.display = 'block'; crCal.set(crStart, crEnd); return; }
       custom.style.display = 'none';
       crApplyPreset(p); crUpdateLabel();
     });
@@ -72,7 +72,7 @@
 
     const kpis = [`<span class="cr-kpi"><b>${d.total}</b><span>total events</span></span>`]
       .concat(Object.entries(d.by_source || {}).sort()
-        .map(([k, v]) => `<span class="cr-kpi"><b>${v}</b><span>${esc(k)}</span></span>`));
+        .map(([k, v]) => `<span class="cr-kpi"><b>${v}</b><span>${esc(srcOf(k).label)}</span></span>`));
     document.getElementById('cr-kpis').innerHTML = kpis.join('');
 
     const summary = document.getElementById('cr-summary');
@@ -88,11 +88,10 @@
     box.style.display = '';
   }
 
-  // Download the summary as a plain-text file (no server round-trip).
   function downloadReport() {
     if (!crLast) return;
     const d = crLast;
-    const bySrc = Object.entries(d.by_source || {}).sort().map(([k, v]) => `  ${k}: ${v}`).join('\n');
+    const bySrc = Object.entries(d.by_source || {}).sort().map(([k, v]) => `  ${srcOf(k).label}: ${v}`).join('\n');
     const text = `Consolidated report\n${d.start} to ${d.end}\n\n`
       + `Total events: ${d.total}\n${bySrc}\n\n`
       + `Summary\n-------\n${d.summary || '(none)'}\n`;

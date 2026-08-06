@@ -1,9 +1,8 @@
-  // Attendance report page. esc() is global from app.js. IS_ELEVATED from template.
-  let AT_PEOPLE = [];               // {id,email,role} in scope (elevated only)
-  const atSelected = new Map();     // id -> {email,role}
-  let atLast = null;                // last query params for the CSV download
-  let rangeStart = null, rangeEnd = null;   // ISO yyyy-mm-dd
-  let atCal = null;                 // shared RangeCalendar instance
+  let AT_PEOPLE = [];
+  const atSelected = new Map();
+  let atLast = null;
+  let rangeStart = null, rangeEnd = null;
+  let atCal = null;
   let updTimer = null;
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -13,18 +12,18 @@
   function atDaysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); }
 
   async function onBaseReady() {
-    atCal = RangeCalendar(document.getElementById('at-cal'), {
+    atCal = dateRange({
+      from: 'at-from', to: 'at-to',
       onChange: (s, e) => { rangeStart = s; rangeEnd = e; updateRangeLabel(); scheduleUpdate(); },
     });
 
-    // period presets
     document.getElementById('at-presets').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       [...e.currentTarget.children].forEach(x => x.setAttribute('aria-pressed', 'false'));
       b.setAttribute('aria-pressed', 'true');
       const p = b.dataset.preset;
       const custom = document.getElementById('at-custom');
-      if (p === 'custom') { custom.style.display = 'block'; atCal.setRange(rangeStart, rangeEnd); return; }
+      if (p === 'custom') { custom.style.display = 'block'; atCal.set(rangeStart, rangeEnd); return; }
       custom.style.display = 'none';
       applyPreset(p); updateRangeLabel(); scheduleUpdate();
     });
@@ -33,8 +32,7 @@
       try {
         const r = await fetch('/api/user-management/users', { credentials: 'include' });
         if (r.ok) AT_PEOPLE = (await r.json()).users || [];
-      } catch (e) { /* picker stays empty; server still scopes */ }
-      // A manager's scope is just their reports — no role filter, only self+team.
+      } catch (e) {  }
       const isAdmin = window._role === 'admin';
       if (!isAdmin) document.getElementById('at-modebtn-role').style.display = 'none';
       document.getElementById('at-panel-all').textContent = isAdmin
@@ -44,12 +42,11 @@
       });
     }
 
-    applyPreset('7');          // default: last 7 days
+    applyPreset('7');
     updateRangeLabel();
-    runReport();               // initial live render
+    runReport();
   }
 
-  // ── period ──────────────────────────────────────────────────────────────────
   function applyPreset(p) {
     rangeEnd = atToday();
     if (p === 'thismonth') { const d = new Date(); rangeStart = iso(new Date(d.getFullYear(), d.getMonth(), 1)); }
@@ -63,8 +60,7 @@
   }
   function fmtISO(s) { const [y, m, d] = s.split('-').map(Number); return `${MON[m - 1]} ${d}`; }
 
-  // ── people ──────────────────────────────────────────────────────────────────
-  let peopleMode = 'all';           // all | role | users
+  let peopleMode = 'all';
   function atMode(mode) {
     peopleMode = mode;
     document.getElementById('at-panel-all').style.display = mode === 'all' ? '' : 'none';
@@ -80,7 +76,7 @@
       return AT_PEOPLE.filter(p => p.role === role).map(p => p.id);
     }
     if (peopleMode === 'users') return [...atSelected.keys()];
-    return [];   // 'all' → empty = everyone in scope (server clamps)
+    return [];
   }
 
   function atSearch(q) {
@@ -106,7 +102,6 @@
       .map(([id, p]) => `<span class="at-chip">${esc(p.email)}<button onclick="atRemove('${id}')" title="Remove">×</button></span>`).join('');
   }
 
-  // ── live update ───────────────────────────────────────────────────────────────
   function atParams() {
     return { start: rangeStart, end: rangeEnd, sources: [], users: IS_ELEVATED ? atUsers() : [] };
   }
