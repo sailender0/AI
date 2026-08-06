@@ -39,13 +39,10 @@
     const s = new Date(_chartStartDate + 'T00:00:00');
     const e = new Date(s); e.setDate(s.getDate() + 7);
     const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
-    // limit must stay within the endpoint's cap (le=200 in activity.py) — 500
-    // was silently rejected with a 422 and rendered as "no activity".
     const data = await getJSON(`/api/events/recent?source=gitlab&start_date=${_chartStartDate}&end_date=${endIso}&limit=200`);
     _panelEvents = data?.events || [];
     renderPanelFeed();
   }
-  // ── Week picker — shared weekPicker() from app.js (Monday-start) ───────────
   let _chartStartDate = currentWeek().start;
   let _picker         = null;
 
@@ -226,7 +223,6 @@
 
   }
 
-  // ── Right panel ───────────────────────────────────────────────────────────
   function setPanelTab(tab) {
     _panelTab = tab;
     document.getElementById('panel-tab-activity').classList.toggle('active', tab === 'activity');
@@ -272,12 +268,7 @@
         </div>`;
       }).join('')}`;
   }
-  // ── End right panel ───────────────────────────────────────────────────────
 
-  const _GL_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _glRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _GL_COLORS[h%_GL_COLORS.length]; }
-  const _GL_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-  const _GL_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const _glFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 
   function _glCommitExtra(it) {
@@ -310,8 +301,8 @@
           <div class="commit-body">
             <div class="commit-meta">
               <span class="commit-author">${author}</span>
-              ${it.workspace?`<span class="commit-repo-pill">${_GL_BRANCH} ${it.workspace}</span>`:''}
-              <span class="commit-time">${_GL_CLOCK} ${time}</span>
+              ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+              <span class="commit-time">${ICON_CLOCK} ${time}</span>
             </div>
             <div class="commit-title">${it.title||'—'}${shaHtml}</div>
             <div class="commit-sub">${_evtBadge(it.event_type)}</div>
@@ -338,8 +329,8 @@
             <div class="commit-body">
               <div class="commit-meta">
                 <span class="commit-author">${author}</span>
-                ${it.workspace?`<span class="commit-repo-pill">${_GL_BRANCH} ${it.workspace}</span>`:''}
-                <span class="commit-time">${_GL_CLOCK} ${time}</span>
+                ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+                <span class="commit-time">${ICON_CLOCK} ${time}</span>
               </div>
               <div class="commit-title">${it.title||'—'}${shaHtml}</div>
               ${filesHtml}

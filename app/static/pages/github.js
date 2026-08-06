@@ -16,8 +16,6 @@
     const s = new Date(_chartStartDate + 'T00:00:00');
     const e = new Date(s); e.setDate(s.getDate() + 7);
     const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
-    // limit must stay within the endpoint's cap (le=200 in activity.py) — 500
-    // was silently rejected with a 422 and rendered as "no activity".
     const data = await getJSON(`/api/events/recent?source=github&start_date=${_chartStartDate}&end_date=${endIso}&limit=200`);
     _panelEvents = data?.events || [];
     renderPanelFeed();
@@ -25,13 +23,9 @@
   let _ghChartData    = null;
   let _chartRepos     = null;
   let _currentType    = 'commits';
-  let _chartStartDate = currentWeek().start;   // Monday of the current week
+  let _chartStartDate = currentWeek().start;
   let _picker         = null;
 
-  // ── Week picker — shared weekPicker() from app.js (Monday-start) ───────────
-  // Was ~95 lines here. The old grid was Sunday-start while its own "Current
-  // Week" computed a Monday, and it formatted dates with toISOString() (UTC),
-  // which shifts the day for anyone east of UTC. Both gone with it.
   function initPicker() {
     _picker = weekPicker({
       mount: '#week-picker',
@@ -62,7 +56,6 @@
     return loadStats();
   }
 
-  // ── Right panel ───────────────────────────────────────────────────────────
   function setPanelTab(tab) {
     _panelTab = tab;
     document.getElementById('panel-tab-activity').classList.toggle('active', tab === 'activity');
@@ -90,7 +83,7 @@
         <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);color:var(--text-3)">${events.length}</span>
       </div>
       ${events.map(it => {
-        const color = _ghRepoColor(it.workspace || '');
+        const color = repoColor(it.workspace || '');
         const time  = new Date(it.occurred_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
         const filesHtml = it.files?.length
           ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)">+${it.files.length-4}</span>`:''}</div>` : '';
@@ -109,7 +102,6 @@
         </div>`;
       }).join('')}`;
   }
-  // ── End right panel ───────────────────────────────────────────────────────
 
   const _CT_LABELS = { commits:'Commits', pull_requests:'Pull Requests', issues:'Issues', reviews:'Reviews' };
   const _CT_IDS    = { commits:'ct-commits', pull_requests:'ct-prs', issues:'ct-issues', reviews:'ct-reviews' };
@@ -208,7 +200,6 @@
     const res = await fetch(url, { credentials: 'include' });
     const data = await res.json();
 
-    // Metrics
     const grid = document.getElementById('metric-cards');
     grid.innerHTML = (data.metrics || []).map(m => {
       const changeHtml = m.change !== undefined
@@ -225,12 +216,10 @@
     }).join('');
     initKpiTilt();
 
-    // Chart — store all datasets, render active tab
     _ghChartData = data.chart;
     _chartRepos  = data.chart.repos || null;
     setChartType('commits');
 
-    // Top items (for Top Repos panel tab)
     document.getElementById('top-label').textContent = data.top_label || 'Top Repositories';
     const topEl = document.getElementById('top-items');
     if (!data.top_items?.length) {
@@ -251,13 +240,7 @@
 
   }
 
-  const _GH_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _ghRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _GH_COLORS[h%_GH_COLORS.length]; }
-  const _GH_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-  const _GH_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const _ghFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  // pr_opened → "Opened", pr_merged → "Merged", etc. Only PR rows are ambiguous
-  // in the feed (Commits/Issues tabs are already single-type).
   const _prLabel = et => (et||'').replace(/^pr_/i,'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) || 'PR';
 
   function _ghCommitExtra(it) {
@@ -276,7 +259,7 @@
     const author   = window._actAuthorName   || 'you';
     if (evtPeriod === 'history') {
       return `<div class="commit-feed">${events.map(it => {
-        const color = _ghRepoColor(it.workspace||'');
+        const color = repoColor(it.workspace||'');
         const time  = new Date(it.occurred_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
         const {shaHtml, filesHtml} = _ghCommitExtra(it);
         return `<div class="commit-item">
@@ -284,8 +267,8 @@
           <div class="commit-body">
             <div class="commit-meta">
               <span class="commit-author">${author}</span>
-              ${it.workspace?`<span class="commit-repo-pill">${_GH_BRANCH} ${it.workspace}</span>`:''}
-              <span class="commit-time">${_GH_CLOCK} ${time}</span>
+              ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+              <span class="commit-time">${ICON_CLOCK} ${time}</span>
             </div>
             <div class="commit-title">${it.title||'—'}${shaHtml}</div>
             <div class="commit-sub">${_ghFmt(it.event_type)}</div>
@@ -303,7 +286,7 @@
           <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
         </div>
         <div class="commit-feed">${evts.map(it => {
-          const color = _ghRepoColor(it.workspace||'');
+          const color = repoColor(it.workspace||'');
           const time  = new Date(it.occurred_at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
           const {shaHtml, filesHtml} = _ghCommitExtra(it);
           return `<div class="commit-item">
@@ -311,8 +294,8 @@
             <div class="commit-body">
               <div class="commit-meta">
                 <span class="commit-author">${author}</span>
-                ${it.workspace?`<span class="commit-repo-pill">${_GH_BRANCH} ${it.workspace}</span>`:''}
-                <span class="commit-time">${_GH_CLOCK} ${time}</span>
+                ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+                <span class="commit-time">${ICON_CLOCK} ${time}</span>
               </div>
               <div class="commit-title">${it.title||'—'}${shaHtml}</div>
               ${filesHtml}

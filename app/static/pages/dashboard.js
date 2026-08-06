@@ -34,7 +34,6 @@
     await Promise.all(jobs);
   }
 
-  // ── Week range ───────────────────────────────────────────────────────────
   function setRangeDefault() {
     const cw = currentWeek();
     _chartStartDate = cw.start;
@@ -67,7 +66,6 @@
     _renderActivityChart(data);
   }
 
-  // ── Periods ──────────────────────────────────────────────────────────────
   function setTimelinePeriod(period, fetch = true) {
     timelinePeriod = period;
     document.getElementById('tl-today').classList.toggle('active',   period === 'today');
@@ -88,8 +86,6 @@
     });
   });
 
-  // ── KPIs ─────────────────────────────────────────────────────────────────
-  // The stats API returns human labels, not source keys — map back to a source.
   function _kpiSrc(label) {
     const l = (label || '').toLowerCase();
     if (l.includes('jira')   || l.includes('issue')   || l.includes('sprint')) return SOURCES.jira;
@@ -119,7 +115,6 @@
     initKpiTilt();
   }
 
-  // ── Chart ────────────────────────────────────────────────────────────────
   function _renderActivityChart(data) {
     const ctx = document.getElementById('activity-chart').getContext('2d');
     if (activityChart) activityChart.destroy();
@@ -131,7 +126,7 @@
         datasets: SOURCE_ORDER.map(k => ({
           data: data.sources[k] || [],
           backgroundColor:      SOURCES[k].color,
-          hoverBackgroundColor: SOURCES[k].hover,   // controlled: subtle, not Chart.js auto-brighten
+          hoverBackgroundColor: SOURCES[k].hover,
           borderWidth: 0,
           borderRadius: 3,
           borderSkipped: true,
@@ -168,7 +163,6 @@
     });
   }
 
-  // ── Timeline ─────────────────────────────────────────────────────────────
   function renderTimelineFeed(events) {
     events = escEvents(events);
     const initials = window._actUserInitials || '??';
@@ -243,7 +237,6 @@
       : renderTimelineFeed(events);
   }
 
-  // ── Standup card ─────────────────────────────────────────────────────────
   function standupCard() {
     return {
       expanded: false,
@@ -251,14 +244,14 @@
       text: '',
       error: '',
       periodLabel: '',
-      generatedAt: null,   // ISO string from server
+      generatedAt: null,
       copied: false,
 
       get today() { return new Date().toISOString().slice(0, 10); },
 
       get stale() {
         if (!this.generatedAt) return false;
-        const age = (Date.now() - new Date(this.generatedAt)) / 60000; // minutes
+        const age = (Date.now() - new Date(this.generatedAt)) / 60000;
         return age > 120 && new Date().getHours() < 13;
       },
 
@@ -275,7 +268,6 @@
       init() {
         const hour = new Date().getHours();
         const collapsed = localStorage.getItem(this._collapsedKey()) === '1';
-        // Expand automatically before 11am unless the user already collapsed today
         this.expanded = hour < 11 && !collapsed;
         if (this.expanded) this.load();
 
@@ -285,7 +277,6 @@
       },
 
       async load() {
-        // Restore saved draft first (covers tab refresh / sleep case)
         const draft = localStorage.getItem(this._draftKey());
         if (draft) this.text = draft;
 
@@ -295,7 +286,7 @@
           const r = await fetch('/api/standup/today', { credentials: 'include' });
           const d = await r.json();
           if (d.error) { this.error = d.error; return; }
-          if (!draft) this.text = d.standup;   // don't clobber an edit in progress
+          if (!draft) this.text = d.standup;
           this.periodLabel = d.period || '';
           this.generatedAt = d.generated_at || null;
         } catch (e) {

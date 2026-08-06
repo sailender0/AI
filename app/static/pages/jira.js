@@ -12,21 +12,16 @@
     comments: e => /comment/i.test(e.event_type),
   };
 
-  // "Assigned to me" panel: markup above renders via the shared loadAssigned()
-  // in app.js (also used by the dashboard).
 
   async function loadPanelEvents() {
     if (!_chartStartDate) return;
     const s = new Date(_chartStartDate + 'T00:00:00');
     const e = new Date(s); e.setDate(s.getDate() + 7);
     const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
-    // limit must stay within the endpoint's cap (le=200 in activity.py) — 500
-    // was silently rejected with a 422 and rendered as "no activity".
     const data = await getJSON(`/api/events/recent?source=jira&start_date=${_chartStartDate}&end_date=${endIso}&limit=200`);
     _panelEvents = data?.events || [];
     renderPanelFeed();
   }
-  // ── Week picker — shared weekPicker() from app.js (Monday-start) ───────────
   let _chartStartDate = currentWeek().start;
   let _picker         = null;
 
@@ -140,7 +135,7 @@
       document.getElementById('main-content').classList.remove('hidden');
       initPicker();
       setEvtPeriod('today', false);
-      await loadAssigned();   // first: sets _jiraSiteUrl so feed key links render as links
+      await loadAssigned();
       await Promise.all([setRangeDefault(), loadEvents(), loadPanelEvents()]);
     }
   }
@@ -182,7 +177,6 @@
 
   }
 
-  // ── Right panel ───────────────────────────────────────────────────────────
   function setPanelTab(tab) {
     _panelTab = tab;
     document.getElementById('panel-tab-activity').classList.toggle('active', tab === 'activity');
@@ -221,10 +215,7 @@
         </div>`;
       }).join('')}`;
   }
-  // ── End right panel ───────────────────────────────────────────────────────
 
-  const _JR_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-  const _JR_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const _jrFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 
   function renderConnFeed(events) {
@@ -240,8 +231,8 @@
           <div class="commit-body">
             <div class="commit-meta">
               <span class="commit-author">${author}</span>
-              ${it.workspace?`<span class="commit-repo-pill">${_JR_BRANCH} ${it.workspace}</span>`:''}
-              <span class="commit-time">${_JR_CLOCK} ${time}</span>
+              ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+              <span class="commit-time">${ICON_CLOCK} ${time}</span>
             </div>
             <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title||'—'}</div>
             <div class="commit-sub flex items-center gap-1.5">${_jrFmt(it.event_type)} ${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>
@@ -265,8 +256,8 @@
             <div class="commit-body">
               <div class="commit-meta">
                 <span class="commit-author">${author}</span>
-                ${it.workspace?`<span class="commit-repo-pill">${_JR_BRANCH} ${it.workspace}</span>`:''}
-                <span class="commit-time">${_JR_CLOCK} ${time}</span>
+                ${it.workspace?`<span class="commit-repo-pill">${ICON_BRANCH} ${it.workspace}</span>`:''}
+                <span class="commit-time">${ICON_CLOCK} ${time}</span>
               </div>
               <div class="commit-title">${it.issue_key ? _keyLink(it.issue_key) + ' ' : ''}${it.title||'—'}</div>
               ${(it.status || it.priority) ? `<div class="flex items-center gap-1.5 mt-0.5">${_chip(it.status, '#06b6d4')}${_prioChip(it.priority)}</div>` : ''}

@@ -3,7 +3,6 @@
   }
 
   async function loadSummaries() {
-    // Clear stale caches so re-indexed summaries don't render old breakdown data
     Object.keys(_breakdownCache).forEach(k => delete _breakdownCache[k]);
     Object.keys(_breakdownView).forEach(k  => delete _breakdownView[k]);
     Object.keys(_breakdownConn).forEach(k  => delete _breakdownConn[k]);
@@ -24,7 +23,6 @@
 
     const statsCache = {};
 
-    // Parse as UTC date-only to avoid midnight UTC shifting to previous day in local timezones
     function fmtUtcDate(isoStr, opts) {
       if (!isoStr) return '';
       const [y, m, d] = isoStr.slice(0, 10).split('-').map(Number);
@@ -88,7 +86,6 @@
         </div>`;
     }).join('');
 
-    // Auto-load stats and breakdown for first (open) week
     if (weeklies.length) {
       loadWeekStats(0, statsCache);
       loadWeekBreakdown(0);
@@ -150,7 +147,7 @@
         return d && Object.values(d).some(v => v > 0);
       })
       .map(intg => {
-        const src  = srcOf(intg.key);   // SOURCES aliases teams -> teams_subscription
+        const src  = srcOf(intg.key);
         const rows = intg.stats(data[intg.key])
           .map(r => `<div class="int-stat"><span>${r.label}</span><span class="int-stat-val ${src.cls}">${r.val}</span></div>`)
           .join('');
@@ -176,12 +173,10 @@
     }
   }
 
-  // ---------- Breakdown state ----------
   const _breakdownCache = {};
   const _breakdownView  = {};
   const _breakdownConn  = {};
 
-  // Source labels/colours come from SOURCES + SOURCE_ORDER in app.js.
 
   function fmtDayLabel(dateStr) {
     const [y,m,d] = dateStr.split('-').map(Number);
@@ -194,7 +189,6 @@
     return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
-  // fmtTime() comes from app.js (identical implementation).
 
   const _CF_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
   const _CF_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;

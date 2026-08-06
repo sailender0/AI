@@ -1,9 +1,7 @@
-  // CAN_EDIT is declared by the inline shim in user_management.html (server-rendered).
   let USERS = [], ALL_PERMS = [], ROLES = [], MANAGERS = [], ASSIGNABLE = [];
   let ACTOR_ID = null;
   let expandedId = null;
 
-  // Role → accent (violet / amber / slate), tuned for the near-black surface.
   const ROLE_META = {
     admin:   { color:'#a78bfa', bg:'rgba(167,139,250,0.13)' },
     manager: { color:'#fbbf24', bg:'rgba(251,191,36,0.13)' },
@@ -11,7 +9,6 @@
   };
   const meta = r => ROLE_META[r] || ROLE_META.user;
 
-  // Human labels for permission keys (fallback to the raw key if unmapped).
   const PERM_LABELS = {
     email_report:     'Email Report page',
     export_my_day:    'Download My Day report',
@@ -22,7 +19,6 @@
   };
   const permLabel = p => PERM_LABELS[p] || p;
 
-  // esc() is a global from app.js.
   function initials(email) {
     return (email || '?').replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '?';
   }
@@ -64,9 +60,6 @@
          </select>`
       : `<span class="u-badge">${esc(u.role)}</span>`;
 
-    // Toggles bind to OWN permissions (for a manager row, the team template). When the
-    // actor is editing a report, permissions they can't assign are HIDDEN entirely —
-    // only an admin (ASSIGNABLE = all) sees the full list. Read-only rows show all.
     const visible = ALL_PERMS.filter(p => !(u.can_edit_perms && !ASSIGNABLE.includes(p)));
     const switches = visible.map(p => {
       const editable = u.can_edit_perms && ASSIGNABLE.includes(p);
@@ -81,7 +74,6 @@
       </div>`;
     }).join('') || '<p style="font-size:12px;color:var(--text-3)">No permissions you can assign — ask an admin to enable some under Manager permissions.</p>';
 
-    // Manager assignment — admin only, for plain-user rows.
     const managerCtl = (CAN_EDIT && u.role === 'user') ? `
       <div class="rep-field mt-3">
         <label>Reports to</label>
@@ -91,7 +83,6 @@
         </select>
       </div>` : '';
 
-    // Team — the manager's direct reports, with add/remove (admin only, manager rows).
     const teamCtl = (CAN_EDIT && isManager) ? `
       <div class="mt-4 pt-3" style="border-top:1px solid var(--border)">
         <div class="u-sec-label">Team — people reporting to this manager</div>
@@ -110,8 +101,6 @@
         </div>
       </div>` : '';
 
-    // Can-assign-to-team allow-list — admin only, on a manager row (same list as the
-    // Manager permissions tab; both write assignable_perms).
     const assignableCtl = (CAN_EDIT && isManager) ? `
       <div class="mt-4 pt-3" style="border-top:1px solid var(--border)">
         <div class="u-sec-label">Can assign to team — permissions this manager may grant their reports</div>
@@ -174,7 +163,6 @@
     applyFilter();
   }
 
-  // ── Filter (visibility only — never rebuilds, so open state survives) ──────────
   function applyFilter() {
     const q = (document.getElementById('u-search').value || '').toLowerCase().trim();
     const rf = document.getElementById('u-role-filter').value;
@@ -189,7 +177,6 @@
     document.getElementById('no-match').style.display = (USERS.length && !shown) ? 'block' : 'none';
   }
 
-  // ── Expand / collapse ─────────────────────────────────────────────────────────
   const insp = id => document.getElementById('insp-' + id);
   const row  = id => document.getElementById('row-' + id);
 
@@ -211,7 +198,6 @@
     if (expandedId === id) expandedId = null;
   }
 
-  // ── Role & permissions ────────────────────────────────────────────────────────
   async function setRole(id, role) {
     const r = await fetch(`/api/user-management/users/${id}/role`, {
       method: 'PATCH', credentials: 'include',
@@ -222,16 +208,12 @@
     if (!r.ok) { alert(d.error || d.detail || 'Failed'); return; }
     const u = USERS.find(x => x.id === id); if (u) u.role = role;
     renderStats();
-    // Rebuild this row so switch availability, the elevated note and the Save
-    // button match the new role; re-open it to keep the admin in place.
     const wasOpen = expandedId === id;
     row(id).outerHTML = rowHtml(u);
     applyFilter();
     if (wasOpen) openRow(id);
   }
 
-  // Toggling a switch no longer saves — it enables Save and flags unsaved changes,
-  // so the admin gets explicit confirmation that a change was (or wasn't) applied.
   function markPermsDirty(id) {
     const box = insp(id);
     const btn = box.querySelector('.perm-save');
@@ -264,7 +246,7 @@
       const u = USERS.find(x => x.id === id);
       if (u) {
         u.own_permissions = saved;
-        if (u.role !== 'admin') u.permissions = saved;   // only admin stays effective-all
+        if (u.role !== 'admin') u.permissions = saved;
       }
       const cnt = row(id).querySelector('.u-count');
       if (cnt && u && u.role !== 'admin') cnt.textContent = `${saved.length}/${ALL_PERMS.length}`;
@@ -274,7 +256,6 @@
     }
   }
 
-  // ── Team management inside a manager's row (admin only) ────────────────────────
   const chip = (email, onx) => `<span class="u-badge" style="display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);color:var(--text-1)">${esc(email)}<button onclick="${onx}" title="Remove" style="border:none;background:none;color:var(--text-3);cursor:pointer;font-size:14px;line-height:1">×</button></span>`;
 
   function teamMembersHtml(managerId) {
@@ -309,7 +290,6 @@
     document.querySelectorAll('[id^="team-drop-"]').forEach(d => { d.style.display = 'none'; });
   });
 
-  // ── Tabs ───────────────────────────────────────────────────────────────────────
   function showTab(name) {
     ['users', 'bulk', 'mgrperms'].forEach(n => {
       const el = document.getElementById('tab-' + n); if (el) el.style.display = n === name ? '' : 'none';
@@ -319,9 +299,6 @@
     if (name === 'mgrperms') renderMgrPerms();
   }
 
-  // ── Manager permissions: what each manager may ASSIGN to their team ─────────────
-  // The toggle list bound to a manager's assignable_perms — reused by the tab and
-  // by each manager's row.
   function assignableSwitches(mgr) {
     return ALL_PERMS.map(p => `
       <div class="perm-row"><span class="perm-name">${permLabel(p)}</span>
@@ -330,7 +307,7 @@
   }
   function renderMgrPermsPanel() {
     const sel = document.getElementById('mgrperms-select');
-    if (!sel) return;                     // non-admin: tab not rendered
+    if (!sel) return;
     const cur = sel.value;
     sel.innerHTML = '<option value="">Choose a manager…</option>'
       + MANAGERS.map(m => `<option value="${m.id}">${esc(m.email)}</option>`).join('');
@@ -367,9 +344,8 @@
     } catch (e) { st.textContent = '✕ Error'; st.style.color = 'var(--negative)'; }
   }
 
-  // ── Bulk assign: select permissions + (users | whole role) + grant/revoke ──────
-  const bulkSelected = new Map();   // id -> email
-  let bulkTargetMode = 'users';     // users | role
+  const bulkSelected = new Map();
+  let bulkTargetMode = 'users';
 
   function bulkTarget(mode) {
     bulkTargetMode = mode;
@@ -390,7 +366,6 @@
   function renderBulkPanel() {
     const pc = document.getElementById('bulk-perms');
     if (!pc) return;
-    // Only show permissions the actor can actually assign (admin sees all).
     pc.innerHTML = ALL_PERMS.filter(p => ASSIGNABLE.includes(p)).map(p => `
       <label class="perm-row" style="justify-content:flex-start;gap:8px;padding:3px 0;border:none;cursor:pointer">
         <input type="checkbox" value="${p}" style="accent-color:var(--chrome)">
@@ -439,7 +414,7 @@
       st.textContent = `✓ ${mode === 'grant' ? 'Granted to' : 'Revoked from'} ${d.changed}${d.skipped ? ` (${d.skipped} skipped)` : ''}`;
       st.style.color = 'var(--positive)';
       bulkSelected.clear();
-      loadUsers();   // refresh badges/toggles
+      loadUsers();
     } catch (e) { st.textContent = '✕ Error'; st.style.color = 'var(--negative)'; }
   }
   document.addEventListener('click', e => {
@@ -448,7 +423,6 @@
     }
   });
 
-  // ── Manager assignment & team template (admin only) ────────────────────────────
   async function setManager(id, managerId) {
     const r = await fetch(`/api/user-management/users/${id}/manager`, {
       method: 'PATCH', credentials: 'include',
@@ -464,7 +438,6 @@
   async function applyTeam(managerId, mode) {
     const box = insp(managerId);
     const st = box.querySelector('.team-status');
-    // Use the manager's currently-checked template (its own_permissions toggles).
     const boxes = box.querySelectorAll(`#perms-${managerId} input[data-perm]`);
     const perms = [];
     boxes.forEach(b => { if (b.checked) perms.push(b.dataset.perm); });
@@ -480,12 +453,11 @@
       if (!r.ok) { st.textContent = '✕ ' + (d.error || d.detail || 'Failed'); st.style.color = 'var(--negative)'; return; }
       st.textContent = `✓ ${mode === 'grant' ? 'Applied to' : 'Revoked from'} ${d.count} report${d.count === 1 ? '' : 's'}`;
       st.style.color = 'var(--positive)';
-      loadUsers();   // refresh reports' effective permissions
+      loadUsers();
     } catch (e) { st.textContent = '✕ Error'; st.style.color = 'var(--negative)'; }
   }
 
   async function deleteUser(id, email) {
-    // Irreversible: native confirm is the guard, the server re-checks admin + self.
     if (!confirm(`Delete ${email}?\n\nThis permanently removes their account, integrations, `
       + `chats, devices and all activity data. This cannot be undone.`)) return;
     const r = await fetch(`/api/user-management/users/${id}`, { method: 'DELETE', credentials: 'include' });
@@ -497,7 +469,6 @@
     renderRows();
   }
 
-  // ── Audit log (admin only) ────────────────────────────────────────────────────
   const ACTION_LABELS = {
     preview:        'Viewed',
     download:       'Downloaded',
@@ -535,7 +506,6 @@
       const kind = e.kind ? ` <span style="color:var(--text-3)">(${esc(e.kind)})</span>` : '';
       const rolePill = e.actor_role
         ? `<span class="role-pill" style="color:${m.color};background:${m.bg}">${esc(e.actor_role)}</span>` : '';
-      // "sent to" only makes sense for a delivery; otherwise show the report owner.
       const recipient = e.recipient_email
         ? `<span style="color:var(--text-1)">${esc(e.recipient_email)}</span>`
         : '<span style="color:var(--text-3)">—</span>';
@@ -554,5 +524,5 @@
 
   function onBaseReady() {
     loadUsers();
-    loadAudit();   // no-op when the audit card isn't rendered (non-admin)
+    loadAudit();
   }

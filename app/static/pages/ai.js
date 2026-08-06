@@ -7,7 +7,6 @@
     document.getElementById('chat-input').focus();
   }
 
-  // ── Conversation list ─────────────────────────────────────────
   async function loadConversations() {
     const res  = await fetch('/api/chat/conversations', { credentials: 'include' });
     const data = await res.json();
@@ -28,7 +27,7 @@
       <div class="conv-item ${c.id === currentConvId ? 'active' : ''}"
            onclick="selectConversation('${c.id}')">
         <div style="flex:1;min-width:0">
-          <p class="text-xs font-medium" style="color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.title)}</p>
+          <p class="text-xs font-medium" style="color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</p>
           <p class="text-xs" style="color:var(--text-3)">${timeAgo(c.updated_at)}</p>
         </div>
         <button class="conv-del w-5 h-5 flex items-center justify-center rounded transition"
@@ -67,7 +66,6 @@
     renderConvList();
   }
 
-  // ── Messaging ─────────────────────────────────────────────────
   async function sendMessage() {
     if (isSending) return;
     const input    = document.getElementById('chat-input');
@@ -109,14 +107,14 @@
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer    = '';
-      let bubbleEl  = null;   // created on first token
+      let bubbleEl  = null;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop();   // keep incomplete trailing line
+        buffer = lines.pop();
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
@@ -167,7 +165,6 @@
     return el.querySelector('.msg-ai-bubble');
   }
 
-  // Related-chart chip appended below an AI answer when the question was trend-shaped.
   function _appendChartChip(bubbleEl, link) {
     const a = document.createElement('a');
     a.href = link.href;
@@ -179,8 +176,6 @@
     bubbleEl.appendChild(a);
   }
 
-  // Report-styled email preview: sandboxed iframe of the exact HTML + a Send button.
-  // Returns the bubble element so the stream loop treats the turn as answered.
   function _appendEmailPreview(html, messageId) {
     const area = document.getElementById('messages-area');
     const el   = document.createElement('div');
@@ -195,9 +190,9 @@
         </div>
       </div>`;
     area.appendChild(el);
-    el.querySelector('iframe').srcdoc = html;   // set via property (no attribute escaping)
+    el.querySelector('iframe').srcdoc = html;
     const send = el.querySelector('.email-send-btn');
-    send.dataset.msgId = messageId || '';       // which message this preview will email
+    send.dataset.msgId = messageId || '';
     send.addEventListener('click', (e) => emailAnswer(e.target));
     el.querySelector('.email-cancel-btn').addEventListener('click', () => el.remove());
     scrollBottom();
@@ -221,9 +216,8 @@
     }
   }
 
-  // "✉ Email this" under each AI answer → previews THAT message, then a Send button.
   function _appendEmailAction(bubbleEl, id) {
-    if (!hasPerm('email_ai_answer')) return;   // gated: admin-toggleable permission
+    if (!hasPerm('email_ai_answer')) return;
     const b = document.createElement('button');
     b.textContent = '✉ Email this';
     b.style.cssText = 'display:block;margin-top:8px;font-size:11px;padding:3px 9px;'
@@ -253,10 +247,10 @@
     const el   = document.createElement('div');
     if (role === 'user') {
       el.className = 'msg-user';
-      el.innerHTML = `<div class="msg-user-bubble">${escHtml(content)}</div>`;
+      el.innerHTML = `<div class="msg-user-bubble">${esc(content)}</div>`;
     } else {
       el.className = 'msg-ai';
-      el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble">${escHtml(content)}</div>`;
+      el.innerHTML = `<div class="msg-ai-avatar">AI</div><div class="msg-ai-bubble">${esc(content)}</div>`;
     }
     area.appendChild(el);
     if (role === 'assistant' && id) _appendEmailAction(el.querySelector('.msg-ai-bubble'), id);
@@ -288,7 +282,6 @@
     inp.focus();
   }
 
-  // ── UI helpers ────────────────────────────────────────────────
   function showChatState() {
     document.getElementById('welcome-state').classList.add('hidden');
     document.getElementById('chat-state').classList.remove('hidden');
@@ -304,9 +297,6 @@
   }
   function handleInputKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  }
-  function escHtml(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
   function timeAgo(iso) {
     const d = Math.floor((Date.now() - new Date(iso)) / 60000);

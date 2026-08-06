@@ -11,16 +11,13 @@
 
   function weekLabel(dateStr) {
     const d = new Date(dateStr + 'T00:00:00');
-    const dow = (d.getDay() + 6) % 7;                    // Mon=0
+    const dow = (d.getDay() + 6) % 7;
     const mon = new Date(d); mon.setDate(d.getDate() - dow);
     const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
     const fmt = x => x.toLocaleDateString([], { month: 'short', day: 'numeric' });
     return `Week of ${fmt(mon)} – ${fmt(sun)}`;
   }
 
-  // ── Send panel ──────────────────────────────────────────────────────────────
-  // Device Activity carries a Day/Weekly toggle → effective kind is device_activity
-  // (day) or device_activity_week (weekly). Other reports pass through unchanged.
   function effectiveKind() {
     const kind = document.getElementById('email-kind').value;
     if (kind === 'device_activity') {
@@ -88,7 +85,6 @@
     setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 3500);
   }
 
-  // ── Schedule panel ──────────────────────────────────────────────────────────
   async function loadSchedule() {
     const kind = document.getElementById('sched-kind').value;
     try {
@@ -99,7 +95,7 @@
       document.getElementById('sched-freq').value = (p && p.enabled) ? p.frequency : 'off';
       if (p) document.getElementById('sched-hour').value = p.hour;
       renderScheduleList(prefs);
-    } catch (e) { /* not signed in yet */ }
+    } catch (e) {  }
   }
 
   function renderScheduleList(prefs) {
@@ -150,12 +146,11 @@
     setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
   }
 
-  // base.html calls this once /api/me resolves (logged-in)
   function onBaseReady() {
     const dateEl = document.getElementById('email-date');
     const today = localToday();
-    dateEl.max = today;        // native picker disables future dates
+    dateEl.max = today;
     dateEl.value = today;
-    onKindChange();            // sets toggle visibility + loads preview
+    onKindChange();
     loadSchedule();
   }

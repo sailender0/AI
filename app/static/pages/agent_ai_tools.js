@@ -1,6 +1,5 @@
 function aiToolsPage() {
   return {
-    // AI_TOOLS_INIT is declared by the inline shim in agent_ai_tools.html.
     mode:            AI_TOOLS_INIT.mode,
     selectedDate:    AI_TOOLS_INIT.date || new Date().toLocaleDateString('en-CA'),
     selectedWeek:    AI_TOOLS_INIT.week || '',
@@ -81,7 +80,6 @@ function aiToolsPage() {
       return Object.values(map).sort((a, b) => b.total - a.total);
     },
 
-    // 7-day array for week mode day-by-day display
     get weekDaysFiltered() {
       if (!this.selectedWeek) return [];
       const monday = this.weekToMonday(this.selectedWeek);
@@ -112,7 +110,6 @@ function aiToolsPage() {
 
     isToday(iso) { return iso === this.todayStr; },
 
-    // ── Navigation (same as my_activity.html) ──
     prevDay() {
       const d = new Date(this.selectedDate + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() - 1);

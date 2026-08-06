@@ -130,7 +130,6 @@ function activityApp() {
     },
     setCmpGran(g) { if (this.cmpGran === g) return; this.cmpGran = g; this.loadComparison(); },
 
-    // ── Day navigation ──
     prevDay() {
       const d = new Date(this.selectedDate + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() - 1);
@@ -145,7 +144,6 @@ function activityApp() {
     },
     goToday() { this.selectedDate = this.todayStr; this.load(); },
 
-    // ── Week navigation ──
     prevWeek() {
       this.selectedWeek = this._addWeeks(this.selectedWeek, -1);
       this.weekLoadedAt = null;
@@ -180,7 +178,6 @@ function activityApp() {
       return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
     },
 
-    // ISO 8601 week string → Monday YYYY-MM-DD
     weekToMonday(weekStr) {
       const [yearStr, wStr] = weekStr.split('-W');
       const year = parseInt(yearStr), week = parseInt(wStr);
@@ -191,7 +188,6 @@ function activityApp() {
       return monday.toLocaleDateString('en-CA');
     },
 
-    // ── Computed ──
     get todayStr() { return new Date().toLocaleDateString('en-CA'); },
 
     get currentWeekStr() {
@@ -204,7 +200,6 @@ function activityApp() {
       return `${utc.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
     },
 
-    // All 7 days Mon–Sun, zero-filled for days with no data
     get weekAllDays() {
       if (!this.selectedWeek) return [];
       const monday = this.weekToMonday(this.selectedWeek);
@@ -276,7 +271,6 @@ function activityApp() {
       });
     },
 
-    // ── Formatters ──
     formatMinutes(min) {
       if (!min) return '0 min';
       const h = Math.floor(min / 60), m = min % 60;
@@ -290,21 +284,19 @@ function activityApp() {
       const hh = (h % 12) || 12;
       return hh + (h < 12 ? 'a' : 'p');
     },
-    // Full-day axis: local midnight → next midnight, so every hour of the day shows.
-    // (DST days are ±1h — negligible for a usage timeline. ponytail: fixed 24h span.)
     get timelineWindow() {
       const lo = new Date(this.selectedDate + 'T00:00:00').getTime();
       const span = 24 * 3600000;
       return {lo, hi: lo + span, span};
     },
-    get timelineTicks() {          // text labels every 3h — 24 labels won't fit the width
+    get timelineTicks() {
       const w = this.timelineWindow, ticks = [];
       for (let h = 0; h <= 24; h += 3) {
         ticks.push({left: h / 24 * 100, label: this.formatHour(w.lo + h * 3600000)});
       }
       return ticks;
     },
-    get timelineGrid() {           // a faint line at every hour
+    get timelineGrid() {
       const lines = [];
       for (let h = 1; h < 24; h++) lines.push(h / 24 * 100);
       return lines;
