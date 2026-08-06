@@ -7,7 +7,6 @@
   AI-summarised brief/detailed narrative. Self-service — the caller's own activity.
 """
 import logging
-import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +18,7 @@ from app.auth.rbac import granted, load_profile, require_permission, visible_pro
 from app.middleware.rate_limit import limiter
 from app.services.attendance import attendance_csv, build_attendance
 from app.services.consolidated import build_consolidated, summarize_consolidated
+from app.services.timezone import is_date
 from app.storage.models import Profile
 from app.storage.mongodb import access_log
 from app.storage.postgres import get_db
@@ -26,18 +26,26 @@ from app.storage.postgres import get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_SOURCE_MAP = {
+    "github":  ["github"],
+    "gitlab":  ["gitlab"],
+    "jira":    ["jira"],
+    "teams":   ["teams_chat", "teams_call"],
+    "outlook": ["outlook_mail", "outlook_calendar"],
+}
 
-# UI sends friendly names; "teams" maps to the stored source.
-_SOURCE_MAP = {"github": "github", "gitlab": "gitlab", "jira": "jira",
-               "teams": "teams_subscription", "teams_subscription": "teams_subscription"}
+
+def _expand(chips) -> list[str]:
+    """Chip names → stored source values. Unknown chips are dropped; an empty
+    result means "no source filter" (every caller decides what that implies)."""
+    return [s for c in chips or [] if c in _SOURCE_MAP for s in _SOURCE_MAP[c]]
 
 
 class AttendanceReq(BaseModel):
     start: str
     end: str
-    sources: list[str] | None = None       # empty/None = all connectors
-    user_ids: list[str] | None = None      # narrow to a subset (clamped to scope)
+    sources: list[str] | None = None
+    user_ids: list[str] | None = None
 
 
 async def _attendance_scope(actor: Profile, user_ids, db) -> list[Profile]:
@@ -77,7 +85,7 @@ async def attendance(request: Request, body: AttendanceReq,
     scoped = await _attendance_scope(actor, body.user_ids, db)
     if not scoped:
         return JSONResponse({"error": "no users in scope"}, status_code=400)
-    sources = [_SOURCE_MAP[s] for s in (body.sources or []) if s in _SOURCE_MAP]
+    sources = _expand(body.sources)
     try:
         data = await build_attendance(scoped, body.start, body.end, sources,
                                       actor.timezone or "UTC")
@@ -92,13 +100,13 @@ async def attendance_download(request: Request, start: str = "", end: str = "",
                               sources: str = "", users: str = "",
                               actor: Profile = Depends(load_profile),
                               db: AsyncSession = Depends(get_db)):
-    if not _DATE_RE.match(start or "") or not _DATE_RE.match(end or ""):
+    if not is_date(start) or not is_date(end):
         return JSONResponse({"error": "invalid date"}, status_code=400)
     user_ids = [u for u in users.split(",") if u] or None
     scoped = await _attendance_scope(actor, user_ids, db)
     if not scoped:
         return JSONResponse({"error": "no users in scope"}, status_code=400)
-    src = [_SOURCE_MAP[s] for s in sources.split(",") if s in _SOURCE_MAP]
+    src = _expand(sources.split(","))
     try:
         data = await build_attendance(scoped, start, end, src, actor.timezone or "UTC")
     except ValueError as exc:
@@ -110,14 +118,12 @@ async def attendance_download(request: Request, start: str = "", end: str = "",
     )
 
 
-# ─────────────────────────── consolidated (AI summary) ───────────────────────────
-
 class ConsolidatedReq(BaseModel):
     start: str
     end: str
-    sources: list[str] | None = None       # empty/None = all connectors
+    sources: list[str] | None = None
     event_types: list[str] | None = None
-    detail: str = "brief"                   # brief | detail
+    detail: str = "brief"
     prompt: str | None = None
 
 
@@ -127,7 +133,7 @@ async def consolidated(request: Request, body: ConsolidatedReq,
                        profile_id: str = Depends(require_permission("consolidated_report")),
                        db: AsyncSession = Depends(get_db)):
     """AI narrative over a custom date range — always the caller's own activity."""
-    sources = [_SOURCE_MAP[s] for s in (body.sources or []) if s in _SOURCE_MAP]
+    sources = _expand(body.sources) or _expand(_SOURCE_MAP)
     try:
         data = await build_consolidated(
             profile_id, body.start, body.end, sources, body.event_types or [], db,

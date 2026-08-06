@@ -17,14 +17,12 @@ from app.storage.mongodb import activity_events
 
 logger = logging.getLogger(__name__)
 
-MAX_SPAN_DAYS = 366     # a year cap keeps aggregation + AI cost bounded
-SAMPLE_CAP    = 200     # most-recent events handed to the model
-
-_SOURCE_LABEL = {"teams_subscription": "teams"}
+MAX_SPAN_DAYS = 366
+SAMPLE_CAP    = 200
 
 
 def _norm(source: str) -> str:
-    return _SOURCE_LABEL.get(source, source or "other")
+    return source or "other"
 
 
 async def build_consolidated(profile_id: str, start: str, end: str,
@@ -97,13 +95,12 @@ async def summarize_consolidated(data: dict, detail: str, user_prompt: str | Non
         style,
     ]
     if user_prompt:
-        # Bounded + labelled: it's the user's own data, so injection risk is low,
-        # but keep it clearly separated from the instruction above.
         parts.append(f"Extra instruction from the user: {user_prompt[:500]}")
     parts.append("Activity sample (most recent first"
                  + (", truncated" if data["truncated"] else "") + "):")
     parts.append(_fmt_sample(data["sample"]) or "(no events)")
 
-    system = ("You summarise a developer's work activity across GitHub, GitLab, Jira "
-              "and Teams over a date range. Be factual and use only the data given.")
+    system = ("You summarise a developer's work activity across GitHub, GitLab, Jira, "
+              "Teams (chats, calls) and Outlook (mail, meetings) over a date range. "
+              "Be factual and use only the data given.")
     return await llm.answer(system, "\n\n".join(parts), max_tokens=max_tokens, temperature=0.3)
