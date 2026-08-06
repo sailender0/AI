@@ -46,8 +46,8 @@ def test_format_jira_live_block():
 def test_jira_extras_webhook_and_backfill_shapes():
     fields = {"status": {"name": "Done"}, "priority": {"name": "Low"},
               "assignee": {"displayName": "Sai"}}
-    webhook  = {"issue": {"key": "PROJ-9", "fields": fields}}   # receiver stores this shape
-    backfill = {"key": "PROJ-9", "fields": fields}              # make_event stores the issue itself
+    webhook  = {"issue": {"key": "PROJ-9", "fields": fields}}
+    backfill = {"key": "PROJ-9", "fields": fields}
     assert _jira_extras(webhook) == _jira_extras(backfill) == {
         "issue_key": "PROJ-9", "status": "Done", "priority": "Low", "assignee": "Sai",
     }

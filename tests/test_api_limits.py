@@ -16,7 +16,6 @@ import pytest
 ROUTES = Path("app/routes")
 FRONTEND = list(Path("app/templates").glob("*.html")) + [Path("app/static/app.js")]
 
-# @router.get("/api/events/recent")  ...  limit: int = Query(default=20, ge=1, le=200)
 ROUTE_RE = re.compile(
     r'@router\.(?:get|post)\(\s*["\'](?P<path>/api/[^"\']+)["\'].*?'
     r'limit:\s*int\s*=\s*Query\([^)]*\ble=(?P<cap>\d+)',
@@ -43,7 +42,6 @@ def test_frontend_respects_limit_caps(f: Path):
     caps = _caps()
     text = f.read_text(encoding="utf-8")
     for path, cap in caps.items():
-        # Any fetch to this path that pins an explicit &limit=N
         for m in re.finditer(re.escape(path) + r"[^`'\"\s]*?[?&]limit=(\d+)", text):
             requested = int(m.group(1))
             assert requested <= cap, (

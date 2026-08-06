@@ -7,8 +7,6 @@ get_profile_from_session is patched per-module to simulate auth state.
 """
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +15,6 @@ from app.storage.postgres import get_db
 
 PROFILE_ID = "00000000-0000-0000-0000-000000000001"
 
-
-# ── Test infrastructure ───────────────────────────────────────────────────────
 
 def _mock_db() -> AsyncSession:
     """Minimal AsyncSession mock: execute returns no rows, get returns None."""
@@ -51,8 +47,6 @@ async def _patch(app, path, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         return await c.patch(path, **kwargs)
 
-
-# ── Auth guards ───────────────────────────────────────────────────────────────
 
 async def test_get_me_unauthenticated_returns_authenticated_false():
     from app.routes.profile import router
@@ -95,8 +89,6 @@ async def test_get_events_recent_unauthenticated_returns_401():
     assert r.status_code == 401
 
 
-# ── Input validation ──────────────────────────────────────────────────────────
-
 async def test_patch_timezone_invalid_tz_returns_400():
     from app.routes.profile import router
     app = _mini_app(router)
@@ -123,8 +115,6 @@ async def test_get_day_data_invalid_date_returns_400():
         r = await _get(app, "/api/day-data", params={"date": "not-a-date"})
     assert r.status_code == 400
 
-
-# ── Response shape ────────────────────────────────────────────────────────────
 
 async def test_get_me_authenticated_returns_correct_shape():
     from app.routes.profile import router

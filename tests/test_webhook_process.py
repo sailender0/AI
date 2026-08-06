@@ -4,14 +4,11 @@ Tests for webhook receiver _process() functions.
 ingest() and _resolve_profile() are mocked so no DB, Redis, or MongoDB is required.
 The key assertions: correct number of ingest() calls and correct event shape.
 """
-import pytest
 from unittest.mock import AsyncMock, patch
 
 PROFILE = "profile-abc-123"
-TEAMS_PROFILE = "00000000-0000-0000-0000-000000000099"  # valid UUID for Teams clientState validation
+TEAMS_PROFILE = "00000000-0000-0000-0000-000000000099"
 
-
-# ── GitHub ────────────────────────────────────────────────────────────────────
 
 async def test_github_push_calls_ingest_once():
     from app.webhooks.receivers.github import _process
@@ -27,7 +24,7 @@ async def test_github_push_calls_ingest_once():
          patch("app.webhooks.receivers.github.ingest", new=AsyncMock()) as mock_ingest:
         await _process(body, "push")
 
-    mock_resolve.assert_awaited_once_with("4242")   # resolves by actor, not installation
+    mock_resolve.assert_awaited_once_with("4242")
     mock_ingest.assert_called_once()
     event = mock_ingest.call_args[0][0]
     assert event["source"] == "github"
@@ -114,13 +111,10 @@ async def test_github_two_actors_route_to_their_own_profiles():
 
     assert mock_ingest.call_count == 2
     events = [c[0][0] for c in mock_ingest.call_args_list]
-    # Same repo, but each event carries its OWN pusher's profile.
     assert events[0]["profile_id"] == p1
     assert events[1]["profile_id"] == p2
     assert events[0]["workspace"] == events[1]["workspace"] == "acme/webapp"
 
-
-# ── GitLab ────────────────────────────────────────────────────────────────────
 
 async def test_gitlab_push_one_ingest_per_commit():
     from app.webhooks.receivers.gitlab import _process
@@ -141,12 +135,11 @@ async def test_gitlab_push_one_ingest_per_commit():
          patch("app.webhooks.receivers.gitlab.ingest", new=AsyncMock()) as mock_ingest:
         await _process(body)
 
-    mock_resolve.assert_awaited_once_with("77")   # by actor (pusher), not project
+    mock_resolve.assert_awaited_once_with("77")
     assert mock_ingest.call_count == 3
     events = [c[0][0] for c in mock_ingest.call_args_list]
     assert all(e["event_type"] == "commit" for e in events)
     assert all(e["source"] == "gitlab" for e in events)
-    # Each event should carry its own commit id
     assert {e["source_event_id"] for e in events} == {"c1", "c2", "c3"}
 
 
@@ -173,7 +166,7 @@ async def test_gitlab_mr_single_ingest():
     body = {
         "object_kind": "merge_request",
         "project": {"path_with_namespace": "group/project"},
-        "user": {"id": 88, "username": "sailender"},   # MR/issue/note nest the actor under "user"
+        "user": {"id": 88, "username": "sailender"},
         "object_attributes": {"id": 55, "title": "Add feature"},
         "created_at": "2026-06-23T11:00:00Z",
     }
@@ -206,8 +199,6 @@ async def test_gitlab_unresolved_actor_skips_ingest():
 
     mock_ingest.assert_not_called()
 
-
-# ── Teams ─────────────────────────────────────────────────────────────────────
 
 _TEAMS_MESSAGE = {
     "id": "msg-001",
@@ -286,14 +277,12 @@ async def test_teams_missing_client_state_skips_all():
 
     with patch("app.webhooks.receivers.teams.acquire_delegated_token", new=AsyncMock()) as mock_token, \
          patch("app.webhooks.receivers.teams.ingest", new=AsyncMock()) as mock_ingest:
-        await _process_notification({"resource": "teams/messages/msg-001"})  # no clientState
-        await _process_notification({"clientState": PROFILE})               # no resource
+        await _process_notification({"resource": "teams/messages/msg-001"})
+        await _process_notification({"clientState": PROFILE})
 
     mock_token.assert_not_called()
     mock_ingest.assert_not_called()
 
-
-# ── Jira ──────────────────────────────────────────────────────────────────────
 
 async def test_jira_issue_updated_ingest():
     from app.webhooks.receivers.jira import _process

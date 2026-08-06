@@ -6,8 +6,6 @@ Tests the full data path: raw webhook payload → stored MongoDB document shape.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.webhooks.normalizer import ingest, normalize
 
 PROFILE = "profile-pipeline-123"
@@ -40,8 +38,6 @@ def _patch_infra(redis=None, col=None):
     return stack
 
 
-# ── Write path ────────────────────────────────────────────────────────────────
-
 async def test_github_push_stored_document_shape():
     """Full pipeline for a GitHub push: verify every required field in the stored doc."""
     raw = {
@@ -64,8 +60,8 @@ async def test_github_push_stored_document_shape():
     assert doc["event_type"] == "commit"
     assert doc["workspace"] == "org/my-repo"
     assert "Fix auth bug" in doc["title"]
-    assert doc["_id"]                          # non-empty UUID string
-    assert doc["occurred_at"]                  # datetime object
+    assert doc["_id"]
+    assert doc["occurred_at"]
     assert doc["raw_payload"] == raw
 
 
@@ -115,8 +111,6 @@ async def test_gitlab_commits_produce_independent_documents():
     assert docs[0]["_id"] != docs[1]["_id"]
     assert {d["source_event_id"] for d in docs} == {"sha-1", "sha-2"}
 
-
-# ── Dedup path ────────────────────────────────────────────────────────────────
 
 async def test_redis_cache_hit_blocks_insert():
     """If Redis already has the dedup key, insert_one must not be called."""

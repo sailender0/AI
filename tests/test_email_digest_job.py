@@ -7,7 +7,6 @@ the send, and a fresh claim proceeds and is kept on success. The actual dedup
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from zoneinfo import ZoneInfo
 
 from pymongo.errors import DuplicateKeyError
 
@@ -17,7 +16,7 @@ from app.routes import email
 class _FrozenDT(datetime):
     @classmethod
     def now(cls, tzinfo=None):
-        base = datetime(2026, 7, 8, 16, 0, tzinfo=timezone.utc)   # Wed 16:00 UTC
+        base = datetime(2026, 7, 8, 16, 0, tzinfo=timezone.utc)
         return base.astimezone(tzinfo) if tzinfo else base
 
 
@@ -39,7 +38,7 @@ class _FakeSession:
 def _due_pref_and_profile():
     pref = SimpleNamespace(frequency="daily", hour=16, weekday=0,
                            profile_id="pid", kind="my_day")
-    profile = SimpleNamespace(email="u@t", timezone="UTC")   # local 16:00 == pref.hour → due
+    profile = SimpleNamespace(email="u@t", timezone="UTC")
     return pref, profile
 
 
@@ -56,14 +55,14 @@ async def test_digest_job_skips_when_already_sent(monkeypatch):
          patch.object(email, "_run", run_mock):
         await email.run_email_digest_job()
 
-    run_mock.assert_not_called()          # dedup: claim collided → no second send
+    run_mock.assert_not_called()
 
 
 async def test_digest_job_sends_when_due_and_unclaimed(monkeypatch):
     monkeypatch.setattr(email, "datetime", _FrozenDT)
     pref, profile = _due_pref_and_profile()
     sends = MagicMock()
-    sends.insert_one = AsyncMock()        # claim succeeds
+    sends.insert_one = AsyncMock()
     sends.delete_one = AsyncMock()
     run_mock = AsyncMock(return_value=True)
 
@@ -73,7 +72,7 @@ async def test_digest_job_sends_when_due_and_unclaimed(monkeypatch):
         await email.run_email_digest_job()
 
     run_mock.assert_awaited_once()
-    sends.delete_one.assert_not_called()  # sent OK → claim is kept
+    sends.delete_one.assert_not_called()
 
 
 async def test_digest_job_releases_claim_on_send_failure(monkeypatch):
@@ -82,11 +81,11 @@ async def test_digest_job_releases_claim_on_send_failure(monkeypatch):
     sends = MagicMock()
     sends.insert_one = AsyncMock()
     sends.delete_one = AsyncMock()
-    run_mock = AsyncMock(return_value=False)   # send failed
+    run_mock = AsyncMock(return_value=False)
 
     with patch.object(email, "AsyncSessionLocal", lambda: _FakeSession([(pref, profile)])), \
          patch.object(email, "email_sends", return_value=sends), \
          patch.object(email, "_run", run_mock):
         await email.run_email_digest_job()
 
-    sends.delete_one.assert_awaited_once()  # failure → claim released so it can retry
+    sends.delete_one.assert_awaited_once()

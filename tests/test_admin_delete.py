@@ -6,9 +6,7 @@ guard that stops an admin removing their own account.
 """
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +40,7 @@ async def test_purge_profile_clears_activity_but_keeps_audit():
 
     assert "access_log" not in seen, "audit trail must survive user deletion"
     assert seen["activity_events"] == {"profile_id": "p1"}
-    assert len(seen) == 10                     # every per-profile collection
+    assert len(seen) == 10
     assert out["activity_events"] == 2
 
 

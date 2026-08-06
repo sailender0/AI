@@ -6,8 +6,16 @@ not be able to read user B's conversation.
 
 Seeds its own rows and deletes them in `finally`. A full suite should run against
 a dedicated *_test database, not dev.
+
+The route is called directly rather than over HTTP, so FastAPI never resolves
+`Depends(require_profile)` and `profile_id` is just an argument — no session, no
+Redis, no mocking. An earlier version patched a `get_profile_from_session` symbol
+that does not exist on this module (it lives in app.auth.sso) and passed a
+`request=` the route has never taken; both raised, and nothing noticed because
+this file only runs when a Postgres is reachable. Authentication itself is
+covered by tests/test_auth_required.py — what this asserts is the ownership
+predicate in the WHERE clause, which is the actual guard.
 """
-from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from sqlalchemy import delete as sa_delete
@@ -18,7 +26,6 @@ from app.storage.models import ChatConversation, ChatMessage, Profile
 async def test_user_cannot_read_another_users_conversation(pg_session):
     Session = pg_session
 
-    # ── seed: profile A, profile B, and a conversation owned by B ──
     async with Session() as db:
         pa = Profile(entra_id=f"e{uuid4()}", email=f"a{uuid4()}@t")
         pb = Profile(entra_id=f"e{uuid4()}", email=f"b{uuid4()}@t")
@@ -32,17 +39,15 @@ async def test_user_cannot_read_another_users_conversation(pg_session):
         a_id, b_id, conv_id = str(pa.id), str(pb.id), str(conv.id)
 
     try:
-        from app.ai.query import get_conversation_messages
+        from app.ai.chat import get_conversation_messages
 
-        # A tries to read B's conversation → 404 (isolation holds)
-        with patch("app.ai.query.get_profile_from_session", new=AsyncMock(return_value=a_id)):
-            cross = await get_conversation_messages(request=None, conv_id=conv_id)
+        cross = await get_conversation_messages(conv_id=conv_id, profile_id=a_id)
         assert cross.status_code == 404, "cross-tenant read must be 404"
+        assert b"secret" not in cross.body, "404 must not leak the message body"
 
-        # B reads its own → 200 (positive control: the row really exists)
-        with patch("app.ai.query.get_profile_from_session", new=AsyncMock(return_value=b_id)):
-            own = await get_conversation_messages(request=None, conv_id=conv_id)
+        own = await get_conversation_messages(conv_id=conv_id, profile_id=b_id)
         assert own.status_code == 200, "owner must be able to read their conversation"
+        assert b"secret" in own.body, "owner must actually get their message back"
     finally:
         async with Session() as db:
             await db.execute(sa_delete(ChatMessage).where(ChatMessage.conversation_id == conv_id))

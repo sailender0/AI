@@ -55,10 +55,20 @@ def tailwind(node) -> tuple[str, Path]:
 @pytest.fixture
 async def pg_session():
     """Yields the real Postgres sessionmaker (AsyncSessionLocal), or skips/fails
-    when the DB isn't reachable (see _skip_or_fail). On the host the compose
-    'postgres' hostname doesn't resolve, so run these in-container or with a
-    Postgres service. Points at whatever POSTGRES_URL resolves to — a full suite
-    should target a dedicated *_test database, not dev.
+    when the DB isn't reachable (see _skip_or_fail).
+
+    Points at whatever POSTGRES_URL resolves to, and it must NOT be dev — these
+    tests seed and delete rows. The compose 'postgres' hostname doesn't resolve
+    from the host, so on Windows point at the published port and build the schema
+    with scripts/migrate.py (alembic alone can't: the migrations are diff-only by
+    design, create_all does the initial build):
+
+        createdb activity_tracker_test           # on the compose Postgres
+        POSTGRES_URL=...localhost:5433/activity_tracker_test python scripts/migrate.py
+        POSTGRES_URL=... REQUIRE_DB=1 pytest tests/ -q
+
+    Running in-container does NOT work: the image installs requirements.txt only,
+    so it has no pytest.
     """
     from sqlalchemy import text
 
@@ -70,6 +80,12 @@ async def pg_session():
     except Exception as exc:
         _skip_or_fail("Postgres", exc)
     yield AsyncSessionLocal
+    # `engine` is a module-level global but asyncio_mode=auto gives every test its
+    # own event loop, so pooled connections outlive the loop they were opened on
+    # and the SECOND pg test to run dies with "Event loop is closed". Disposing
+    # here forces the next one to open its own. Latent until now — these tests
+    # always skipped, so two of them had never run in the same session.
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -80,7 +96,7 @@ async def mongo_db():
 
     try:
         db = get_db()
-        await asyncio.wait_for(db.command("ping"), timeout=3)   # bound the probe so host skips fast
+        await asyncio.wait_for(db.command("ping"), timeout=3)
         await init_indexes()
     except Exception as exc:
         _skip_or_fail("MongoDB", exc)

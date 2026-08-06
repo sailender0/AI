@@ -4,8 +4,6 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -62,9 +60,9 @@ async def test_filters_reach_query_and_ids_resolve():
     assert col.find.call_args[0][0] == {"actor_role": "supervisor", "action": "email_delivery"}
 
     ents = r.json()["entries"]
-    assert ents[0]["target_email"] == "target@x.com"      # resolved from id
-    assert ents[1]["recipient_email"] == "dev@x.com"       # stored email used
-    assert ents[1]["actor_email"].startswith("33333333")   # unknown id → short fallback
+    assert ents[0]["target_email"] == "target@x.com"
+    assert ents[1]["recipient_email"] == "dev@x.com"
+    assert ents[1]["actor_email"].startswith("33333333")
 
 
 async def test_no_filter_sends_empty_query():
