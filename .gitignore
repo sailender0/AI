@@ -53,3 +53,7 @@ alembic/versions/*.pyc
 # agent/DevActivityAgent.spec. The .gitkeep preserves the served directory.
 app/static/downloads/*.exe
 node_modules/
+
+# Local demo fixtures — mints valid sessions straight into Redis, so it stays
+# off the repo and out of any image built from it.
+scripts/seed_demo.py
