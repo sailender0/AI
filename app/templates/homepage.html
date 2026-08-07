@@ -78,10 +78,20 @@
         <span class="w-8 h-8 rounded-lg grid place-items-center font-bold text-sm text-white" style="background:var(--accent)">DA</span>
         <span class="font-semibold">Developer Activity Tracker</span>
       </div>
-      <a href="/auth/login" class="btn-ghost">
-        <svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>
-        Sign in
-      </a>
+      <div class="flex items-center gap-2">
+        <button onclick="toggleTheme()" id="theme-btn" class="btn-ghost" style="padding:.6rem" title="Toggle theme" aria-label="Toggle theme">
+          <svg id="icon-sun" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z"/>
+          </svg>
+          <svg id="icon-moon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+          </svg>
+        </button>
+        <a href="/auth/login" class="btn-ghost">
+          <svg width="16" height="16" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>
+          Sign in
+        </a>
+      </div>
     </div>
   </header>
 
@@ -90,15 +100,15 @@
     <div class="relative z-10 max-w-6xl mx-auto px-6 pt-16 pb-20 text-center">
       <div class="reveal inline-flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full mb-7"
            style="border:1px solid var(--border); color:var(--text-2); background:var(--surface)">
-        <span class="dot"></span> GitHub · GitLab · Jira · Teams · Local agent
+        <span class="dot"></span> GitHub · GitLab · Jira · Teams · Outlook · Local agent
       </div>
       <h1 class="reveal text-5xl md:text-6xl font-extrabold leading-[1.05] tracking-tight mb-6">
         Every commit, ticket, and meeting<br class="hidden md:block"/>
         <span style="color:var(--accent-2)">in one weekly view.</span>
       </h1>
       <p class="reveal text-lg max-w-2xl mx-auto mb-9" style="color:var(--text-2)">
-        Developer Activity Tracker pulls your work from GitHub, GitLab, Jira, Teams and your
-        own machine — then turns it into a clear daily and weekly summary you can actually read.
+        Developer Activity Tracker pulls your work from GitHub, GitLab, Jira, Teams, Outlook and your
+        own machine — then turns it into a clear daily and weekly summary you and your manager can actually read.
       </p>
       <div class="reveal flex items-center justify-center gap-3">
         <a href="/auth/login" class="btn-primary">
@@ -148,13 +158,31 @@
         <h3 class="font-semibold mb-1.5">Email Report</h3>
         <p class="text-sm" style="color:var(--text-2)">A weekly summary delivered straight to your inbox — no dashboard visit required.</p>
       </div>
+
+      <div class="card reveal">
+        <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></div>
+        <h3 class="font-semibold mb-1.5">Attendance Report</h3>
+        <p class="text-sm" style="color:var(--text-2)">Days present derived from real activity — three or more events in a day counts as present.</p>
+      </div>
+
+      <div class="card reveal">
+        <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6"/><path d="M5 3h8l6 6v12a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg></div>
+        <h3 class="font-semibold mb-1.5">Consolidated Report</h3>
+        <p class="text-sm" style="color:var(--text-2)">One rollup across your whole team, exportable to CSV for the people who ask for spreadsheets.</p>
+      </div>
+
+      <div class="card reveal">
+        <div class="card-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg></div>
+        <h3 class="font-semibold mb-1.5">Roles &amp; Access</h3>
+        <p class="text-sm" style="color:var(--text-2)">Admins and managers see their people; everyone else sees their own work. Nothing leaks sideways.</p>
+      </div>
     </div>
   </section>
 
   <section class="relative z-10 max-w-6xl mx-auto px-6 py-14 text-center reveal">
     <p class="text-xs uppercase tracking-wider mb-5" style="color:var(--text-3)">Works with your stack</p>
     <div class="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 font-medium" style="color:var(--text-2)">
-      <span>GitHub</span><span>GitLab</span><span>Jira</span><span>Microsoft Teams</span>
+      <span>GitHub</span><span>GitLab</span><span>Jira</span><span>Microsoft Teams</span><span>Outlook</span><span>Local agent</span>
     </div>
   </section>
 
@@ -167,10 +195,27 @@
         Sign in with Microsoft
       </a>
     </div>
-    <p class="text-center text-xs mt-8" style="color:var(--text-3)">© Developer Activity Tracker</p>
+    <p class="text-center text-xs mt-8" style="color:var(--text-3)">
+      © <span id="sig-year"></span> Developer Activity Tracker · Built by Sailender Reddy Lanka
+    </p>
   </section>
 
   <script>
+    // ponytail: two-state toggle here; the app's sidebar keeps the full light/system/dark picker
+    function toggleTheme() {
+      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      localStorage.setItem('theme', dark ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+      paintThemeIcon();
+    }
+    function paintThemeIcon() {
+      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      document.getElementById('icon-sun').style.display  = dark ? '' : 'none';
+      document.getElementById('icon-moon').style.display = dark ? 'none' : '';
+    }
+    paintThemeIcon();
+    document.getElementById('sig-year').textContent = new Date().getFullYear();
+
     const io = new IntersectionObserver((entries) => {
       entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
     }, { threshold: 0.12 });
