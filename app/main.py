@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI
@@ -60,7 +61,10 @@ async def lifespan(app: FastAPI):
     await init_indexes()
 
     scheduler.add_job(renew_teams_subscriptions, "interval", minutes=45, id="teams_renewal")
-    scheduler.add_job(run_graph_poll_job, "cron", minute=20, id="graph_poll")
+    # next_run_time=now: sweep once at startup so a restart doesn't leave up to an
+    # hour of Graph data uncollected, then fall back to the hourly cron.
+    scheduler.add_job(run_graph_poll_job, "cron", minute=20, id="graph_poll",
+                      next_run_time=datetime.now(timezone.utc))
     scheduler.add_job(renew_jira_webhooks, "interval", days=20, id="jira_renewal")
     scheduler.add_job(check_github_webhook_health, "interval", hours=6, id="github_health")
     if settings.AI_ENABLED:
