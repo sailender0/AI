@@ -10,8 +10,8 @@ Only **admin** implicitly holds all of them. A **manager** is gated by their own
 permission list exactly like a user — an admin can restrict what a manager may do —
 but managers keep their TEAM powers (list/report/edit their reports) through ROLE
 checks (require_elevated, the cross-user branch of authorize_report), which don't
-depend on the permission list. A manager's permission list is also the template
-copied onto reports at assignment (see admin routes).
+depend on the permission list. Assigning a report to a manager copies NOTHING: it
+changes the org tree, never anybody's permissions.
 
 Manager scope is DIRECT REPORTS ONLY (Profile.manager_id == manager.id) — no
 recursion. A manager sees nobody until an admin assigns reports to them.
@@ -29,7 +29,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.sso import require_profile
-from app.storage.models import ALL_PERMISSIONS, Profile
+from app.storage.models import (
+    ADMIN_ONLY_PERMISSIONS, ALL_PERMISSIONS, NON_DELEGABLE_PERMISSIONS, Profile,
+)
 from app.storage.mongodb import access_log
 from app.storage.postgres import get_db
 
@@ -55,7 +57,24 @@ def granted(profile: Profile) -> list[str]:
     user. Managers keep their team powers via role checks, not via this list."""
     if profile.role == "admin":
         return list(ALL_PERMISSIONS)
-    return [p for p in (profile.permissions or []) if p in ALL_PERMISSIONS]
+    held = [p for p in (profile.permissions or []) if p in ALL_PERMISSIONS]
+    if profile.role not in ELEVATED:
+        # ADMIN_ONLY keys need an elevated role on top of the grant. A demoted
+        # manager keeps the stale key in their JSON list — this is what stops it
+        # counting, so demotion needs no cleanup pass over the table.
+        held = [p for p in held if p not in ADMIN_ONLY_PERMISSIONS]
+    return held
+
+
+def sanitize_permissions(keys, target: Profile) -> list[str]:
+    """The permission list to actually store on `target`, in canonical order.
+    Drops unknown keys, and ADMIN_ONLY ones the target's role can't hold — so a
+    basic user never ends up displaying a grant that the read side ignores.
+    Every write path goes through this."""
+    wanted = set(keys)
+    if target.role not in ELEVATED:
+        wanted -= set(ADMIN_ONLY_PERMISSIONS)
+    return [p for p in ALL_PERMISSIONS if p in wanted]
 
 
 def require_permission(key: str):
@@ -79,12 +98,14 @@ def require_elevated(*roles: str):
 def assignable_permissions(actor: Profile) -> list[str]:
     """Permissions `actor` may grant/revoke to OTHER users (canonical order). Admin →
     all. Manager → their admin-configured `assignable_perms` allow-list (independent of
-    what they hold themselves). User → none. The single source of truth used by both
+    what they hold themselves), minus the NON_DELEGABLE keys — the admin-only ones and
+    the two report permissions. A manager can never hand those down even if an old
+    allow-list still names one. User → none. The single source of truth used by both
     the write clamps and the console UI, so they can't drift."""
     if actor.role == "admin":
         return list(ALL_PERMISSIONS)
     if actor.role == "manager":
-        allowed = set(actor.assignable_perms or [])
+        allowed = set(actor.assignable_perms or []) - set(NON_DELEGABLE_PERMISSIONS)
         return [p for p in ALL_PERMISSIONS if p in allowed]
     return []
 

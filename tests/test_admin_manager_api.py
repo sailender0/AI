@@ -43,17 +43,60 @@ def _db(get=None, rows=None):
     return db
 
 
-async def test_assign_manager_copies_template():
+async def test_assign_manager_changes_nothing_but_the_org_tree():
+    """Assignment is structure, not access: the report keeps exactly the permissions
+    they had, and inherits none of the manager's — not the ones they lack, and not
+    the ones the manager holds that they don't."""
     admin = _p(ADMIN, "admin")
-    report = _p(REP, "user", perms=["email_report"])
-    mgr = _p(MGR, "manager", perms=["consolidated_report", "export_analytics"])
+    report = _p(REP, "user", perms=["email_report", "attendance_report"])
+    mgr = _p(MGR, "manager", perms=["consolidated_report", "export_analytics",
+                                    "teams_activity", "activity_detail"])
     db = _db(get=[report, mgr])
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(admin, db) as c:
             r = await c.patch(f"/api/user-management/users/{REP}/manager", json={"manager_id": str(MGR)})
     assert r.status_code == 200
     assert report.manager_id == MGR
-    assert set(report.permissions) == {"email_report", "consolidated_report", "export_analytics"}
+    assert set(report.permissions) == {"email_report", "attendance_report"}
+    assert r.json()["permissions"] == ["email_report", "attendance_report"]
+
+
+async def test_admin_cannot_grant_an_admin_only_key_to_a_plain_user():
+    admin = _p(ADMIN, "admin")
+    report = _p(REP, "user", perms=["email_report"])
+    db = _db(get=report)
+    with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
+        async with await _client(admin, db) as c:
+            r = await c.patch(f"/api/user-management/users/{REP}/permissions",
+                              json={"permissions": ["email_report", "teams_activity"]})
+    assert r.status_code == 200
+    assert report.permissions == ["email_report"]
+
+
+async def test_admin_only_keys_are_rejected_from_a_managers_allowlist():
+    admin = _p(ADMIN, "admin")
+    mgr = _p(MGR, "manager")
+    db = _db(get=mgr)
+    with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
+        async with await _client(admin, db) as c:
+            r = await c.patch(f"/api/user-management/managers/{MGR}/assignable",
+                              json={"permissions": ["export_my_day", "outlook_activity"]})
+    assert r.status_code == 200
+    assert mgr.assignable_perms == ["export_my_day"]
+
+
+async def test_team_bulk_grant_skips_admin_only_keys():
+    admin = _p(ADMIN, "admin")
+    mgr = _p(MGR, "manager")
+    reports = [_p(REP, "user"), _p(STRAY, "user")]
+    db = _db(get=mgr, rows=reports)
+    with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
+        async with await _client(admin, db) as c:
+            r = await c.post(f"/api/user-management/managers/{MGR}/team-permissions",
+                             json={"permissions": ["export_my_day", "device_activity"], "mode": "grant"})
+    assert r.status_code == 200
+    for rep in reports:
+        assert rep.permissions == ["export_my_day"]
 
 
 async def test_cannot_report_to_self():
@@ -120,7 +163,7 @@ async def test_bulk_revoke_removes_only_named():
 
 
 async def test_bulk_assign_selected_users_authorised_per_user():
-    mgr = _p(MGR, "manager", assignable=["consolidated_report"])
+    mgr = _p(MGR, "manager", assignable=["export_my_day"])
     mine = _p(REP, "user", manager_id=MGR, perms=[])
     not_mine = _p(STRAY, "user", manager_id=MGR2, perms=[])
     db = _db(get=[mine, not_mine])
@@ -128,10 +171,10 @@ async def test_bulk_assign_selected_users_authorised_per_user():
         async with await _client(mgr, db) as c:
             r = await c.post("/api/user-management/bulk-permissions",
                              json={"user_ids": [str(REP), str(STRAY)],
-                                   "permissions": ["consolidated_report"], "mode": "grant"})
+                                   "permissions": ["export_my_day"], "mode": "grant"})
     d = r.json()
     assert r.status_code == 200 and d["changed"] == 1 and d["skipped"] == 1
-    assert mine.permissions == ["consolidated_report"]
+    assert mine.permissions == ["export_my_day"]
     assert not_mine.permissions == []
 
 
@@ -145,39 +188,43 @@ async def test_bulk_bad_mode_rejected():
 
 
 async def test_manager_edits_own_report_permissions():
-    mgr = _p(MGR, "manager", assignable=["consolidated_report"])
+    mgr = _p(MGR, "manager", assignable=["export_my_day"])
     report = _p(REP, "user", manager_id=MGR, perms=[])
     db = _db(get=report)
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(mgr, db) as c:
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
-                              json={"permissions": ["consolidated_report"]})
+                              json={"permissions": ["export_my_day"]})
     assert r.status_code == 200
-    assert report.permissions == ["consolidated_report"]
+    assert report.permissions == ["export_my_day"]
 
 
 async def test_manager_cannot_grant_outside_allowlist():
-    mgr = _p(MGR, "manager", assignable=["consolidated_report"])
+    mgr = _p(MGR, "manager", assignable=["export_my_day"])
     report = _p(REP, "user", manager_id=MGR, perms=[])
     db = _db(get=report)
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(mgr, db) as c:
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
-                              json={"permissions": ["consolidated_report", "attendance_report"]})
+                              json={"permissions": ["export_my_day", "export_analytics"]})
     assert r.status_code == 200
-    assert report.permissions == ["consolidated_report"]
+    assert report.permissions == ["export_my_day"]
 
 
-async def test_manager_cannot_delegate_outside_their_allowlist():
-    mgr = _p(MGR, "manager", perms=["attendance_report"], assignable=["consolidated_report"])
+async def test_manager_cannot_grant_a_report_permission():
+    """The report keys are non-delegable: a manager holding one, and with it stale
+    in their allow-list, still cannot pass it to a report."""
+    mgr = _p(MGR, "manager", perms=["attendance_report"],
+             assignable=["export_my_day", "consolidated_report", "attendance_report"])
     report = _p(REP, "user", manager_id=MGR, perms=[])
     db = _db(get=report)
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(mgr, db) as c:
             r = await c.patch(f"/api/user-management/users/{REP}/permissions",
-                              json={"permissions": ["attendance_report", "consolidated_report"]})
+                              json={"permissions": ["attendance_report", "consolidated_report",
+                                                    "export_my_day"]})
     assert r.status_code == 200
-    assert report.permissions == ["consolidated_report"]
+    assert report.permissions == ["export_my_day"]
 
 
 async def test_admin_can_still_assign_attendance():
@@ -209,9 +256,24 @@ async def test_admin_sets_manager_assignable_list():
     with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
         async with await _client(admin, db) as c:
             r = await c.patch(f"/api/user-management/managers/{MGR}/assignable",
-                              json={"permissions": ["email_report", "consolidated_report"]})
+                              json={"permissions": ["email_report", "export_analytics"]})
     assert r.status_code == 200
-    assert mgr.assignable_perms == ["email_report", "consolidated_report"]
+    assert mgr.assignable_perms == ["email_report", "export_analytics"]
+
+
+async def test_report_keys_are_rejected_from_a_managers_allowlist():
+    """Even an admin cannot put the report permissions in a manager's allow-list —
+    who sees report data stays an admin decision, per user."""
+    admin = _p(ADMIN, "admin")
+    mgr = _p(MGR, "manager", assignable=[])
+    db = _db(get=mgr)
+    with patch("app.routes.user_management.access_log", return_value=MagicMock(insert_one=AsyncMock())):
+        async with await _client(admin, db) as c:
+            r = await c.patch(f"/api/user-management/managers/{MGR}/assignable",
+                              json={"permissions": ["email_report", "consolidated_report",
+                                                    "attendance_report"]})
+    assert r.status_code == 200
+    assert mgr.assignable_perms == ["email_report"]
 
 
 async def test_set_assignable_rejects_non_manager():

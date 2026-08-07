@@ -13,7 +13,23 @@ def utcnow():
 
 
 DEFAULT_PERMISSIONS = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
-ALL_PERMISSIONS = DEFAULT_PERMISSIONS + ["consolidated_report", "attendance_report"]
+
+# The "Report" group. Base = counts of github/gitlab/jira. Everything else widens
+# either the connector set or the depth, and each is off until an admin grants it.
+# ADMIN_ONLY: never delegable by a manager and never held by a plain user — see
+# rbac.eligible_for()/sanitize_permissions(), which are the only enforcement points.
+ADMIN_ONLY_PERMISSIONS = ["teams_activity", "outlook_activity",
+                          "activity_detail", "device_activity"]
+REPORT_PERMISSIONS = ["consolidated_report", "attendance_report"]
+ALL_PERMISSIONS = (DEFAULT_PERMISSIONS
+                   + REPORT_PERMISSIONS
+                   + ADMIN_ONLY_PERMISSIONS)
+
+# Permissions only an ADMIN may hand out. Wider than ADMIN_ONLY: a plain user may
+# HOLD the two report permissions, but a manager can never grant them — deciding
+# who sees report data is an admin call. Enforced in rbac.assignable_permissions(),
+# which every manager write path is clamped by.
+NON_DELEGABLE_PERMISSIONS = REPORT_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 
 
 class Base(DeclarativeBase):

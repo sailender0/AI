@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.rbac import (
     ELEVATED, ROLES, assignable_permissions, can_edit_permissions, granted,
-    load_profile, require_elevated, visible_profiles,
+    load_profile, require_elevated, sanitize_permissions, visible_profiles,
 )
-from app.storage.models import ALL_PERMISSIONS, Profile
+from app.storage.models import (
+    ADMIN_ONLY_PERMISSIONS, ALL_PERMISSIONS, NON_DELEGABLE_PERMISSIONS, Profile,
+)
 from app.storage.mongodb import access_log, purge_profile
 from app.storage.postgres import get_db
 from app.storage.redis_client import get_redis
@@ -29,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def _own_perms(p: Profile) -> list[str]:
-    """The profile's stored permission list, canonicalised. For a manager this is
-    the TEAM TEMPLATE (not their own gate — they're elevated and hold all)."""
+    """The profile's stored permission list, canonicalised — their own gate,
+    whatever their role. Nobody inherits it."""
     return [k for k in ALL_PERMISSIONS if k in (p.permissions or [])]
 
 
@@ -52,6 +54,8 @@ async def list_users(actor: Profile = Depends(require_elevated(*ELEVATED)),
         "actor_id": str(actor.id),
         "roles": list(ROLES),
         "all_permissions": list(ALL_PERMISSIONS),
+        "admin_only": list(ADMIN_ONLY_PERMISSIONS),   # console hides these on user rows
+        "non_delegable": list(NON_DELEGABLE_PERMISSIONS),  # never in a manager's allow-list
         "assignable": assignable_permissions(actor),
         "managers": managers,
         "users": [
@@ -140,8 +144,7 @@ async def set_permissions(user_id: str, body: PermsBody,
                           actor: Profile = Depends(load_profile),
                           db: AsyncSession = Depends(get_db)):
     """Edit a user's own permission list. Admin → anyone; manager → their direct
-    reports only (the server clamp, not the UI). For a manager row this list is the
-    team template (they're elevated and hold all regardless)."""
+    reports only (the server clamp, not the UI)."""
     unknown = [p for p in body.permissions if p not in ALL_PERMISSIONS]
     if unknown:
         return JSONResponse({"error": f"unknown permissions: {unknown}"}, status_code=400)
@@ -154,7 +157,7 @@ async def set_permissions(user_id: str, body: PermsBody,
     if actor.role != "admin":
         allowed, current = set(assignable_permissions(actor)), set(target.permissions or [])
         submitted = (submitted & allowed) | (current - allowed)
-    target.permissions = [p for p in ALL_PERMISSIONS if p in submitted]
+    target.permissions = sanitize_permissions(submitted, target)
     await db.commit()
     if str(target.id) != str(actor.id):
         await _audit(actor, target, "set_permissions", {"permissions": target.permissions})
@@ -165,9 +168,13 @@ async def set_permissions(user_id: str, body: PermsBody,
 async def set_manager(user_id: str, body: ManagerBody,
                       actor: Profile = Depends(require_elevated("admin")),
                       db: AsyncSession = Depends(get_db)):
-    """Assign (or clear) a user's manager — admin only. On assignment we copy the
-    manager's team template onto the user (grant/union), so a new report starts with
-    the team's permissions; the admin/manager can then fine-tune per user."""
+    """Assign (or clear) a user's manager — admin only.
+
+    Org structure only: it changes who reports to whom and nothing else. The user
+    keeps exactly the permissions they already had, and gains none from the manager.
+    Handing permissions to a whole team is a separate, deliberate act — the
+    team-permissions route below.
+    """
     target = await _get_target(user_id, db)
     if not target:
         return JSONResponse({"error": "no_such_user"}, status_code=404)
@@ -189,12 +196,9 @@ async def set_manager(user_id: str, body: ManagerBody,
         return JSONResponse({"error": "would create a manager cycle"}, status_code=400)
 
     target.manager_id = mgr.id
-    merged = set(_own_perms(target)) | set(_own_perms(mgr))
-    target.permissions = [p for p in ALL_PERMISSIONS if p in merged]
     await db.commit()
-    await _audit(actor, target, "assign_manager",
-                 {"manager_id": str(mgr.id), "permissions": target.permissions})
-    return JSONResponse({"ok": True, "manager_id": str(mgr.id), "permissions": target.permissions})
+    await _audit(actor, target, "assign_manager", {"manager_id": str(mgr.id)})
+    return JSONResponse({"ok": True, "manager_id": str(mgr.id), "permissions": _own_perms(target)})
 
 
 @router.patch("/api/user-management/managers/{manager_id}/assignable")
@@ -211,7 +215,11 @@ async def set_assignable(manager_id: str, body: PermsBody,
         return JSONResponse({"error": "no_such_manager"}, status_code=404)
     if mgr.role != "manager":
         return JSONResponse({"error": "target is not a manager"}, status_code=400)
-    mgr.assignable_perms = [p for p in ALL_PERMISSIONS if p in body.permissions]
+    # NON_DELEGABLE keys can't enter the allow-list at all — assignable_permissions()
+    # also filters on read, but storing them would leave the console showing a toggle
+    # that does nothing.
+    delegable = set(body.permissions) - set(NON_DELEGABLE_PERMISSIONS)
+    mgr.assignable_perms = [p for p in ALL_PERMISSIONS if p in delegable]
     await db.commit()
     await _audit(actor, mgr, "set_assignable", {"assignable": mgr.assignable_perms})
     return JSONResponse({"ok": True, "assignable_perms": mgr.assignable_perms})
@@ -243,7 +251,7 @@ async def bulk_team_permissions(manager_id: str, body: BulkPermsBody,
     for r in reports:
         cur = set(_own_perms(r))
         cur = (cur | delta) if body.mode == "grant" else (cur - delta)
-        r.permissions = [p for p in ALL_PERMISSIONS if p in cur]
+        r.permissions = sanitize_permissions(cur, r)
     await db.commit()
     await _audit(actor, mgr, f"team_{body.mode}",
                  {"permissions": sorted(delta), "count": len(reports)})
@@ -278,7 +286,7 @@ async def bulk_permissions(body: BulkAssignBody,
             continue
         cur = set(_own_perms(target))
         cur = (cur | delta) if body.mode == "grant" else (cur - delta)
-        target.permissions = [p for p in ALL_PERMISSIONS if p in cur]
+        target.permissions = sanitize_permissions(cur, target)
         changed += 1
     await db.commit()
     return JSONResponse({"ok": True, "mode": body.mode, "changed": changed, "skipped": skipped})
