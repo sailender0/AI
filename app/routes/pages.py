@@ -62,11 +62,30 @@ async def jira_page(request: Request):
 @router.get("/teams-outlook", response_class=HTMLResponse)
 async def teams_outlook_page(request: Request):
     """One activity calendar over both connectors. Replaces the separate /teams
-    and /outlook mock pages — the spec is a single month grid, not two."""
-    if not await get_profile_from_session(request):
+    and /outlook mock pages — the spec is a single month grid, not two.
+
+    Communication metadata is admin-granted: holding either connector permission
+    opens the page, and the calendar itself shows only what that permission covers.
+    """
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
         return RedirectResponse("/")
-    return templates.TemplateResponse(request=request, name="teams_outlook.html",
-                                      context={"active_page": "teams_outlook"})
+    from app.auth.rbac import granted
+    from app.storage.models import Profile
+    from app.storage.postgres import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(Profile, profile_id)
+    if not profile:
+        return RedirectResponse("/")
+    perms = granted(profile)
+    if not {"teams_activity", "outlook_activity"} & set(perms):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(
+        request=request, name="teams_outlook.html",
+        context={"active_page": "teams_outlook",
+                 "show_teams": "teams_activity" in perms,
+                 "show_outlook": "outlook_activity" in perms},
+    )
 
 
 @router.get("/ai", response_class=HTMLResponse)

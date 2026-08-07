@@ -409,6 +409,10 @@ async function initBase() {
   const container = document.getElementById('sidebar-connectors');
   container.innerHTML = '';
   for (const source of SOURCE_ORDER) {
+    // Teams/Outlook is admin-granted now, and /teams-outlook redirects home without
+    // it — a link that bounces you back is worse than no link.
+    if (source === 'teams_subscription'
+        && !hasPerm('teams_activity') && !hasPerm('outlook_activity')) continue;
     const meta      = SOURCES[source];
     const connected = data.integrations[source];
     const broken    = (data.integration_errors || {})[source];
