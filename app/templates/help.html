@@ -6,7 +6,6 @@
 {% block content %}
 <div class="flex h-full min-h-0">
 
-  <!-- ── Left nav ── -->
   <div class="shrink-0 overflow-y-auto py-4" style="width:220px;border-right:1px solid var(--border);background:var(--surface)">
     <div class="px-3 space-y-0.5">
       <button onclick="showPanel('faq')" id="nav-faq" class="help-nav active">
@@ -31,11 +30,19 @@
       </button>
       <button onclick="showPanel('page-digest')" id="nav-page-digest" class="help-nav">
         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-        <span>Digest</span>
+        <span>Analytics</span>
       </button>
       <button onclick="showPanel('page-ai')" id="nav-page-ai" class="help-nav">
         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
         <span>Ask AI</span>
+      </button>
+      <button onclick="showPanel('page-device')" id="nav-page-device" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        <span>Device Activity</span>
+      </button>
+      <button onclick="showPanel('page-email')" id="nav-page-email" class="help-nav">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        <span>Email Report</span>
       </button>
       <button onclick="showPanel('page-github')" id="nav-page-github" class="help-nav"><span class="cbadge" style="background:#f9731622;color:#f97316">GH</span><span>GitHub Page</span></button>
       <button onclick="showPanel('page-gitlab')" id="nav-page-gitlab" class="help-nav"><span class="cbadge" style="background:#10b98122;color:#10b981">GL</span><span>GitLab Page</span></button>
@@ -44,12 +51,9 @@
     </div>
   </div>
 
-  <!-- ── Right content ── -->
   <div class="flex-1 min-w-0 overflow-y-auto" id="help-scroll">
     <div style="padding:2rem 3rem 4rem">
 
-
-<!-- ═══════════ FAQ ═══════════ -->
 <div id="panel-faq" class="help-panel">
   <h2 class="panel-title">Frequently Asked Questions</h2>
   <p class="panel-desc">Click a question to expand the answer.</p>
@@ -58,18 +62,18 @@
     <details class="faq-item"><summary class="faq-q">Why aren't my commits showing up?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a"><strong>GitHub:</strong> Check that GitHub shows <strong>Active</strong> in the sidebar and the app was running when you pushed. <strong>GitLab:</strong> Open the GitLab page and click <strong>Sync Webhooks</strong> — if webhooks weren't registered, no events will arrive. Then make a test push. Commits made while the app was offline or before connecting won't backfill automatically.</p></details>
     <details class="faq-item"><summary class="faq-q">What is the green "Live" dot in the top bar?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">It indicates an active WebSocket connection. New events appear in the chart and timeline automatically without a page refresh. It reconnects automatically if the connection drops.</p></details>
     <details class="faq-item"><summary class="faq-q">How does the AI summary work and what does it cost?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Clicking Generate sends your activity events to GPT-4o which writes a plain-text summary. A typical daily summary (5–20 events) costs under $0.01. A heavy day with 200+ events costs around $0.03.</p></details>
-    <details class="faq-item"><summary class="faq-q">Can I view activity from past weeks?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Yes. On connector pages, click <strong>Pick Week ▾</strong> and choose any past week from the calendar. On My Day use the left arrow to step back day by day. On Digest use the week arrows.</p></details>
+    <details class="faq-item"><summary class="faq-q">Can I view activity from past weeks?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Yes. On connector pages, click <strong>Pick Week ▾</strong> and choose any past week from the calendar. On My Day use the left arrow to step back day by day. On Analytics use the week arrows.</p></details>
     <details class="faq-item"><summary class="faq-q">How do I generate a summary for a past day?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Navigate to that date in My Day using the arrows. If the day has events a <strong>Generate</strong> button appears — click it to create an AI summary for that exact day. The button is hidden when a day has no recorded events.</p></details>
     <details class="faq-item"><summary class="faq-q">What can Ask AI answer?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Questions about your own recorded activity — "How many commits this week?", "What Jira tickets did I update last Thursday?". It understands natural time phrases. It cannot fetch live data from GitHub or Jira directly and cannot see events from days the app was offline.</p></details>
     <details class="faq-item"><summary class="faq-q">Why is Teams not showing my messages?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Teams connects via your Microsoft SSO login. If messages don't appear, sign out and back in to refresh the token. Only messages <em>you send</em> are captured — not messages from other participants.</p></details>
     <details class="faq-item"><summary class="faq-q">What does the orange warning banner on a connector page mean?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">There are two types: <strong>Authentication failed</strong> — the OAuth handshake didn't complete (e.g. you denied access or the code expired). Click the retry link to reconnect. <strong>Webhook registration failed</strong> — the OAuth succeeded but the app couldn't register a webhook on your projects. For GitLab, click <strong>Sync Webhooks</strong> on the GitLab page to retry. For Jira, click the <strong>Reconnect</strong> link in the banner. Once webhooks are registered the banner disappears on the next page load.</p></details>
     <details class="faq-item"><summary class="faq-q">Does the app store my code or message content?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">No. Only event metadata is stored — commit titles, file names, timestamps, event types, repository names. Full code diffs and full message bodies are never stored.</p></details>
+    <details class="faq-item"><summary class="faq-q">What is the Homepage I see before signing in?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">When you're signed out, opening the app shows the <strong>Homepage</strong> — a quick tour of what Developer Activity Tracker does (Overview, My Day, Analytics, Ask AI, Device Activity, Email Report) with a single <strong>Sign in with Microsoft</strong> button. Signing in takes you straight to your Dashboard; signing out brings you back here.</p></details>
+    <details class="faq-item"><summary class="faq-q">How do I sign out?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Click <strong>Sign out</strong> under your email address at the bottom of the left sidebar. Your session ends immediately and you're returned to the Homepage. Sign back in with Microsoft any time.</p></details>
     <details class="faq-item" style="border-bottom:none"><summary class="faq-q">How do I switch between light and dark mode?<svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></summary><p class="faq-a">Use the Light / System / Dark buttons at the bottom of the left sidebar, or click your avatar in the top-right corner. The preference is saved in your browser.</p></details>
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — GITHUB ═══════════ -->
 <div id="panel-new-github" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#f9731622;color:#f97316">GH</span><h2 class="panel-title" style="margin:0">Connect GitHub</h2></div>
   <p class="panel-desc">One-time setup. The app installs a GitHub App and registers a webhook — every future push, PR, or review appears within seconds.</p>
@@ -100,8 +104,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — GITLAB ═══════════ -->
 <div id="panel-new-gitlab" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#10b98122;color:#10b981">GL</span><h2 class="panel-title" style="margin:0">Connect GitLab</h2></div>
   <p class="panel-desc">Connects via OAuth 2.0. After you authorise, the app automatically registers webhooks on every GitLab project you belong to so commits, merge requests, issues, comments, pipelines, and tag pushes arrive in real time.</p>
@@ -141,8 +143,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — JIRA ═══════════ -->
 <div id="panel-new-jira" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#06b6d422;color:#06b6d4">JR</span><h2 class="panel-title" style="margin:0">Connect Jira</h2></div>
   <p class="panel-desc">Connects via Atlassian OAuth. Ticket updates and comments appear in your feed as you work in Jira.</p>
@@ -172,8 +172,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ NEW — TEAMS ═══════════ -->
 <div id="panel-new-teams" class="help-panel hidden">
   <div class="flex items-center gap-3 mb-1"><span class="cbadge-lg" style="background:#8b5cf622;color:#8b5cf6">MS</span><h2 class="panel-title" style="margin:0">Connect Microsoft Teams</h2></div>
   <p class="panel-desc">Teams connects automatically when you sign in with Microsoft — no extra steps. The app registers a Graph subscription in the background.</p>
@@ -202,8 +200,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — DASHBOARD ═══════════ -->
 <div id="panel-page-dashboard" class="help-panel hidden">
   <h2 class="panel-title">Dashboard</h2>
   <p class="panel-desc">Your central overview — weekly KPI totals across all tools, a stacked bar chart of daily activity, and a live event timeline. Everything updates automatically when new events arrive.</p>
@@ -265,8 +261,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — MY DAY ═══════════ -->
 <div id="panel-page-myday" class="help-panel hidden">
   <h2 class="panel-title">My Day</h2>
   <p class="panel-desc">A full breakdown of one specific day — AI summary, per-tool event counts, and a detailed chronological timeline. Works for today and any past date.</p>
@@ -335,10 +329,8 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — DIGEST ═══════════ -->
 <div id="panel-page-digest" class="help-panel hidden">
-  <h2 class="panel-title">Digest (Weekly Summary)</h2>
+  <h2 class="panel-title">Analytics (Weekly Summary)</h2>
   <p class="panel-desc">AI-generated summaries for any past week plus a full day-by-day activity breakdown. Auto-generates every Friday at 11 PM in your local timezone.</p>
   <div class="two-col" style="gap:2rem">
     <div>
@@ -381,8 +373,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — ASK AI ═══════════ -->
 <div id="panel-page-ai" class="help-panel hidden">
   <h2 class="panel-title">Ask AI</h2>
   <p class="panel-desc">A conversational assistant that answers questions about your developer activity in natural language. Ask like you would a colleague.</p>
@@ -430,8 +420,6 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — GITHUB ═══════════ -->
 <div id="panel-page-github" class="help-panel hidden">
   <h2 class="panel-title">GitHub Page</h2>
   <p class="panel-desc">All your GitHub activity by week — commits, PRs, issues, and reviews. Tabs filter the chart by event type; the right panel lists individual events for quick review.</p>
@@ -503,8 +491,6 @@
   <p class="body-text"><strong>Today</strong> groups events by type with an orange left border and a count badge. <strong>History</strong> is a flat chronological list. Both show SHA chips and file name tags on commits.</p>
 </div>
 
-
-<!-- ═══════════ PAGE — GITLAB ═══════════ -->
 <div id="panel-page-gitlab" class="help-panel hidden">
   <h2 class="panel-title">GitLab Page</h2>
   <p class="panel-desc">All your GitLab activity by week — commits, merge requests, issues, comments, pipelines, and tag pushes. Each event type has its own colour so you can tell them apart at a glance.</p>
@@ -584,23 +570,74 @@
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — JIRA ═══════════ -->
 <div id="panel-page-jira" class="help-panel hidden">
   <h2 class="panel-title">Jira Page</h2>
-  <p class="panel-desc">All your Jira activity by week — ticket updates, comments, and new tickets. Tabs filter the chart by event type; the right panel lists the actual tickets you touched.</p>
+  <p class="panel-desc">Your Jira work at a glance. The top half is a <strong>live pull from Jira</strong> — what's assigned to you right now, with deadline and workload charts. The lower half is your own recorded activity by week: the ticket-event chart and feed.</p>
 
-  <p class="sub-title">① Today / This Week toggle + KPI Cards</p>
-  <div style="display:flex;gap:8px;margin-bottom:10px"><span class="mock-btn">● Today</span><span class="mock-btn-active">This Week</span></div>
-  <div class="mock-kpi-row">
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">CREATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">UPDATED</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">COMMENTS</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
-    <div class="mock-kpi" style="border-top:3px solid #06b6d4"><span class="mock-kpi-label">TOTAL</span><span class="mock-kpi-val" style="color:#06b6d4">—</span><span class="mock-kpi-delta">vs last week</span></div>
+  <p class="sub-title">① My Work KPIs</p>
+  <div class="mock-kpi-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="mock-kpi"><span class="mock-kpi-label">Overdue</span><span class="mock-kpi-val" style="color:#ef4444">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Due this week</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">In progress</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Done this week</span><span class="mock-kpi-val" style="color:#22c55e">—</span></div>
+    <div class="mock-kpi"><span class="mock-kpi-label">Open total</span><span class="mock-kpi-val" style="color:var(--text-1)">—</span></div>
   </div>
-  <p class="body-text"><strong>Created</strong> = new tickets you opened. <strong>Updated</strong> = status/field changes. <strong>Comments</strong> = comments you added. <strong>Total</strong> = all Jira events combined.</p>
+  <p class="body-text">Counts across every issue currently <strong>assigned to you</strong> in Jira — the live picture, not this week's events. <strong>Overdue</strong> turns red when anything is past due; <strong>Done this week</strong> turns green and counts issues you completed in the last 7 days.</p>
 
-  <p class="sub-title">② Activity Chart + ③ Week Activity Panel</p>
+  <p class="sub-title">② My Open Issues <span style="font-size:9px;font-weight:700;background:#06b6d418;color:#06b6d4;padding:2px 7px;border-radius:5px;vertical-align:middle;letter-spacing:.03em">LIVE</span></p>
+  <div style="display:grid;grid-template-columns:1fr 210px;gap:12px;margin-bottom:8px">
+    <div class="mock-card">
+      <div style="border-left:2px solid #ef4444;padding-left:10px;margin-bottom:12px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:#06b6d4">PROJ-142</span>
+          <span style="font-size:9px;background:#f59e0b18;color:#f59e0b;padding:1px 6px;border-radius:10px;font-weight:600">In Progress</span>
+          <span style="font-size:9px;background:#ef444418;color:#ef4444;padding:1px 6px;border-radius:10px;font-weight:600">High</span>
+          <span style="font-size:10px;font-weight:600;color:#ef4444">2 days overdue</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-1);margin-top:3px">Fix token refresh on the Jira webhook</div>
+        <div style="font-size:10px;color:var(--text-3);margin-top:1px">Story · Sprint 7 · 3 pts</div>
+      </div>
+      <div style="border-left:2px solid #22c55e;padding-left:10px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:#06b6d4">PROJ-155</span>
+          <span style="font-size:9px;background:#64748b18;color:#64748b;padding:1px 6px;border-radius:10px;font-weight:600">To Do</span>
+          <span style="font-size:9px;background:#22c55e18;color:#22c55e;padding:1px 6px;border-radius:10px;font-weight:600">Low</span>
+          <span style="font-size:10px;font-weight:600;color:var(--text-3)">Due Fri</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-1);margin-top:3px">Add pagination to the activity export</div>
+      </div>
+    </div>
+    <div class="mock-card" style="display:flex;flex-direction:column;gap:14px;justify-content:center">
+      <div>
+        <p style="font-size:9px;font-weight:600;color:var(--text-3);margin-bottom:6px">BY STATUS</p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="height:8px;width:80%;background:#f59e0b;border-radius:3px"></div>
+          <div style="height:8px;width:55%;background:#64748b;border-radius:3px"></div>
+          <div style="height:8px;width:30%;background:#22c55e;border-radius:3px"></div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:9px;font-weight:600;color:var(--text-3);margin-bottom:6px">BY PRIORITY</p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="height:8px;width:70%;background:#ef4444;border-radius:3px"></div>
+          <div style="height:8px;width:45%;background:#f59e0b;border-radius:3px"></div>
+          <div style="height:8px;width:25%;background:#22c55e;border-radius:3px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="body-text">A live list of every open issue assigned to you, <strong>overdue first</strong> then soonest due. Each row shows the <strong>key</strong> (click to open it in Jira), status, priority, due date, summary, and — when set — issue type, sprint, and story points. The left-border colour is the issue's priority. The mini bars on the right break your open issues down <strong>by status</strong> and <strong>by priority</strong>. <strong>Refresh</strong> re-pulls on demand; it also refreshes on its own whenever a new Jira event arrives.</p>
+
+  <p class="sub-title">③ Due Outlook &amp; Issue Age</p>
+  <div class="two-col" style="gap:1rem">
+    <div class="info-box"><strong style="color:var(--text-1)">Due outlook</strong><p style="margin-top:5px;font-size:12px">One bar per day for the next 7 days plus an <strong style="color:#ef4444">Overdue</strong> bucket — see what's landing when, and what's already late.</p></div>
+    <div class="info-box"><strong style="color:var(--text-1)">Age of open issues</strong><p style="margin-top:5px;font-size:12px">How long your open issues have sat since they were created: under 1 week, 1–2, 2–4, or over a month. Darker cyan = older (spot aging WIP).</p></div>
+  </div>
+
+  <p class="sub-title">④ Backfill 30 Days</p>
+  <p class="body-text"><strong>Backfill 30d</strong> (top-right of the activity section) imports the last 30 days of your Jira history into the activity chart and feed below. Handy right after connecting, since webhooks only capture actions taken <em>after</em> setup.</p>
+
+  <p class="sub-title">⑤ Activity Chart + Week Activity Panel</p>
   <div style="display:grid;grid-template-columns:1fr 260px;gap:12px;margin-bottom:8px">
     <div class="mock-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -635,16 +672,14 @@
     <li class="ci"><span class="cn">B</span><span><strong>Week Activity panel</strong> lists tickets you touched — key, title, event type, time. "No created this week" just means zero new tickets opened; other tabs may have activity.</span></li>
     <li class="ci" style="border:none"><span class="cn">C</span><span><strong>Top Repos</strong> tab ranks Jira projects by event count for the selected week.</span></li>
   </ul>
-  <p class="sub-title" style="margin-top:20px">④ Recent Activity</p>
+  <p class="sub-title" style="margin-top:20px">⑥ Recent Activity</p>
   <p class="body-text"><strong>Today</strong> groups Jira events by type (Comment Created, Issue Updated) with a cyan left border. <strong>History</strong> shows all Jira events for the selected week chronologically. Each row shows ticket key, title, and event type.</p>
   <div class="tips-box" style="margin-top:12px">
-    <p>→ No events arriving? If an <strong>orange banner</strong> is visible, the webhook wasn't registered — click the reconnect link to re-run the OAuth flow and re-register.</p>
-    <p>→ Events only arrive for Jira actions taken after connecting. Historical tickets are not backfilled.</p>
+    <p>→ If <strong>My Open Issues</strong> says the connection expired, or a <strong>"Jira connection problem"</strong> banner appears at the top, the token lapsed — click <strong>Reconnect Jira</strong>. Both the live panel and new events stop until you do.</p>
+    <p>→ New events only arrive for Jira actions taken after connecting. Use <strong>Backfill 30d</strong> to pull recent history in.</p>
   </div>
 </div>
 
-
-<!-- ═══════════ PAGE — TEAMS ═══════════ -->
 <div id="panel-page-teams" class="help-panel hidden">
   <h2 class="panel-title">Teams Page</h2>
   <p class="panel-desc">Messages you sent and meetings you attended in Microsoft Teams, organised by week. Connects automatically via Microsoft SSO — no separate OAuth step needed.</p>
@@ -695,6 +730,90 @@
   <p class="body-text"><strong>Today</strong> groups your Teams events by type (Message Sent, Meeting) with a purple left border. <strong>History</strong> shows all Teams events for the selected week in order.</p>
 </div>
 
+<div id="panel-page-device" class="help-panel hidden">
+  <h2 class="panel-title">Device Activity</h2>
+  <p class="panel-desc">Your local coding activity, captured by the desktop agent — focus blocks, local commits, and AI-tool token usage that the GitHub / Jira / Teams APIs never see. This page only works in the <strong>desktop app</strong>; opened in a plain browser it shows a "Desktop app required" notice.</p>
+
+  <p class="sub-title">① Agent status bar</p>
+  <div class="mock-card" style="display:flex;align-items:center;gap:10px">
+    <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0"></span>
+    <span style="font-size:12px;font-weight:600;color:var(--text-1)">Agent connected</span>
+    <span style="font-size:11px;color:var(--text-3)">· myrepo / main · updated 2s ago</span>
+    <span class="mock-btn" style="margin-left:auto;font-size:10px">Refresh</span>
+  </div>
+  <p class="body-text">A green dot means the desktop agent is running and reporting; red is <strong>Agent offline</strong> (start the desktop app). The bar also shows the repo/branch you're currently in and when data last refreshed.</p>
+
+  <div class="two-col" style="gap:2rem">
+    <div>
+      <p class="sub-title">② Today tab</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px">
+        <div class="mock-card" style="text-align:center;padding:10px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">FOCUS</p><p style="font-size:18px;font-weight:700;color:var(--text-1)">2h 45m</p><p style="font-size:9px;color:var(--text-3)">3 deep work blocks</p></div>
+        <div class="mock-card" style="text-align:center;padding:10px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">AI TOKENS</p><p style="font-size:18px;font-weight:700;color:var(--text-1)">128k</p><p style="font-size:9px;color:var(--text-3)">Claude, Copilot</p></div>
+        <div class="mock-card" style="text-align:center;padding:10px 4px"><p style="font-size:9px;color:var(--text-3);margin-bottom:3px">COMMITS</p><p style="font-size:18px;font-weight:700;color:var(--text-1)">7</p><p style="font-size:9px;color:var(--text-3)">local</p></div>
+      </div>
+      <p class="body-text">Three headline numbers for the selected day. Use the <strong>◀ ▶</strong> arrows to move day-to-day; <strong>Today</strong> jumps back to the current day.</p>
+    </div>
+    <div>
+      <p class="sub-title">③ What's below</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#4f46e5"></span><span><strong>Focus blocks</strong> — each deep-work session with start–end time and duration</span></div>
+        <div class="irow"><span class="idot" style="background:#f97316"></span><span><strong>Local commits</strong> — SHA, message, repo/branch, and +/− line counts</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#8b5cf6"></span><span><strong>AI tools today</strong> — tokens per tool; expand a tool for per-repo, per-model, and file detail</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub-title" style="margin-top:20px">④ Week tab</p>
+  <p class="body-text">Switch to <strong>Week</strong> for weekly totals (focus time, AI tokens, commits) and a <strong>Mon–Sun chart</strong> with dual bars — focus minutes and token usage side by side. Click any day in the chart to drop into that day's detail.</p>
+  <div class="tips-box" style="margin-top:12px">
+    <p>→ No data? Make sure the desktop app is running — the green <strong>Agent connected</strong> dot must be showing.</p>
+    <p>→ Only local activity is captured here; GitHub / Jira / Teams events live on their own pages and the Dashboard.</p>
+  </div>
+</div>
+
+<div id="panel-page-email" class="help-panel hidden">
+  <h2 class="panel-title">Email Report</h2>
+  <p class="panel-desc">Email a summary of your activity to yourself — on demand or on a recurring schedule. Reports always go to <strong>your own</strong> address (delivered through your Microsoft account); there's no way to send them to anyone else.</p>
+  <div class="two-col" style="gap:2rem">
+    <div>
+      <p class="sub-title">① Send a report</p>
+      <div class="mock-card">
+        <p style="font-size:10px;color:var(--text-3);margin-bottom:3px">Report</p>
+        <div class="mock-btn" style="width:100%;justify-content:space-between;margin-bottom:8px">My Day ▾</div>
+        <p style="font-size:10px;color:var(--text-3);margin-bottom:3px">Date</p>
+        <div class="mock-btn" style="width:100%;justify-content:space-between;margin-bottom:8px">Mon, 23 Jun ▾</div>
+        <div style="height:70px;border-radius:6px;background:#fff;border:1px solid var(--border);margin-bottom:8px"></div>
+        <span class="mock-btn-active" style="font-size:10px">Send to my email</span>
+      </div>
+      <p class="body-text">Pick a <strong>Report</strong> and a <strong>date</strong>, and a live <strong>preview</strong> of the exact email renders below. Click <strong>Send to my email</strong> to deliver it now.</p>
+      <p class="sub-title">Report types</p>
+      <div class="info-box">
+        <div class="irow"><span class="idot" style="background:#4f46e5"></span><span><strong>My Day</strong> — one day's activity across all tools</span></div>
+        <div class="irow"><span class="idot" style="background:#8b5cf6"></span><span><strong>Device Activity</strong> — local coding stats; toggle <strong>Day</strong> or <strong>Weekly</strong></span></div>
+        <div class="irow"><span class="idot" style="background:#06b6d4"></span><span><strong>Analytics</strong> — the weekly summary</span></div>
+        <div class="irow" style="border:none"><span class="idot" style="background:#22c55e"></span><span><strong>Standup</strong> — a concise standup-style update</span></div>
+      </div>
+    </div>
+    <div>
+      <p class="sub-title">② Schedule</p>
+      <div class="mock-card">
+        <p style="font-size:10px;color:var(--text-3);margin-bottom:3px">Report</p>
+        <div class="mock-btn" style="width:100%;justify-content:space-between;margin-bottom:8px">Analytics ▾</div>
+        <p style="font-size:10px;color:var(--text-3);margin-bottom:3px">Frequency</p>
+        <div class="mock-btn" style="width:100%;justify-content:space-between;margin-bottom:8px">Weekly (Fri) ▾</div>
+        <p style="font-size:10px;color:var(--text-3);margin-bottom:3px">Hour (local, 0–23)</p>
+        <div class="mock-btn" style="width:100%;justify-content:space-between;margin-bottom:8px">9</div>
+        <span class="mock-btn-active" style="font-size:10px">Save schedule</span>
+      </div>
+      <p class="body-text">Have a report arrive automatically. Pick the <strong>report</strong>, a <strong>frequency</strong> — Daily, Weekdays, or Weekly (Fri) — and the <strong>hour</strong> in your local time (0–23). Set frequency to <strong>Off</strong> to stop it.</p>
+      <p class="body-text">Saved schedules appear under <strong>Active schedules</strong>, and you can run several at once (e.g. a daily My Day plus a weekly Analytics).</p>
+      <div class="tips-box" style="margin-top:12px">
+        <p>→ Delivery uses your Microsoft sign-in (Graph send-as-self), so your session must be active.</p>
+        <p>→ The preview is the real email — what you see is exactly what lands in your inbox.</p>
+      </div>
+    </div>
+  </div>
+</div>
 
     </div>
   </div>
@@ -751,7 +870,7 @@
   .faq-a{font-size:13px;color:var(--text-2);line-height:1.7;padding:0 4px 14px}
 </style>
 <script>
-  const _ALL=['faq','new-github','new-gitlab','new-jira','new-teams','page-dashboard','page-myday','page-digest','page-ai','page-github','page-gitlab','page-jira','page-teams'];
+  const _ALL=['faq','new-github','new-gitlab','new-jira','new-teams','page-dashboard','page-myday','page-digest','page-ai','page-device','page-email','page-github','page-gitlab','page-jira','page-teams'];
   function showPanel(id){
     _ALL.forEach(p=>{
       document.getElementById('panel-'+p).classList.toggle('hidden',p!==id);

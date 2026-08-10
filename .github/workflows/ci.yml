@@ -1,25 +1,62 @@
 name: CI
 
 on:
+  # Every branch, not just main — otherwise a feature branch gets no feedback
+  # until PR time, which is the worst moment to discover something is broken.
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
     branches: [main]
+
+# Pushing twice in quick succession shouldn't leave a stale run burning minutes
+# and reporting a result nobody cares about — cancel the superseded one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
 
+      # Node is only for the CSS toolchain. Without it the frontend guards
+      # (stale app.css, app.js/template global-scope clashes) silently SKIP,
+      # which is how a broken page would sail through CI.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Install CSS toolchain
+        run: npm ci
+
+      # Reports known CVEs in dependencies. Non-blocking (continue-on-error) so a
+      # newly-disclosed advisory surfaces in the log without failing every build;
+      # promote to blocking once the dependency set is pinned.
+      - name: Audit dependencies
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+
+      # The frontend guards skip locally when node is absent, but FAIL when CI=1
+      # (which Actions sets) — a skipped guard is a guard that isn't guarding.
       - name: Run tests
+        env:
+          # config.py deliberately has no default for SECRET_KEY and asserts on
+          # import, so nothing can ship with a known key. There is no .env in a
+          # clean checkout, so without this the suite cannot even be COLLECTED.
+          # Tests only need *a* value — this is not a real secret and is not
+          # used anywhere but session signing in unit tests.
+          SECRET_KEY: ci-test-only-not-a-real-secret
         run: python -m pytest tests/ -v

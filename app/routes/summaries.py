@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.summarizer import _summarise_profile
-from app.auth.sso import get_profile_from_session
+from app.auth.sso import require_profile
 from app.storage.models import Profile, Summary
 from app.storage.postgres import get_db
 
@@ -15,11 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/api/summaries")
-async def get_summaries(request: Request, limit: int = 10, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def get_summaries(limit: int = 10, profile_id: str = Depends(require_profile),
+                        db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(
         select(Summary)
         .where(Summary.profile_id == profile_id)
@@ -40,11 +37,8 @@ async def get_summaries(request: Request, limit: int = 10, db: AsyncSession = De
 
 
 @router.post("/api/summaries/generate")
-async def generate_summary(request: Request, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def generate_summary(request: Request, profile_id: str = Depends(require_profile),
+                           db: AsyncSession = Depends(get_db)):
     body = await request.json()
     period_type = body.get("period_type", "daily")
     specific_date = body.get("date")
@@ -64,11 +58,8 @@ async def generate_summary(request: Request, db: AsyncSession = Depends(get_db))
 
 
 @router.delete("/api/summaries/{summary_id}")
-async def delete_summary(request: Request, summary_id: str, db: AsyncSession = Depends(get_db)):
-    profile_id = await get_profile_from_session(request)
-    if not profile_id:
-        return JSONResponse({"error": "not_authenticated"}, status_code=401)
-
+async def delete_summary(summary_id: str, profile_id: str = Depends(require_profile),
+                         db: AsyncSession = Depends(get_db)):
     import uuid as _uuid
     row = await db.get(Summary, _uuid.UUID(summary_id))
     if not row or str(row.profile_id) != str(profile_id):

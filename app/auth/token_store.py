@@ -1,15 +1,16 @@
 """
-Thin wrapper around Azure Key Vault for secret storage.
-Falls back to local Fernet encryption when AZURE_KEYVAULT_URL is not set (dev mode).
+Encryption for the OAuth tokens held in `integrations.*_token_enc`.
 
-encrypt_token / decrypt_token are async so that Key Vault I/O runs in a thread
-pool (asyncio.to_thread) rather than blocking the event loop. The Fernet path
-is pure-CPU and returns immediately.
+Fernet (AES-128-CBC + HMAC) keyed by a SHA-256 of SECRET_KEY, so rotating
+SECRET_KEY invalidates every stored token and users reconnect — that is the
+intended blast radius, not a bug.
+
+encrypt_token / decrypt_token stay async even though Fernet is pure-CPU: every
+caller already awaits them, and a key store that needs real I/O (Key Vault, KMS)
+drops in without touching app/auth/oauth.py.
 """
-import asyncio
 import base64
 import hashlib
-import os
 
 from cryptography.fernet import Fernet
 
@@ -27,30 +28,24 @@ def _get_fernet() -> Fernet:
 
 
 async def encrypt_token(plaintext: str) -> str:
-    if settings.AZURE_KEYVAULT_URL:
-        return await asyncio.to_thread(_keyvault_encrypt, plaintext)
     return _get_fernet().encrypt(plaintext.encode()).decode()
 
 
 async def decrypt_token(ciphertext: str) -> str:
-    if settings.AZURE_KEYVAULT_URL:
-        return await asyncio.to_thread(_keyvault_decrypt, ciphertext)
     return _get_fernet().decrypt(ciphertext.encode()).decode()
 
 
-def _keyvault_encrypt(plaintext: str) -> str:
-    from azure.identity import DefaultAzureCredential
-    from azure.keyvault.secrets import SecretClient
+def demo() -> None:
+    """Self-check: a round-trip must return the input, and ciphertext must differ."""
+    settings.SECRET_KEY = settings.SECRET_KEY or "test-key"
+    import asyncio
 
-    client = SecretClient(vault_url=settings.AZURE_KEYVAULT_URL, credential=DefaultAzureCredential())
-    secret_name = f"token-{os.urandom(8).hex()}"
-    client.set_secret(secret_name, plaintext)
-    return secret_name
+    token = "ghp_example_token_value"
+    enc = asyncio.run(encrypt_token(token))
+    assert enc != token
+    assert asyncio.run(decrypt_token(enc)) == token
+    print("ok")
 
 
-def _keyvault_decrypt(secret_name: str) -> str:
-    from azure.identity import DefaultAzureCredential
-    from azure.keyvault.secrets import SecretClient
-
-    client = SecretClient(vault_url=settings.AZURE_KEYVAULT_URL, credential=DefaultAzureCredential())
-    return client.get_secret(secret_name).value
+if __name__ == "__main__":
+    demo()

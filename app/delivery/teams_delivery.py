@@ -66,7 +66,6 @@ async def deliver_to_teams(profile, summary_text: str):
         ],
     }
 
-    # Proactive message via Bot Framework direct-to-user endpoint
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"https://smba.trafficmanager.net/amer/v3/conversations/{profile.teams_user_id}/activities",

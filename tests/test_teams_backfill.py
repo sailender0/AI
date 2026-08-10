@@ -7,8 +7,6 @@ No real network or DB calls are made.
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 PROFILE = "profile-teams-backfill"
 
 _BOT_ID = "bot-sp-id-999"
@@ -159,7 +157,7 @@ async def test_pagination_follows_next_link():
     assert mock_client.get.call_count == 2
     second_url = mock_client.get.call_args_list[1][0][0]
     assert second_url == next_url
-    mock_ingest.assert_called_once()  # only page1 had a message
+    mock_ingest.assert_called_once()
 
 
 async def test_http_error_breaks_loop():

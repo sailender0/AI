@@ -10,7 +10,71 @@
 
 <div id="main-content" class="hidden flex-1 flex flex-col gap-5 min-h-0">
 
-  <!-- Period toggle -->
+  <div x-data="standupCard()" x-init="init()">
+
+    <div x-show="!expanded" class="flex items-center gap-2">
+      <button @click="expand()"
+        class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition hover:opacity-80"
+        style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)">
+        📋 <span x-text="text ? 'View today\'s standup' : 'Generate standup'"></span>
+      </button>
+    </div>
+
+    <div x-show="expanded"
+      x-transition:enter="transition ease-out duration-150"
+      x-transition:enter-start="opacity-0 -translate-y-1"
+      x-transition:enter-end="opacity-100 translate-y-0"
+      class="card p-4"
+      style="border:1px solid var(--border);background:var(--surface)">
+
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span style="color:var(--text-1);font-size:.85rem;font-weight:600">Daily Standup</span>
+          <span x-text="periodLabel" class="text-xs px-2 py-0.5 rounded-full"
+            style="background:var(--surface-2);color:var(--text-3)"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="regenerate()" :disabled="loading"
+            class="text-xs px-2 py-1 rounded-md transition hover:opacity-80"
+            style="background:var(--surface-2);color:var(--text-2)">
+            <span x-show="!loading">↺ Regenerate</span>
+            <span x-show="loading">…</span>
+          </button>
+          <button @click="collapse()" title="Collapse"
+            class="text-xs px-2 py-1 rounded-md transition hover:opacity-80"
+            style="color:var(--text-3)">▴</button>
+        </div>
+      </div>
+
+      <div x-show="stale && text" class="flex items-center gap-1.5 mb-2 text-xs" style="color:#fb923c">
+        ⚠ Generated at <span x-text="generatedAtLabel"></span> — data may be incomplete
+        <button @click="regenerate()" class="underline ml-1" style="color:#fb923c">Refresh</button>
+      </div>
+
+      <div x-show="loading && !text" class="flex items-center gap-2 py-2">
+        <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background:var(--text-3)"></div>
+        <span class="text-xs" style="color:var(--text-3)">Generating your standup…</span>
+      </div>
+
+      <div x-show="error" class="text-xs py-1" style="color:#f87171" x-text="error"></div>
+
+      <textarea x-show="text && !loading"
+        x-model="text"
+        @input="saveDraft()"
+        rows="4"
+        class="w-full text-sm resize-none rounded-md p-2 focus:outline-none"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border);line-height:1.6;font-family:inherit"></textarea>
+
+      <div x-show="text && !loading" class="flex items-center justify-between mt-2">
+        <span class="text-xs" style="color:var(--text-3)" x-text="generatedAtLabel ? 'Generated ' + generatedAtLabel : ''"></span>
+        <button @click="copy()"
+          class="text-xs px-3 py-1 rounded-md transition"
+          style="background:var(--chrome);color:var(--chrome-text)"
+          x-text="copied ? '✓ Copied' : '📋 Copy'"></button>
+      </div>
+    </div>
+  </div>
+
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setStatsPeriod('today')"
       class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
@@ -18,55 +82,64 @@
       class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
   </div>
 
-  <!-- KPI row -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="metric-cards"></div>
 
-  <!-- Stacked Chart — full width -->
   <div class="card p-5" id="chart-card" style="height:340px;display:flex;flex-direction:column;box-shadow:0 0 0 1px var(--border),0 4px 20px rgba(0,0,0,0.07)">
     <div class="flex items-center justify-between mb-1">
       <div class="flex items-center gap-3">
         <span class="text-sm font-semibold" style="color:var(--text-1)">Activity</span>
         <span id="chart-sub" class="text-xs" style="color:var(--text-3)"></span>
-        <!-- Week picker -->
+
         <div style="position:relative;z-index:10">
           <div class="flex gap-0.5 p-0.5 rounded-lg" style="background:var(--surface-2);border:1px solid var(--border)">
             <button id="range-default" onclick="setRangeDefault()"
               class="chart-tab active px-3 py-1 rounded-md text-xs font-medium transition">Current Week</button>
-            <button id="range-week" onclick="togglePicker()"
+            <button id="range-week"
               class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition">Pick Week ▾</button>
           </div>
-          <div id="week-picker" class="hidden"
-            style="position:absolute;top:calc(100% + 6px);left:0;z-index:100;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;padding:12px;min-width:252px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
-            <div class="flex items-center justify-between mb-2">
-              <button onclick="pkPrevMonth()" style="background:none;border:none;cursor:pointer;color:var(--text-2);font-size:18px;line-height:1;padding:2px 6px">‹</button>
-              <span id="pk-month-label" class="text-xs font-semibold" style="color:var(--text-1)"></span>
-              <button onclick="pkNextMonth()" style="background:none;border:none;cursor:pointer;color:var(--text-2);font-size:18px;line-height:1;padding:2px 6px">›</button>
-            </div>
-            <div class="grid grid-cols-7 mb-1">
-              <div class="pk-hdr">M</div><div class="pk-hdr">T</div><div class="pk-hdr">W</div>
-              <div class="pk-hdr">T</div><div class="pk-hdr">F</div><div class="pk-hdr">S</div><div class="pk-hdr">S</div>
-            </div>
-            <div id="pk-grid"></div>
-            <div class="mt-2 pt-2" style="border-top:1px solid var(--border)">
-              <button onclick="setRangeDefault()" class="text-xs px-3 py-1.5 rounded-lg w-full"
-                style="background:var(--chrome);color:var(--chrome-text)">Current Week</button>
-            </div>
-          </div>
+          <div id="week-picker"></div>
         </div>
       </div>
-      <div class="flex gap-4">
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#f97316"></span><span class="text-xs" style="color:var(--text-2)">GitHub</span></div>
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#06b6d4"></span><span class="text-xs" style="color:var(--text-2)">Jira</span></div>
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#8b5cf6"></span><span class="text-xs" style="color:var(--text-2)">Teams</span></div>
-        <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm" style="background:#10b981"></span><span class="text-xs" style="color:var(--text-2)">GitLab</span></div>
-      </div>
+      <div class="flex gap-4" id="chart-legend"></div>
     </div>
     <div class="flex-1 relative mt-3">
       <canvas id="activity-chart" style="cursor:pointer"></canvas>
     </div>
   </div>
 
-  <!-- Activity Timeline — full width below chart -->
+  <div class="card p-5 hidden" id="jira-assigned-card">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-1)">
+        My Jira Work
+        <span id="assigned-count" class="text-xs px-1.5 py-0.5 rounded-full font-normal" style="background:var(--surface-2);color:var(--text-3)"></span>
+        <span class="src-badge" style="background:#06b6d418;color:#06b6d4">Live</span>
+      </h2>
+      <button onclick="loadAssigned()" class="text-xs text-gray-400 hover:text-gray-100">Refresh</button>
+    </div>
+
+    <div id="jira-kpis" class="flex flex-wrap rounded-lg mb-4" style="background:var(--surface-2);border:1px solid var(--border)"></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+      <div class="lg:col-span-2">
+        <div id="assigned-list" class="overflow-y-auto" style="max-height:300px">
+          <p class="text-xs" style="color:var(--text-3)">Loading…</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By status</p>
+          <div style="height:110px"><canvas id="jira-status-chart"></canvas></div>
+        </div>
+        <div>
+          <p class="text-xs font-semibold mb-2" style="color:var(--text-2)">By priority</p>
+          <div style="height:110px"><canvas id="jira-prio-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="card p-5">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
@@ -94,519 +167,11 @@
 
 {% block scripts %}
 <style>
-  .chart-tab { background:transparent; color:var(--text-2); cursor:pointer; border:none; outline:none; }
-  .chart-tab.active  { background:var(--chrome); color:var(--chrome-text); }
-  .chart-tab:not(.active):hover { background:var(--border); color:var(--text-1); }
-  .pk-hdr  { text-align:center; font-size:10px; color:var(--text-3); padding:3px 0; }
-  .pk-row  { display:grid; grid-template-columns:repeat(7,1fr); cursor:pointer; border-radius:6px; }
-  .pk-row:hover { background:var(--surface-2); }
-  .pk-row.pk-selected { background:var(--chrome); }
-  .pk-row.pk-selected .pk-cell { color:var(--chrome-text); }
-  .pk-cell { width:32px; height:32px; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--text-1); border-radius:50%; }
-  .pk-cell.pk-overflow { visibility:hidden; }
-  .pk-cell.pk-today   { font-weight:700; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+
   #chart-card { transition: box-shadow 0.3s ease; }
   [data-theme="light"] #chart-card { box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,0.08) !important; }
   #activity-chart { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.35)); }
   [data-theme="light"] #activity-chart { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
-  .period-btn { background:transparent; color:var(--text-2); cursor:pointer; }
-  .period-btn.active { background:var(--chrome); color:var(--chrome-text); }
-  .period-btn:not(.active):hover { background:var(--border); color:var(--text-1); }
 </style>
-<script>
-  const SOURCE_DOT = {
-    github: '#f97316',
-    gitlab: '#10b981',
-    jira: '#06b6d4',
-    teams_subscription: '#8b5cf6',
-  };
-  const SOURCE_BADGE = {
-    github:             { bg:'rgba(249,115,22,0.15)',  text:'#FED7AA' },
-    gitlab:             { bg:'rgba(16,185,129,0.15)',   text:'#6ee7b7' },
-    jira:               { bg:'rgba(6,182,212,0.15)',   text:'#67e8f9' },
-    teams_subscription: { bg:'rgba(139,92,246,0.15)', text:'#C4B5FD' },
-  };
-
-  let activityChart    = null;
-  let chartRawLabels   = [];
-  let chartGroupBy     = 'day';
-  let _chartEventTypes = null;
-  let _chartStartDate  = null;
-  let _pkYear = null, _pkMonth = null;
-  let statsPeriod     = 'week';
-  let timelinePeriod  = 'today';
-  const _PK_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
-  const _ET_MAP = {
-    commit:'Commits', push:'Pushes',
-    pr_merged:'PRs merged', pr_opened:'PRs opened', pr_closed:'PRs closed', pr_review:'Reviews',
-    issue_updated:'Issues', issue_opened:'Issues opened', issue_closed:'Issues closed',
-    comment:'Comments', issue_comment:'Comments',
-    merge_request:'Merge Requests', issue:'Issues',
-    'jira:issue_created':'Created', 'jira:issue_updated':'Updated',
-    message_sent:'Messages', meeting:'Meetings',
-  };
-  function _etLabel(et) {
-    return _ET_MAP[et] || (et || '').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  }
-
-  // ── 3D bar plugin ─────────────────────────────────────────────────────────
-  const _3dPlugin = {
-    id: 'bars3d',
-    afterDatasetsDraw(chart) {
-      const ctx = chart.ctx;
-
-      function _shade(hex, factor, alpha) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${Math.min(255,Math.round(r*factor))},${Math.min(255,Math.round(g*factor))},${Math.min(255,Math.round(b*factor))},${alpha})`;
-      }
-
-      // Right-side depth face for every visible segment
-      chart.data.datasets.forEach((ds, di) => {
-        const meta = chart.getDatasetMeta(di);
-        if (!meta.visible) return;
-        meta.data.forEach(bar => {
-          const { x, y, width, base } = bar.getProps(['x','y','width','base'], true);
-          if (base - y < 2) return;
-          const depth = Math.min(10, width * 0.14);
-          const dX = depth, dY = -depth * 0.55;
-          const R = x + width / 2;
-          ctx.beginPath();
-          ctx.moveTo(R,      y);
-          ctx.lineTo(R+dX,   y+dY);
-          ctx.lineTo(R+dX,   base+dY);
-          ctx.lineTo(R,      base);
-          ctx.closePath();
-          ctx.fillStyle = _shade(ds.backgroundColor, 0.45, 0.92);
-          ctx.fill();
-        });
-      });
-
-      // Top face — only for the topmost segment in each column
-      const tops = {};
-      chart.data.datasets.forEach((ds, di) => {
-        const meta = chart.getDatasetMeta(di);
-        if (!meta.visible) return;
-        meta.data.forEach((bar, i) => {
-          const { x, y, width, base } = bar.getProps(['x','y','width','base'], true);
-          if (base - y < 2) return;
-          if (!tops[i] || y < tops[i].y) {
-            tops[i] = { x, y, width, color: ds.backgroundColor };
-          }
-        });
-      });
-
-      Object.values(tops).forEach(({ x, y, width, color }) => {
-        const depth = Math.min(10, width * 0.14);
-        const dX = depth, dY = -depth * 0.55;
-        const L = x - width / 2, R = x + width / 2;
-        ctx.beginPath();
-        ctx.moveTo(L,    y);
-        ctx.lineTo(L+dX, y+dY);
-        ctx.lineTo(R+dX, y+dY);
-        ctx.lineTo(R,    y);
-        ctx.closePath();
-        ctx.fillStyle = _shade(color, 1.18, 0.82);
-        ctx.fill();
-      });
-    },
-  };
-
-  window.onWSEvent = function() {
-    loadStats();
-    loadChartForWeek(_chartStartDate);
-    loadTimeline();
-  };
-
-  async function onBaseReady(data) {
-    const raw = ((data || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
-    document.getElementById('main-content').classList.remove('hidden');
-    setStatsPeriod('week', false);
-    setTimelinePeriod('today', false);
-    document.addEventListener('click', e => {
-      const pk = document.getElementById('week-picker');
-      const btn = document.getElementById('range-week');
-      if (pk && !pk.classList.contains('hidden') && !pk.contains(e.target) && e.target !== btn) closePicker();
-    });
-    await Promise.all([loadStats(), setRangeDefault(), loadTimeline()]);
-  }
-
-  // ── Week picker ──────────────────────────────────────────────────────────
-  function _cwLabel() {
-    const now = new Date(); now.setHours(0,0,0,0);
-    const dow = now.getDay();
-    const mon = new Date(now); mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
-    const fmt = d => d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
-    const start = `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
-    const label = mon.getMonth() === fri.getMonth()
-      ? `${fmt(mon).replace(/\s\d+$/, '')} ${mon.getDate()}–${fri.getDate()}`
-      : `${fmt(mon)}–${fmt(fri)}`;
-    return { start, label };
-  }
-
-  function setRangeDefault() {
-    closePicker();
-    const cw = _cwLabel();
-    _chartStartDate = cw.start;
-    document.getElementById('range-default').classList.add('active');
-    document.getElementById('range-week').classList.remove('active');
-    document.getElementById('range-week').textContent = 'Pick Week ▾';
-    document.getElementById('chart-sub').textContent = `· ${cw.label}`;
-    return loadChartForWeek(_chartStartDate);
-  }
-
-  function selectWeek(monIso) {
-    closePicker();
-    _chartStartDate = monIso;
-    const mon = new Date(monIso + 'T00:00:00');
-    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
-    const fmt = d => d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
-    const label = mon.getMonth() === fri.getMonth()
-      ? `${fmt(mon).replace(/\s\d+$/, '')} ${mon.getDate()}–${fri.getDate()}`
-      : `${fmt(mon)}–${fmt(fri)}`;
-    document.getElementById('range-default').classList.remove('active');
-    document.getElementById('range-week').classList.add('active');
-    document.getElementById('range-week').textContent = label + ' ▾';
-    document.getElementById('chart-sub').textContent = `· ${label}`;
-    loadChartForWeek(_chartStartDate);
-  }
-
-  function togglePicker() {
-    document.getElementById('week-picker').classList.contains('hidden') ? openPicker() : closePicker();
-  }
-  function openPicker() {
-    const now = new Date();
-    _pkYear = now.getFullYear(); _pkMonth = now.getMonth();
-    renderPicker();
-    document.getElementById('week-picker').classList.remove('hidden');
-  }
-  function closePicker() { document.getElementById('week-picker')?.classList.add('hidden'); }
-  function pkPrevMonth() { if (--_pkMonth < 0) { _pkMonth = 11; _pkYear--; } renderPicker(); }
-  function pkNextMonth() { if (++_pkMonth > 11) { _pkMonth = 0;  _pkYear++; } renderPicker(); }
-
-  function renderPicker() {
-    document.getElementById('pk-month-label').textContent = `${_PK_MONTHS[_pkMonth]} ${_pkYear}`;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const daysInMonth = new Date(_pkYear, _pkMonth + 1, 0).getDate();
-    let startDow = new Date(_pkYear, _pkMonth, 1).getDay();
-    startDow = startDow === 0 ? 6 : startDow - 1;
-    const prevDays = new Date(_pkYear, _pkMonth, 0).getDate();
-    const cells = [];
-    for (let i = startDow - 1; i >= 0; i--) cells.push({ day: prevDays - i, overflow: true });
-    for (let d = 1; d <= daysInMonth; d++)  cells.push({ day: d, overflow: false });
-    while (cells.length % 7 !== 0) cells.push({ day: cells.length - daysInMonth - startDow + 1, overflow: true });
-    const grid = document.getElementById('pk-grid');
-    grid.innerHTML = '';
-    for (let row = 0; row < cells.length / 7; row++) {
-      const rowCells = cells.slice(row * 7, row * 7 + 7);
-      const c0 = rowCells[0];
-      let monDate;
-      if (c0.overflow && row === 0) {
-        const pm = _pkMonth === 0 ? 11 : _pkMonth - 1, py = _pkMonth === 0 ? _pkYear - 1 : _pkYear;
-        monDate = new Date(py, pm, c0.day);
-      } else if (c0.overflow) {
-        const nm = _pkMonth === 11 ? 0 : _pkMonth + 1, ny = _pkMonth === 11 ? _pkYear + 1 : _pkYear;
-        monDate = new Date(ny, nm, c0.day);
-      } else {
-        monDate = new Date(_pkYear, _pkMonth, c0.day);
-      }
-      monDate.setHours(0,0,0,0);
-      if (monDate > today) continue;
-      const monIso = `${monDate.getFullYear()}-${String(monDate.getMonth()+1).padStart(2,'0')}-${String(monDate.getDate()).padStart(2,'0')}`;
-      const rowEl = document.createElement('div');
-      rowEl.className = `pk-row${monIso === _chartStartDate ? ' pk-selected' : ''}`;
-      rowEl.onclick = () => selectWeek(monIso);
-      rowCells.forEach(c => {
-        const el = document.createElement('div');
-        el.className = `pk-cell${c.overflow ? ' pk-overflow' : ''}`;
-        el.textContent = c.day;
-        if (!c.overflow && new Date(_pkYear, _pkMonth, c.day).toDateString() === today.toDateString())
-          el.classList.add('pk-today');
-        rowEl.appendChild(el);
-      });
-      grid.appendChild(rowEl);
-    }
-  }
-  // ── /Week picker ─────────────────────────────────────────────────────────
-
-  async function loadChartForWeek(startDate) {
-    if (!startDate) return;
-    const res = await fetch(`/api/analytics/trend?days=7&group_by=day&start_date=${startDate}`, { credentials: 'include' });
-    const data = await res.json();
-    chartRawLabels   = data.raw_labels  || [];
-    chartGroupBy     = 'day';
-    _chartEventTypes = data.event_types || null;
-    _renderActivityChart(data);
-  }
-
-  function setTimelinePeriod(period, fetch = true) {
-    timelinePeriod = period;
-    document.getElementById('tl-today').classList.toggle('active',   period === 'today');
-    document.getElementById('tl-history').classList.toggle('active', period === 'history');
-    if (fetch) loadTimeline();
-  }
-
-  function setStatsPeriod(period, fetch = true) {
-    statsPeriod = period;
-    document.getElementById('period-today').classList.toggle('active', period === 'today');
-    document.getElementById('period-week').classList.toggle('active',  period === 'week');
-    if (fetch) loadStats();
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    fetch('/api/me', { credentials: 'include' }).then(r => r.json()).then(d => {
-      if (!d.authenticated) document.getElementById('not-logged-in').classList.remove('hidden');
-    });
-  });
-
-  function _kpiSrc(label) {
-    const l = (label || '').toLowerCase();
-    if (l.includes('jira') || l.includes('issue') || l.includes('sprint')) return {cls:'kpi-num-jira',   grad:'#06b6d4,#22d3ee'};
-    if (l.includes('meet') || l.includes('message') || l.includes('team')) return {cls:'kpi-num-teams',  grad:'#8b5cf6,#a78bfa'};
-    if (l.includes('gitlab') || l.includes('merge'))                        return {cls:'kpi-num-gitlab', grad:'#10b981,#34d399'};
-    return {cls:'kpi-num-github', grad:'#f97316,#fb923c'};
-  }
-
-  async function loadStats() {
-    const res = await fetch(`/api/stats?period=${statsPeriod}`, { credentials: 'include' });
-    const data = await res.json();
-    if (!data.metrics) return;
-
-    const grid = document.getElementById('metric-cards');
-    grid.innerHTML = '';
-
-    data.metrics.forEach(m => {
-      const {cls, grad} = _kpiSrc(m.label);
-      grid.innerHTML += `
-        <div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
-          <div style="height:2px;background:linear-gradient(90deg,${grad})"></div>
-          <div class="p-5">
-            <p class="kpi-label mb-3">${m.label}</p>
-            <p class="kpi-number ${cls}">${m.value}</p>
-          </div>
-        </div>`;
-    });
-    initKpiTilt();
-  }
-
-  function _renderActivityChart(data) {
-    const cc    = chartColors();
-    const light = document.documentElement.getAttribute('data-theme') === 'light';
-
-    // Resolve actual colors — CSS variables don't work inside <canvas>
-    const ttBg     = light ? '#ffffff'  : '#1e2535';
-    const ttBorder = light ? '#e2e8f0'  : '#334155';
-    const ttTitle  = light ? '#0f172a'  : '#f1f5f9';
-    const ttBody   = light ? '#475569'  : '#94a3b8';
-
-    const SOURCE_CONFIG = [
-      { key: 'github',             color: '#f97316', hover: '#fb923c' },
-      { key: 'jira',               color: '#06b6d4', hover: '#22d3ee' },
-      { key: 'teams_subscription', color: '#8b5cf6', hover: '#a78bfa' },
-      { key: 'gitlab',             color: '#10b981', hover: '#34d399' },
-    ];
-    const displayLabels = data.labels;
-    const ctx = document.getElementById('activity-chart').getContext('2d');
-    if (activityChart) activityChart.destroy();
-    activityChart = new Chart(ctx, {
-      type: 'bar',
-      plugins: [_3dPlugin],
-      data: {
-        labels: displayLabels,
-        datasets: SOURCE_CONFIG.map(s => ({
-          data: data.sources[s.key] || [],
-          backgroundColor:      s.color,
-          hoverBackgroundColor: s.hover,   // controlled: subtle, not Chart.js auto-brighten
-          borderWidth: 0,
-          borderRadius: 0,
-          borderSkipped: true,
-          barPercentage: 0.55,
-          categoryPercentage: 0.78,
-          maxBarThickness: 44,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        onClick(evt, elements) {
-          if (!elements.length) return;
-          const date = chartRawLabels[elements[0].index];
-          if (date) window.location.href = `/my-day?date=${date}`;
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: ttBg,
-            borderColor:      ttBorder,
-            borderWidth: 1,
-            titleColor:  ttTitle,
-            bodyColor:   ttBody,
-            footerColor: ttBody,
-            footerFont:  { size: 11 },
-            padding: 12,
-            cornerRadius: 8,
-            filter: item => item.raw > 0,
-            callbacks: {
-              title: items => items[0].label,
-              label: item => {
-                const SRCS  = ['github','jira','teams_subscription','gitlab'];
-                const NAMES = ['GitHub','Jira','Teams','GitLab'];
-                const src   = SRCS[item.datasetIndex];
-                const name  = NAMES[item.datasetIndex];
-                const lines = [` ${name}: ${item.raw}`];
-                if (_chartEventTypes && chartGroupBy === 'day') {
-                  const dayStr    = chartRawLabels[item.dataIndex];
-                  const breakdown = (_chartEventTypes[src] || {})[dayStr] || {};
-                  const sorted    = Object.entries(breakdown).sort((a,b) => b[1]-a[1]);
-                  sorted.forEach(([et, cnt]) => lines.push(`   · ${_etLabel(et)}: ${cnt}`));
-                }
-                return lines;
-              },
-              footer: () => ['↓ Click to open My Day'],
-            }
-          }
-        },
-        scales: {
-          x: { stacked: true, grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10, family: 'Inter' } }, border: { display: false } },
-          y: { stacked: true, grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10, family: 'Inter' } }, beginAtZero: true, border: { display: false } },
-        },
-      },
-    });
-  }
-
-  const TL_SRC_COLOR = { github:'#f97316', jira:'#06b6d4', teams_subscription:'#8b5cf6', gitlab:'#10b981' };
-  const TL_SRC_LABEL = { github:'GitHub',  jira:'Jira',    teams_subscription:'Teams',   gitlab:'GitLab'  };
-
-  const _TL_FEED_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _tlRepoColor(str) {
-    let h = 0;
-    for (const c of (str || '')) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-    return _TL_FEED_COLORS[h % _TL_FEED_COLORS.length];
-  }
-  const _TL_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-  const _TL_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
-
-  function _tlFmtTime(isoStr) {
-    if (!isoStr) return '';
-    return new Date(isoStr).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
-  function _tlFmtEventType(et) {
-    return (et || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
-  function _tlCommitExtra(it) {
-    const shaHtml = it.sha
-      ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
-      : '';
-    const filesHtml = it.files?.length
-      ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)"> +${it.files.length-4} more</span>`:''}</div>`
-      : '';
-    return { shaHtml, filesHtml };
-  }
-
-  function renderTimelineFeed(events) {
-    const initials = window._actUserInitials || '??';
-    const author   = window._actAuthorName   || 'you';
-    const bySource = events.reduce((acc, e) => {
-      (acc[e.source] = acc[e.source] || []).push(e);
-      return acc;
-    }, {});
-    const order   = ['github','jira','teams_subscription','gitlab'];
-    const sources = [...order.filter(s => bySource[s]), ...Object.keys(bySource).filter(s => !order.includes(s))];
-
-    return sources.map(src => {
-      const color = TL_SRC_COLOR[src] || '#64748b';
-      const label = TL_SRC_LABEL[src] || src;
-      const items = bySource[src];
-      const groups = {};
-      items.forEach(it => { const k = it.event_type || 'other'; (groups[k] = groups[k] || []).push(it); });
-      const groupHtml = Object.entries(groups).map(([et, evts]) => `
-        <div class="mb-3">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-semibold" style="color:var(--text-2)">${_tlFmtEventType(et)}</span>
-            <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
-          </div>
-          <div class="commit-feed">${evts.map(it => {
-            const avatarColor = _tlRepoColor(it.workspace || src || '');
-            const time        = _tlFmtTime(it.occurred_at);
-            const {shaHtml, filesHtml} = _tlCommitExtra(it);
-            return `<div class="commit-item">
-              <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
-              <div class="commit-body">
-                <div class="commit-meta">
-                  <span class="commit-author">${author}</span>
-                  ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
-                  ${time ? `<span class="commit-time">${_TL_CLOCK} ${time}</span>` : ''}
-                </div>
-                <div class="commit-title">${it.title || '—'}${shaHtml}</div>
-                ${filesHtml}
-              </div>
-            </div>`;
-          }).join('')}</div>
-        </div>`).join('');
-      return `<div class="mb-4">
-        <div class="flex items-center gap-2 mb-2 pl-2.5" style="border-left:2px solid ${color}">
-          <span class="text-xs font-semibold" style="color:${color}">${label}</span>
-          <span class="text-xs ml-auto" style="color:var(--text-3)">${items.length} event${items.length!==1?'s':''}</span>
-        </div>
-        <div class="pl-3" style="border-left:1px solid var(--border)">${groupHtml}</div>
-      </div>`;
-    }).join('');
-  }
-
-  function renderHistoryFeed(events) {
-    const initials = window._actUserInitials || '??';
-    const author   = window._actAuthorName   || 'you';
-    return `<div class="commit-feed">${events.map(it => {
-      const avatarColor = _tlRepoColor(it.workspace || it.source || '');
-      const time        = new Date(it.occurred_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const {shaHtml, filesHtml} = _tlCommitExtra(it);
-      return `<div class="commit-item">
-        <div class="commit-avatar" style="background:${avatarColor}">${initials}</div>
-        <div class="commit-body">
-          <div class="commit-meta">
-            <span class="commit-author">${author}</span>
-            <span class="src-badge" style="background:${(TL_SRC_COLOR[it.source]||'#64748b')}22;color:${TL_SRC_COLOR[it.source]||'#64748b'}">${TL_SRC_LABEL[it.source]||it.source}</span>
-            ${it.workspace ? `<span class="commit-repo-pill">${_TL_BRANCH} ${it.workspace}</span>` : ''}
-            <span class="commit-time">${_TL_CLOCK} ${time}</span>
-          </div>
-          <div class="commit-title">${it.title || '—'}${shaHtml}</div>
-          <div class="commit-sub">${_tlFmtEventType(it.event_type)}</div>
-          ${filesHtml}
-        </div>
-      </div>`;
-    }).join('')}</div>`;
-  }
-
-  async function loadTimeline() {
-    const icon = document.getElementById('refresh-icon');
-    if (icon) icon.style.animation = 'spin 0.8s linear infinite';
-    const res  = await fetch('/api/events/recent?limit=50', { credentials: 'include' });
-    const data = await res.json();
-    const list = document.getElementById('timeline-list');
-    if (icon) icon.style.animation = '';
-
-    let events = data.events || [];
-    if (timelinePeriod === 'today') {
-      const today = new Date().toDateString();
-      events = events.filter(e => new Date(e.occurred_at).toDateString() === today);
-    }
-    events.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-
-    if (!events.length) {
-      list.innerHTML = `<p class="text-xs px-2 py-1" style="color:var(--text-3)">${
-        timelinePeriod === 'today' ? 'No activity yet today.' : 'No recent activity.'
-      }</p>`;
-      return;
-    }
-    list.innerHTML = timelinePeriod === 'history'
-      ? renderHistoryFeed(events)
-      : renderTimelineFeed(events);
-  }
-</script>
+<script src="/static/pages/dashboard.js"></script>
 {% endblock %}

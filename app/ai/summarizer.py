@@ -6,10 +6,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from openai import AsyncAzureOpenAI
 from sqlalchemy import select
 
-from app.config import settings
+from app.ai import llm
+from app.services.timezone import day_bounds, resolve
 from app.storage.models import Integration, Profile, Summary
 from app.storage.mongodb import activity_events
 from app.storage.postgres import AsyncSessionLocal
@@ -27,29 +27,13 @@ _PRIORITY = {
 }
 
 
-_client: AsyncAzureOpenAI | None = None
-
-
-def _openai_client() -> AsyncAzureOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncAzureOpenAI(
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            api_key=settings.AZURE_OPENAI_KEY,
-            api_version="2024-08-01-preview",
-            max_retries=3,
-        )
-    return _client
-
-
 def _period_bounds(tz_name: str, period_type: str, full_day: bool = False) -> tuple[datetime, datetime]:
     tz = ZoneInfo(tz_name or "UTC")
     now = datetime.now(tz)
     if period_type == "daily":
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Scheduled job captures the full day (00:00–23:59:59); manual captures up to now
         end = now.replace(hour=23, minute=59, second=59, microsecond=999999) if full_day else now
-    else:  # weekly
+    else:
         start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
         end = now
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
@@ -106,19 +90,32 @@ async def _get_failed_sources(profile_id: str) -> list[str]:
     return [r.source for r in rows]
 
 
+def _is_scheduled_time(period_type: str, local_now: datetime) -> bool:
+    """True when the hourly job should generate for a profile at this local time.
+    Daily fires at local 23:00; weekly at local Friday 17:00; standup at local
+    09:00 — so every timezone gets it at the right local moment.
+    (docs/adr-0001-timezone.md, docs/adr-0002-delivery.md)"""
+    if period_type == "daily":
+        return local_now.hour == 23
+    if period_type == "weekly":
+        return local_now.weekday() == 4 and local_now.hour == 17
+    if period_type == "standup":
+        return local_now.hour == 9
+    return True
+
+
 async def run_summary_job(period_type: str):
-    """Entry point called by APScheduler (fires every hour at :59)."""
+    """Entry point called by APScheduler — both jobs run hourly and generate only
+    for profiles whose LOCAL time matches (_is_scheduled_time)."""
     async with AsyncSessionLocal() as db:
         profiles = (await db.execute(select(Profile))).scalars().all()
 
     for profile in profiles:
         profile_id = str(profile.id)
         try:
-            if period_type == "daily":
-                # Only generate when it is 23:xx in the user's local timezone
-                local_now = datetime.now(ZoneInfo(profile.timezone or "UTC"))
-                if local_now.hour != 23:
-                    continue
+            local_now = datetime.now(ZoneInfo(profile.timezone or "UTC"))
+            if not _is_scheduled_time(period_type, local_now):
+                continue
             await _summarise_profile(profile, profile_id, period_type, full_day=(period_type == "daily"))
         except Exception as exc:
             logger.error("Summary job failed for %s: %s", profile_id, exc)
@@ -136,10 +133,7 @@ async def _summarise_profile(
     if period_start_utc and period_end_utc:
         period_start, period_end = period_start_utc, period_end_utc
     elif specific_date and period_type == "daily":
-        tz = ZoneInfo(profile.timezone or "UTC")
-        sd = datetime.strptime(specific_date, "%Y-%m-%d").replace(tzinfo=tz)
-        period_start = sd.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        period_end   = (sd + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        period_start, period_end = day_bounds(specific_date, resolve(profile.timezone))
     else:
         period_start, period_end = _period_bounds(profile.timezone, period_type, full_day)
 
@@ -160,19 +154,10 @@ async def _summarise_profile(
     caveat = f"Note: data from {', '.join(failed)} was unavailable." if failed else ""
 
     prompt = _build_prompt(period_type, events, caveat)
-    client = _openai_client()
-    response = await client.chat.completions.create(
-        model=settings.AZURE_OPENAI_DEPLOYMENT,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=400,
-        temperature=0.3,
-    )
-    summary_text = response.choices[0].message.content.strip()
+    summary_text = await llm.answer("", prompt, max_tokens=400, temperature=0.3)
     logger.info("Summary generated — profile=%s period=%s", profile_id, period_type)
 
     async with AsyncSessionLocal() as db:
-        # Anchor window to UTC day boundary so entries stored before/after timezone fix
-        # (e.g. Jun 15 00:00 UTC vs Jun 15 07:00 UTC) are treated as the same period
         if period_type == "daily":
             window_start = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
             window_end   = window_start + timedelta(days=1)
@@ -190,7 +175,6 @@ async def _summarise_profile(
         )).scalars().all()
 
         if existing_rows:
-            # Keep the newest, delete any duplicates created by earlier timezone mismatches
             summary = existing_rows[0]
             for dupe in existing_rows[1:]:
                 await db.delete(dupe)
@@ -230,7 +214,6 @@ async def run_startup_catchup():
         tz         = ZoneInfo(profile.timezone or "UTC")
         now        = datetime.now(tz)
 
-        # ── Missed daily: yesterday ───────────────────────────────────────
         try:
             ydate  = (now - timedelta(days=1)).date()
             ystart = datetime(ydate.year, ydate.month, ydate.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
@@ -256,21 +239,19 @@ async def run_startup_catchup():
         except Exception as exc:
             logger.error("Startup catch-up daily failed for %s: %s", profile_id, exc)
 
-        # ── Missed weekly: last Friday's window ───────────────────────────
         try:
-            dow       = now.weekday()            # 0=Mon … 4=Fri … 6=Sun
-            days_back = (dow - 4) % 7            # days since last Friday
+            dow       = now.weekday()
+            days_back = (dow - 4) % 7
             if days_back == 0 and now.hour < 17:
-                days_back = 7                    # It's Friday but before the 17:00 trigger
+                days_back = 7
 
             if days_back == 0 and now.hour >= 17:
-                # It IS Friday at or past trigger time — current week is the target
                 mon = now.date() - timedelta(days=dow)
             elif days_back > 0:
                 last_fri = now.date() - timedelta(days=days_back)
                 mon      = last_fri - timedelta(days=last_fri.weekday())
             else:
-                continue  # Friday before 17:00 — no missed window yet
+                continue
 
             wstart = datetime(mon.year, mon.month, mon.day, 0, 0, 0, tzinfo=tz).astimezone(timezone.utc)
             wend   = wstart + timedelta(days=7)

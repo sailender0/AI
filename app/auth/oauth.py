@@ -14,10 +14,6 @@ from app.auth.sso import get_profile_from_session
 from app.auth.token_store import decrypt_token, encrypt_token
 from app.config import settings
 from app.storage.models import GitHubIntegration, GitLabIntegration, Integration, JiraIntegration
-# AsyncSessionLocal() is used intentionally here — oauth_callback and
-# get_valid_token are called from request handlers and background tasks that
-# manage their own session lifetime. Depends(get_db) is not available outside
-# FastAPI's dependency injection chain.
 from app.storage.postgres import AsyncSessionLocal
 from app.storage.redis_client import get_redis
 
@@ -49,7 +45,7 @@ _OAUTH_CONFIGS = {
         "token_url": "https://auth.atlassian.com/oauth/token",
         "client_id": lambda: settings.JIRA_CLIENT_ID,
         "client_secret": lambda: settings.JIRA_CLIENT_SECRET,
-        "scopes": "read:jira-work read:jira-user manage:jira-webhook",
+        "scopes": "read:jira-work read:jira-user manage:jira-webhook offline_access",
     },
 }
 
@@ -138,8 +134,6 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
         row.sync_status = "active"
         await db.commit()
 
-    # For Jira, fetch the user's account ID and store as LinkedIdentity
-    # so incoming webhooks can be resolved to this profile
     if app == "jira" and access_token:
         import logging as _log
         async with httpx.AsyncClient() as client:
@@ -147,10 +141,9 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
                 "https://api.atlassian.com/me",
                 headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
             )
-        _log.getLogger(__name__).info("Jira /me: %s %s", me_resp.status_code, me_resp.text)
         if me_resp.status_code == 200:
             account_id = me_resp.json().get("account_id", "")
-            _log.getLogger(__name__).info("Jira account_id: %r", account_id)
+            _log.getLogger(__name__).info("Jira linked account_id: %s", account_id[:8] + "…")
             if account_id:
                 from app.storage.models import LinkedIdentity
                 async with AsyncSessionLocal() as db:
@@ -172,6 +165,36 @@ async def oauth_callback(app: str, request: Request, code: str, state: str):
                         ))
                     await db.commit()
                     _log.getLogger(__name__).info("Saved Jira LinkedIdentity: %s -> %s", account_id, profile_id)
+
+    if app == "github" and access_token:
+        async with httpx.AsyncClient() as client:
+            me_resp = await client.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"token {access_token}", "Accept": "application/vnd.github+json"},
+            )
+        if me_resp.status_code == 200:
+            gh = me_resp.json()
+            gh_id, gh_login = str(gh.get("id", "")), gh.get("login", "")
+            if gh_id:
+                from app.storage.models import LinkedIdentity
+                async with AsyncSessionLocal() as db:
+                    existing = (
+                        await db.execute(
+                            select(LinkedIdentity).where(
+                                LinkedIdentity.profile_id == profile_id,
+                                LinkedIdentity.provider == "github",
+                                LinkedIdentity.workspace_label == gh_login,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if existing:
+                        existing.tenant_id = gh_id
+                    else:
+                        db.add(LinkedIdentity(
+                            profile_id=profile_id, provider="github",
+                            tenant_id=gh_id, workspace_label=gh_login,
+                        ))
+                    await db.commit()
 
     from app.webhooks.registration import auto_register_webhook
     import asyncio
@@ -200,6 +223,11 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
             and row.token_expires_at < datetime.now(timezone.utc) + timedelta(minutes=5)
         )
 
+        if needs_refresh and not row.refresh_token_enc:
+            row.sync_status = "error"
+            await db.commit()
+            return None
+
         if needs_refresh and row.refresh_token_enc:
             try:
                 new_tokens = await _refresh_token(source, await decrypt_token(row.refresh_token_enc))
@@ -216,6 +244,23 @@ async def get_valid_token(profile_id: str, source: str) -> str | None:
                 return None
 
         return await decrypt_token(row.access_token_enc) if row.access_token_enc else None
+
+
+async def mark_integration_error(profile_id: str, source: str) -> None:
+    """Flag a connection as broken so /api/me surfaces it (amber sidebar dot +
+    reconnect banner). Called by live-API endpoints when the provider says 401."""
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(Integration).where(
+                    Integration.profile_id == profile_id,
+                    Integration.source == source,
+                )
+            )
+        ).scalar_one_or_none()
+        if row and row.sync_status != "error":
+            row.sync_status = "error"
+            await db.commit()
 
 
 async def _refresh_token(source: str, refresh_token: str) -> dict:

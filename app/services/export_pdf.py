@@ -10,11 +10,19 @@ from typing import Any
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
+from app.services.activity_query import event_extras
+
 _SOURCE_LABELS = {
     "github": "GitHub",
     "gitlab": "GitLab",
     "jira": "Jira",
     "teams": "Teams",
+    # The Graph connectors write their own source names; the consolidated report
+    # shows them split rather than merged, so each needs its own label.
+    "teams_chat": "Teams Chat",
+    "teams_call": "Teams Calls",
+    "outlook_mail": "Outlook Mail",
+    "outlook_calendar": "Outlook Meetings",
 }
 
 _EVENT_TYPE_LABELS = {
@@ -43,6 +51,10 @@ _SOURCE_RGB = {
     "gitlab": (16, 185, 129),
     "jira": (6, 182, 212),
     "teams": (139, 92, 246),
+    "teams_chat": (139, 92, 246),
+    "teams_call": (139, 92, 246),
+    "outlook_mail": (139, 92, 246),
+    "outlook_calendar": (139, 92, 246),
 }
 
 _INDIGO = (79, 70, 229)
@@ -186,30 +198,6 @@ def _fmt_time(ts: Any) -> str:
     return str(ts)[:5] if ts else ""
 
 
-def _extract_sha_and_files(e: dict) -> tuple:
-    """Extract sha and changed file list from raw_payload."""
-    src = e.get("source", "")
-    raw = e.get("raw_payload") or {}
-    sha = ""
-    files: list = []
-    if src == "github":
-        raw_sha = e.get("source_event_id") or raw.get("after") or ""
-        sha = raw_sha[:7] if raw_sha else ""
-        head = raw.get("head_commit") or {}
-        files = ((head.get("modified") or []) +
-                 (head.get("added") or []) +
-                 (head.get("removed") or []))[:6]
-    elif src == "gitlab":
-        commits = raw.get("commits") or []
-        if commits:
-            raw_sha = commits[-1].get("id") or ""
-            sha = raw_sha[:7] if raw_sha else ""
-            files = ((commits[-1].get("modified") or []) +
-                     (commits[-1].get("added") or []) +
-                     (commits[-1].get("removed") or []))[:6]
-    return sha, files
-
-
 def _event_lines(events: list) -> list:
     order = ["github", "gitlab", "jira", "teams"]
     grouped: dict = {}
@@ -234,7 +222,8 @@ def _write_events(pdf: _ActivityPDF, events: list):
             type_label = _EVENT_TYPE_LABELS.get(event_type, event_type.replace("_", " ").title())
             title      = _safe(e.get("title") or "")
             workspace  = _safe(e.get("workspace") or "")
-            sha, files = _extract_sha_and_files(e)
+            extras     = event_extras(e.get("source", ""), e, e.get("raw_payload") or {})
+            sha, files = extras["sha"], extras["files"]
             sha_str    = f"  [{sha}]" if sha else ""
 
             pdf.set_font("Helvetica", "", 9)
@@ -259,6 +248,127 @@ def _write_events(pdf: _ActivityPDF, events: list):
             pdf.set_left_margin(14)
             pdf.set_x(14)
         pdf.ln(2)
+
+
+def _fmt_mins(m: int) -> str:
+    return f"{m // 60}h {m % 60:02d}m" if m >= 60 else f"{m}m"
+
+
+def _kpi_grid(pdf: _ActivityPDF, pairs: list[tuple[str, str]]):
+    """A value-over-label strip that adapts to however many connectors are in play
+    — unlike kpi_row, which is fixed to the original four."""
+    if not pairs:
+        return
+    per_row = min(len(pairs), 5)
+    col_w = pdf.epw / per_row
+    for i in range(0, len(pairs), per_row):
+        chunk = pairs[i:i + per_row]
+        y = pdf.get_y()
+        for j, (_, value) in enumerate(chunk):
+            pdf.set_xy(pdf.l_margin + j * col_w, y)
+            pdf.set_font("Helvetica", "B", 15)
+            pdf.set_text_color(*_INDIGO)
+            pdf.cell(col_w, 8, value, align="C", **_NOP)
+        for j, (label, _) in enumerate(chunk):
+            pdf.set_xy(pdf.l_margin + j * col_w, y + 8)
+            pdf.set_font("Helvetica", "", 8)
+            pdf.set_text_color(*_LIGHT)
+            pdf.cell(col_w, 5, label, align="C", **_NOP)
+        pdf.set_xy(pdf.l_margin, y + 14)
+
+
+def _bucket_table(pdf: _ActivityPDF, bucket: str, cols: list[str],
+                  buckets: list[dict], device: bool, total: int):
+    """One row per bucket, one column per connector. Zero rows are kept — an empty
+    day is part of what the range says."""
+    head = {"day": "Day", "week": "Week", "month": "Month"}.get(bucket, "Period")
+    n_num = len(cols) + (1 if device else 0) + 1
+    label_w = max(38.0, pdf.epw - n_num * 22.0)
+    num_w = (pdf.epw - label_w) / n_num
+
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(*_MID)
+    pdf.set_fill_color(*_BG)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(label_w, 7, f"  {head}", fill=True, **_NOP)
+    for c in cols:
+        pdf.cell(num_w, 7, _SOURCE_LABELS.get(c, c), align="R", fill=True, **_NOP)
+    if device:
+        pdf.cell(num_w, 7, "Focus", align="R", fill=True, **_NOP)
+    pdf.cell(num_w, 7, "Total", align="R", fill=True, **_NL)
+
+    totals = {c: sum(b["counts"].get(c, 0) for b in buckets) for c in cols}
+    total_mins = sum(b.get("device_minutes", 0) for b in buckets)
+
+    pdf.set_font("Helvetica", "", 8)
+    for b in buckets:
+        pdf.set_x(pdf.l_margin)
+        pdf.set_text_color(*_DARK)
+        pdf.cell(label_w, 6, f"  {_safe(b['label'], 40)}", **_NOP)
+        for c in cols:
+            v = b["counts"].get(c, 0)
+            pdf.set_text_color(*(_MID if v else _LIGHT))
+            pdf.cell(num_w, 6, str(v), align="R", **_NOP)
+        if device:
+            pdf.set_text_color(*_MID)
+            pdf.cell(num_w, 6, _fmt_mins(b.get("device_minutes", 0)), align="R", **_NOP)
+        pdf.set_text_color(*_DARK)
+        pdf.cell(num_w, 6, str(b["total"]), align="R", **_NL)
+
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(*_DARK)
+    pdf.set_fill_color(*_BG)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(label_w, 7, "  Total", fill=True, **_NOP)
+    for c in cols:
+        pdf.cell(num_w, 7, str(totals[c]), align="R", fill=True, **_NOP)
+    if device:
+        pdf.cell(num_w, 7, _fmt_mins(total_mins), align="R", fill=True, **_NOP)
+    pdf.cell(num_w, 7, str(total), align="R", fill=True, **_NL)
+
+
+def generate_consolidated_pdf(*, who: str, start: str, end: str, bucket: str,
+                              total: int, by_source: dict, buckets: list,
+                              summary: str, detail: bool, device: bool,
+                              truncated: bool = False) -> bytes:
+    """The consolidated report as a document. `detail=False` (counts-only) prints
+    the notice instead of a summary — the same distinction the page draws."""
+    pdf = _ActivityPDF(f"Consolidated Report - {start} to {end}")
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.set_text_color(*_DARK)
+    pdf.cell(pdf.epw, 9, "Consolidated Activity", **_NL)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*_MID)
+    pdf.cell(pdf.epw, 5, _safe(who, 80), **_NL)
+    pdf.set_text_color(*_LIGHT)
+    pdf.cell(pdf.epw, 5, f"{start} to {end}  -  grouped by {bucket}", **_NL)
+    pdf.ln(4)
+
+    cols = sorted(by_source)
+    _kpi_grid(pdf, [("Total events", str(total))]
+              + [(_SOURCE_LABELS.get(c, c), str(by_source[c])) for c in cols])
+    pdf.ln(2)
+
+    if detail:
+        pdf.section_heading("Summary")
+        body = summary or "No summary generated for this range."
+        if truncated:
+            body += "\n\nBased on the most recent 200 events in this range."
+        pdf.body_text(_safe(body, 6000), indent=4)
+    else:
+        pdf.section_heading("Summary")
+        pdf.body_text("Counts only. Event names and the written summary are not "
+                      "enabled for the person who ran this report.", indent=4)
+    pdf.ln(4)
+
+    if buckets and total:
+        pdf.section_heading("Breakdown")
+        pdf.ln(2)
+        _bucket_table(pdf, bucket, cols, buckets, device, total)
+
+    return bytes(pdf.output())
 
 
 def generate_daily_pdf(date_str: str, summary_text: str, events: list) -> bytes:

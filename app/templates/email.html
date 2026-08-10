@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Email Report — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Email a report to yourself{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+  <div class="card p-5 space-y-3">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold" style="color:var(--text-1)">Send a report</h2>
+      <span id="email-status" class="text-xs" style="color:var(--text-3)"></span>
+    </div>
+
+    <div>
+      <label class="text-xs" style="color:var(--text-3)" for="email-kind">Report</label>
+      <select id="email-kind" onchange="onKindChange()"
+        class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
+        <option value="my_day">My Day</option>
+        <option value="device_activity">Device Activity</option>
+        <option value="analytics">Analytics</option>
+        <option value="standup">Standup</option>
+      </select>
+
+      <div id="device-toggle" class="flex items-center gap-4 mt-2" style="display:none">
+        <label class="text-xs flex items-center gap-1" style="color:var(--text-2)">
+          <input type="radio" name="device-view" value="device_activity" checked onchange="onKindChange()"> Day
+        </label>
+        <label class="text-xs flex items-center gap-1" style="color:var(--text-2)">
+          <input type="radio" name="device-view" value="device_activity_week" onchange="onKindChange()"> Weekly
+        </label>
+      </div>
+    </div>
+
+    <div>
+      <label id="email-date-label" class="text-xs" style="color:var(--text-3)" for="email-date">Date</label>
+      <input id="email-date" type="date" onchange="loadPreview()"
+        class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
+      <div id="email-date-hint" class="text-xs mt-1" style="color:var(--text-3)"></div>
+    </div>
+
+    <div>
+      <span class="text-xs" style="color:var(--text-3)">Preview</span>
+      <iframe id="email-preview" sandbox=""
+        class="w-full mt-1 rounded-md"
+        style="height:320px;border:1px solid var(--border);background:#fff"></iframe>
+    </div>
+
+    <button onclick="sendEmail()" id="email-send-btn"
+      class="text-sm px-4 py-2 rounded-lg font-medium transition hover:opacity-90"
+      style="background:var(--chrome);color:var(--chrome-text)">Send to my email</button>
+  </div>
+
+  <div class="card p-5 space-y-3">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold" style="color:var(--text-1)">Schedule</h2>
+      <span id="sched-status" class="text-xs" style="color:var(--text-3)"></span>
+    </div>
+
+    <div>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-kind">Report</label>
+      <select id="sched-kind" onchange="loadSchedule()"
+        class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
+        <option value="my_day">My Day</option>
+        <option value="device_activity">Device Activity (Day)</option>
+        <option value="device_activity_week">Device Activity (Week)</option>
+        <option value="analytics">Analytics</option>
+        <option value="standup">Standup</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-freq">Frequency</label>
+      <select id="sched-freq"
+        class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
+        <option value="off">Off</option>
+        <option value="daily">Daily</option>
+        <option value="weekdays">Weekdays</option>
+        <option value="weekly">Weekly (Fri)</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="text-xs" style="color:var(--text-3)" for="sched-hour">Hour (local, 0–23)</label>
+      <input id="sched-hour" type="number" min="0" max="23" value="9"
+        class="w-full text-sm rounded-md px-2 py-1.5 mt-1"
+        style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--border)">
+    </div>
+
+    <button onclick="saveSchedule()" id="sched-save-btn"
+      class="text-sm px-4 py-2 rounded-lg font-medium transition hover:opacity-90"
+      style="background:var(--chrome);color:var(--chrome-text)">Save schedule</button>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:8px 0">
+    <h3 class="text-xs font-semibold" style="color:var(--text-2)">Active schedules</h3>
+    <div id="sched-list" class="space-y-1"><p class="text-sm" style="color:var(--text-3)">Loading…</p></div>
+  </div>
+
+</div>
+
+<script src="/static/pages/email.js"></script>
+{% endblock %}

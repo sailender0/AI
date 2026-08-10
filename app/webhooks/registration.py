@@ -1,8 +1,8 @@
 """
 Webhook / subscription registration — fires automatically after auth.
 
-FIX (issue #3): Teams subscriptions use a delegated token from the MSAL cache
-so that me/messages is a valid resource (it requires delegated Chat.Read scope).
+Teams subscriptions use a delegated token from the MSAL cache so that
+me/messages is a valid resource (it requires the delegated Chat.Read scope).
 """
 from datetime import datetime, timedelta, timezone
 
@@ -13,9 +13,6 @@ from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
 from app.storage.models import Integration, TeamsIntegration
-# AsyncSessionLocal() is used intentionally here — registration functions are
-# called from background tasks and OAuth callbacks, not FastAPI request handlers,
-# so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 
 
@@ -65,7 +62,7 @@ async def auto_register_teams_subscription(profile_id: str):
             db.add(row)
 
         row.subscription_id = data["id"]
-        row.subscription_expires_at = datetime.fromisoformat(data["expirationDateTime"].replace("Z", "+00:00"))
+        row.subscription_expires_at = datetime.fromisoformat(data["expirationDateTime"])
         row.sync_status = "active"
         await db.commit()
 
@@ -120,6 +117,31 @@ async def _register_github(token: str, profile_id: str):
             await db.commit()
 
 
+async def save_gitlab_identity(profile_id: str, user_id: str, username: str):
+    """One identity row per user, keyed on the GitLab numeric user id. This is
+    what the receiver resolves incoming events against (attribute-by-person), so
+    a shared project attributes each event to whoever actually did it."""
+    if not user_id:
+        return
+    from app.storage.models import LinkedIdentity
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(
+            select(LinkedIdentity).where(
+                LinkedIdentity.profile_id == profile_id,
+                LinkedIdentity.provider == "gitlab",
+                LinkedIdentity.workspace_label == username,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            existing.tenant_id = user_id
+        else:
+            db.add(LinkedIdentity(
+                profile_id=profile_id, provider="gitlab",
+                tenant_id=user_id, workspace_label=username,
+            ))
+        await db.commit()
+
+
 async def _register_gitlab(token: str, profile_id: str):
     import logging as _log
     logger = _log.getLogger(__name__)
@@ -139,7 +161,9 @@ async def _register_gitlab(token: str, profile_id: str):
 
     async with httpx.AsyncClient() as client:
         me_resp = await client.get("https://gitlab.com/api/v4/user", headers=headers)
-        username = me_resp.json().get("username", "") if me_resp.status_code == 200 else ""
+        me       = me_resp.json() if me_resp.status_code == 200 else {}
+        username = me.get("username", "")
+        user_id  = str(me.get("id", ""))
 
         projects_resp = await client.get(
             "https://gitlab.com/api/v4/projects",
@@ -156,7 +180,7 @@ async def _register_gitlab(token: str, profile_id: str):
         logger.warning("GitLab: no projects found for profile %s", profile_id)
         return
 
-    from app.storage.models import LinkedIdentity
+    await save_gitlab_identity(profile_id, user_id, username)
 
     registered = 0
     async with httpx.AsyncClient() as client:
@@ -164,7 +188,6 @@ async def _register_gitlab(token: str, profile_id: str):
             project_id = project["id"]
             namespace  = project.get("path_with_namespace", "")
 
-            # Skip if our URL is already registered — avoid duplicate webhook deliveries
             existing_hooks_resp = await client.get(
                 f"https://gitlab.com/api/v4/projects/{project_id}/hooks",
                 headers=headers,
@@ -173,7 +196,6 @@ async def _register_gitlab(token: str, profile_id: str):
                 if any(h.get("url") == target_url for h in existing_hooks_resp.json()):
                     logger.info("GitLab webhook already exists for %s, skipping", namespace)
                     registered += 1
-                    # still ensure LinkedIdentity exists (fall through to upsert below)
                 else:
                     resp = await client.post(
                         f"https://gitlab.com/api/v4/projects/{project_id}/hooks",
@@ -185,23 +207,6 @@ async def _register_gitlab(token: str, profile_id: str):
                         logger.info("GitLab webhook registered for %s (profile=%s)", namespace, profile_id)
                     else:
                         logger.warning("GitLab webhook failed for %s: %s %s", namespace, resp.status_code, resp.text)
-
-            async with AsyncSessionLocal() as db:
-                existing = (await db.execute(
-                    select(LinkedIdentity).where(
-                        LinkedIdentity.profile_id == profile_id,
-                        LinkedIdentity.provider == "gitlab",
-                        LinkedIdentity.workspace_label == namespace,
-                    )
-                )).scalar_one_or_none()
-                if not existing:
-                    db.add(LinkedIdentity(
-                        profile_id=profile_id,
-                        provider="gitlab",
-                        workspace_label=namespace,
-                        tenant_id=username,
-                    ))
-                    await db.commit()
 
     logger.info("GitLab: %d/%d webhooks active for profile %s", registered, len(projects), profile_id)
 
@@ -221,7 +226,6 @@ async def _register_gitlab(token: str, profile_id: str):
 
 async def _register_jira(token: str, profile_id: str):
     async with httpx.AsyncClient() as client:
-        # Jira OAuth 2.0 tokens require api.atlassian.com with a cloud ID
         resources_resp = await client.get(
             "https://api.atlassian.com/oauth/token/accessible-resources",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},

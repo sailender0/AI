@@ -34,17 +34,16 @@ async def _resolve_profile(account_id: str | None) -> str | None:
             if row:
                 return str(row.profile_id)
 
-        # Fallback: return first profile with an active Jira integration
         from app.storage.models import Integration
-        row = (
+        rows = (
             await db.execute(
                 select(Integration).where(
                     Integration.source == "jira",
                     Integration.sync_status == "active",
                 )
             )
-        ).scalar_one_or_none()
-        return str(row.profile_id) if row else None
+        ).scalars().all()
+        return str(rows[0].profile_id) if len(rows) == 1 else None
 
 
 async def _process(body: dict, jira_event: str):
@@ -62,10 +61,11 @@ async def jira_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
-    # Jira passes the secret as a query param or Authorization header
     auth = request.headers.get("Authorization", "")
     qs_secret = request.query_params.get("secret", "")
     secret = settings.JIRA_WEBHOOK_SECRET
+    if not secret:
+        return JSONResponse({"error": "invalid_secret"}, status_code=401)
     qs_ok = hmac.compare_digest(qs_secret, secret)
     auth_ok = hmac.compare_digest(auth, f"Bearer {secret}")
     if not qs_ok and not auth_ok:

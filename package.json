@@ -1,0 +1,12 @@
+{
+  "name": "dev-activity-tracker-css",
+  "private": true,
+  "description": "CSS build only. The app itself is Python/FastAPI — this exists solely to compile Tailwind ahead of time instead of shipping the Play CDN compiler to the browser.",
+  "scripts": {
+    "css": "tailwindcss -i app/static/src/app.css -o app/static/app.css --minify",
+    "css:watch": "tailwindcss -i app/static/src/app.css -o app/static/app.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

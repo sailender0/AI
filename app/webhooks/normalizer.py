@@ -7,7 +7,8 @@ duplicate() uses a Redis fast-path before falling back to MongoDB.
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+
+from pymongo.errors import DuplicateKeyError
 
 from app.storage.mongodb import activity_events
 from app.storage.redis_client import get_redis
@@ -35,7 +36,7 @@ def _parse_ts(raw: dict, source: str) -> datetime:
     raw_ts = candidates.get(source, lambda r: None)(raw)
     if raw_ts:
         try:
-            return datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+            return datetime.fromisoformat(str(raw_ts))
         except ValueError:
             pass
     return datetime.now(timezone.utc)
@@ -43,8 +44,7 @@ def _parse_ts(raw: dict, source: str) -> datetime:
 
 def _extract_title(source: str, raw: dict) -> str:
     if source == "teams_subscription":
-        body = raw.get("body", {})
-        return body.get("content", "") if isinstance(body, dict) else str(body)
+        return ((raw.get("from") or {}).get("emailAddress") or {}).get("address", "")
     if source == "github":
         return (
             raw.get("pull_request", {}).get("title")
@@ -52,7 +52,6 @@ def _extract_title(source: str, raw: dict) -> str:
             or raw.get("head_commit", {}).get("message", "")
         )
     if source == "gitlab":
-        # Push events carry a per-commit dict injected as "_commit"
         commit = raw.get("_commit")
         if commit:
             return commit.get("message", "").split("\n")[0]
@@ -167,17 +166,26 @@ async def is_duplicate(event: dict) -> bool:
     return False
 
 
-async def ingest(event: dict):
-    if not await is_duplicate(event):
+async def ingest(event: dict) -> bool:
+    """Store a normalized event unless it's a duplicate. Returns True if newly
+    inserted, False if deduped — the backfill runner uses this for its counts.
+    The unique index backstops the is_duplicate() check against races
+    (concurrent webhook + backfill inserting the same event)."""
+    if await is_duplicate(event):
+        return False
+    try:
         await activity_events().insert_one(event)
-        await get_redis().set(_dedup_key(event), "1", ex=86400)
-        import asyncio
-        from app.ws_manager import manager as _ws
-        asyncio.create_task(_ws.notify(
-            str(event.get("profile_id", "")),
-            {
-                "type":       "new_event",
-                "source":     event.get("source", ""),
-                "event_type": event.get("event_type", ""),
-            },
-        ))
+    except DuplicateKeyError:
+        return False
+    await get_redis().set(_dedup_key(event), "1", ex=86400)
+    import asyncio
+    from app.ws_manager import manager as _ws
+    asyncio.create_task(_ws.notify(
+        str(event.get("profile_id", "")),
+        {
+            "type":       "new_event",
+            "source":     event.get("source", ""),
+            "event_type": event.get("event_type", ""),
+        },
+    ))
+    return True

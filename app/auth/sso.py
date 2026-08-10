@@ -1,17 +1,17 @@
 """
 Entra ID (Azure AD) SSO — MSAL-based auth code flow.
 
-FIX (issue #3): We store the MSAL token cache per user so that
-auto_register_teams_subscription can call acquire_token_silent with
-a delegated token instead of app-only, which is required for
-the me/messages Graph subscription resource.
+The MSAL token cache is stored per user so auto_register_teams_subscription can
+call acquire_token_silent with a delegated token instead of app-only, which is
+what the me/messages Graph subscription resource requires.
 """
-import json
+import logging
 import secrets
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import msal
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
@@ -22,7 +22,9 @@ from app.storage.redis_client import get_redis
 
 router = APIRouter()
 
-_GRAPH_SCOPES = []  # Chat.Read removed for local dev — Teams subscription skipped
+_GRAPH_SCOPES = ["Mail.ReadBasic", "Calendars.Read", "Chat.Read"]
+
+logger = logging.getLogger(__name__)
 
 AUTHORITY = f"https://login.microsoftonline.com/{settings.AZURE_TENANT_ID}"
 
@@ -51,6 +53,28 @@ async def _save_cache(profile_id: str, cache: msal.SerializableTokenCache):
         await redis.set(f"msal_cache:{profile_id}", cache.serialize(), ex=86400 * 30)
 
 
+async def acquire_app_token() -> str | None:
+    """A client-credentials token for the app itself, with no signed-in user.
+
+    Only CallRecords.Read.All needs this — it has no delegated variant, so call
+    records cannot be read on a user's behalf at all. The `.default` scope means
+    "every application permission already consented for this app", which is why
+    nothing lists CallRecords here: adding a scope name would be rejected.
+    """
+    if not settings.AZURE_CLIENT_SECRET:
+        return None
+    app = msal.ConfidentialClientApplication(
+        settings.AZURE_CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=settings.AZURE_CLIENT_SECRET,
+    )
+    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+    if result and "access_token" in result:
+        return result["access_token"]
+    logger.warning("app-only token failed: %s", (result or {}).get("error_description", "?"))
+    return None
+
+
 async def acquire_delegated_token(profile_id: str) -> str | None:
     """Silently acquire a delegated Graph token using the stored MSAL cache."""
     cache = await _load_cache(profile_id)
@@ -65,15 +89,40 @@ async def acquire_delegated_token(profile_id: str) -> str | None:
     return None
 
 
+def _admin_emails() -> set[str]:
+    """Lowercased ADMIN_EMAILS allowlist. Empty entries dropped so a stray comma
+    can't grant admin to the empty-string email."""
+    return {e.strip().lower() for e in settings.ADMIN_EMAILS.split(",") if e.strip()}
+
+
+def _is_local_callback(url: str) -> bool:
+    """True only for a real http(s)://localhost or 127.0.0.1 callback (any port/path).
+    startswith() is bypassable via userinfo (http://localhost:@evil.com) or a bogus
+    port (localhost:80.evil.com); urlparse isolates the true host so the device
+    token can't be redirected off-box. Accessing .port forces port validation."""
+    try:
+        u = urlparse(url)
+        _ = u.port
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and u.hostname in ("localhost", "127.0.0.1")
+
+
 @router.get("/auth/login")
 async def login(request: Request):
     state = secrets.token_urlsafe(16)
     next_url = request.query_params.get("next", "/")
-    # Only allow relative paths to prevent open-redirect
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/"
+    agent_callback = request.query_params.get("agent_callback", "")
+    device_name   = request.query_params.get("device_name", "Desktop")
+    if agent_callback and not _is_local_callback(agent_callback):
+        agent_callback = ""
     redis = get_redis()
     await redis.set(f"oauth_state:{state}", next_url, ex=600)
+    if agent_callback:
+        import json as _json
+        await redis.set(f"oauth_agent:{state}", _json.dumps({"callback": agent_callback, "device": device_name}), ex=600)
 
     app = _build_msal_app()
     auth_url = app.get_authorization_request_url(
@@ -90,7 +139,16 @@ async def auth_callback(request: Request, code: str, state: str):
     next_url = await redis.get(f"oauth_state:{state}")
     if not next_url:
         return {"error": "invalid_state"}
+    agent_meta_raw = await redis.get(f"oauth_agent:{state}")
     await redis.delete(f"oauth_state:{state}")
+    await redis.delete(f"oauth_agent:{state}")
+    agent_meta = {}
+    if agent_meta_raw:
+        import json as _json
+        try:
+            agent_meta = _json.loads(agent_meta_raw)
+        except Exception:
+            pass
 
     cache = msal.SerializableTokenCache()
     app = _build_msal_app(cache)
@@ -108,10 +166,13 @@ async def auth_callback(request: Request, code: str, state: str):
     tenant_id = claims.get("tid", "")
     teams_user_id = claims.get("oid", "")
 
+    is_seeded_admin = email.strip().lower() in _admin_emails()
+
     async with AsyncSessionLocal() as db:
         profile = (await db.execute(select(Profile).where(Profile.entra_id == entra_id))).scalar_one_or_none()
         if not profile:
-            profile = Profile(entra_id=entra_id, email=email, teams_user_id=teams_user_id)
+            profile = Profile(entra_id=entra_id, email=email, teams_user_id=teams_user_id,
+                              role="admin" if is_seeded_admin else "user")
             db.add(profile)
             await db.flush()
 
@@ -123,19 +184,44 @@ async def auth_callback(request: Request, code: str, state: str):
             db.add(identity)
         else:
             profile.teams_user_id = teams_user_id
+            if is_seeded_admin:
+                profile.role = "admin"
         await db.commit()
         await db.refresh(profile)
 
     profile_id = str(profile.id)
 
-    # Persist MSAL cache so Teams subscription renewal can use delegated token
     await _save_cache(profile_id, cache)
 
     session_token = secrets.token_urlsafe(32)
     await redis.set(f"session:{session_token}", profile_id, ex=86400)
 
-    is_https = settings.APP_BASE_URL.startswith("https://")
+    is_https  = settings.APP_BASE_URL.startswith("https://")
     safe_next = next_url if (next_url and next_url.startswith("/") and not next_url.startswith("//")) else "/"
+
+    if agent_meta.get("callback"):
+        import hashlib as _hl
+        from app.storage.models import Device, DeviceToken
+        raw_token  = secrets.token_urlsafe(48)
+        token_hash = _hl.sha256(raw_token.encode()).hexdigest()
+        async with AsyncSessionLocal() as db:
+            device = Device(
+                profile_id=profile_id,
+                name=agent_meta.get("device", "Desktop")[:100],
+                platform="windows",
+                registered_at=datetime.now(timezone.utc),
+            )
+            db.add(device)
+            await db.flush()
+            db.add(DeviceToken(device_id=device.id, token_hash=token_hash))
+            await db.commit()
+        from urllib.parse import urlencode
+        params    = urlencode({"token": raw_token, "next": f"{settings.APP_BASE_URL}{safe_next}"})
+        cb_url    = f"{agent_meta['callback']}?{params}"
+        response  = RedirectResponse(url=cb_url)
+        response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
+        return response
+
     response = RedirectResponse(url=safe_next)
     response.set_cookie("session", session_token, httponly=True, secure=is_https, samesite="lax")
     return response
@@ -160,3 +246,13 @@ async def get_profile_from_session(request: Request) -> str | None:
     if val is None:
         return None
     return val.decode() if isinstance(val, bytes) else val
+
+
+async def require_profile(request: Request) -> str:
+    """Dependency form of get_profile_from_session: 401s instead of returning None.
+    API routes take `profile_id: str = Depends(require_profile)`; only routes with
+    a non-401 unauthenticated path (e.g. /api/me, HTML pages) call the raw getter."""
+    profile_id = await get_profile_from_session(request)
+    if not profile_id:
+        raise HTTPException(401, "not_authenticated")
+    return profile_id

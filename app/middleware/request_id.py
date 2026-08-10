@@ -5,15 +5,21 @@ from contextvars import ContextVar
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from app.config import settings
+
 _request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 
 logger = logging.getLogger(__name__)
 
 _SKIP_LOG_PATHS = {"/health", "/favicon.ico"}
 
-
-def get_request_id() -> str:
-    return _request_id_var.get()
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+}
+_IS_HTTPS = settings.APP_BASE_URL.startswith("https://")
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -33,4 +39,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             _request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        for k, v in _SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        if _IS_HTTPS:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = "no-store"
         return response

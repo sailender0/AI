@@ -11,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
+from app.auth.github_app import disconnect_installation
 from app.config import settings
 from app.middleware.rate_limit import limiter
 from app.storage.models import LinkedIdentity
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        return False
     if not signature or not signature.startswith("sha256="):
         return False
     expected = hmac.new(
@@ -32,15 +35,19 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature[7:])
 
 
-async def _resolve_profile(installation_id: str | None) -> str | None:
-    if not installation_id:
+async def _resolve_profile(actor_id: str | None) -> str | None:
+    """Map a webhook's actor (sender.id) to the profile that owns that GitHub
+    identity. Keyed on the actor, NOT the org installation: the App is installed
+    org-wide and every user shares one installation_id, so resolving by
+    installation would dump the whole org's activity onto a single profile."""
+    if not actor_id:
         return None
     async with AsyncSessionLocal() as db:
         row = (
             await db.execute(
                 select(LinkedIdentity).where(
                     LinkedIdentity.provider == "github",
-                    LinkedIdentity.tenant_id == str(installation_id),
+                    LinkedIdentity.tenant_id == str(actor_id),
                 )
             )
         ).scalar_one_or_none()
@@ -52,20 +59,21 @@ _GITHUB_TYPE_MAP = {
     "issues": "issue_updated",
     "pull_request_review": "pr_review",
     "issue_comment": "comment",
-    # pull_request → left as None so normalizer derives it from action
 }
 
 
 async def _process(body: dict, event_type: str):
-    installation = body.get("installation", {})
-    installation_id = str(installation.get("id", "")) if installation else None
-    profile_id = await _resolve_profile(installation_id)
-    logger.info("GitHub event=%s installation_id=%s profile_id=%s", event_type, installation_id, profile_id)
+    if event_type == "installation" and body.get("action") == "deleted":
+        await disconnect_installation(str((body.get("installation") or {}).get("id", "")))
+        return
+    actor_id = str((body.get("sender") or {}).get("id", "")) or None
+    profile_id = await _resolve_profile(actor_id)
+    logger.info("GitHub event=%s actor_id=%s profile_id=%s", event_type, actor_id, profile_id)
     if not profile_id:
         return
-    mapped = _GITHUB_TYPE_MAP.get(event_type)          # None = let normalizer decide
+    mapped = _GITHUB_TYPE_MAP.get(event_type)
     if mapped is None and event_type != "pull_request":
-        mapped = event_type                             # unknown types pass through as-is
+        mapped = event_type
     event = normalize(body, source="github", profile_id=profile_id, event_type=mapped)
     await ingest(event)
 

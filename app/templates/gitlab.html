@@ -5,7 +5,6 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Not connected banner -->
   <div id="not-connected" class="hidden bg-gray-900 border border-gray-700 rounded-xl p-8 text-center">
     <div class="text-4xl mb-3">🦊</div>
     <h2 class="text-lg font-semibold mb-2">Connect GitLab</h2>
@@ -15,7 +14,6 @@
     </a>
   </div>
 
-  <!-- Auth error banner (shown when OAuth callback returns ?error=...) -->
   <div id="auth-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
     <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
     <div>
@@ -25,7 +23,6 @@
     </div>
   </div>
 
-  <!-- Webhook error banner (shown when webhook registration failed) -->
   <div id="webhook-error" class="hidden rounded-xl p-4 flex items-start gap-3" style="background:#78350f18;border:1px solid #b45309">
     <span style="color:#f59e0b;font-size:16px;margin-top:1px">⚠</span>
     <div>
@@ -34,15 +31,19 @@
     </div>
   </div>
 
-  <!-- Main content (hidden until connected) -->
   <div id="main-content" class="hidden space-y-6">
 
-  <!-- Connected header with actions -->
   <div class="flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background:#10b98120;color:#10b981">● Connected</span>
     </div>
     <div class="flex items-center gap-2">
+      <button onclick="backfillNow('gitlab')"
+        class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
+        style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)"
+        title="Import the last 30 days of history">
+        Backfill 30d
+      </button>
       <button onclick="reregisterWebhooks()" id="rereg-btn"
         class="text-xs px-3 py-1.5 rounded-lg font-medium transition"
         style="background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)">
@@ -56,7 +57,6 @@
     </div>
   </div>
 
-  <!-- Period toggle -->
   <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border);width:fit-content">
     <button id="period-today" onclick="setPeriod('today')" class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">Today</button>
     <button id="period-week"  onclick="setPeriod('week')"  class="period-btn px-4 py-1.5 rounded-md text-xs font-medium transition">This Week</button>
@@ -83,27 +83,13 @@
       <div class="flex items-center gap-2 mb-4" style="position:relative">
         <div class="flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface-2);border:1px solid var(--border)">
           <button onclick="setRangeDefault()" id="range-default" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition active">Current Week</button>
-          <button onclick="togglePicker()" id="range-week" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition flex items-center gap-1">
+          <button id="range-week" class="chart-tab px-3 py-1 rounded-md text-xs font-medium transition flex items-center gap-1">
             <span id="range-week-label">Pick Week</span>
             <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
           </button>
         </div>
-        <div id="week-picker" class="hidden" style="position:absolute;top:calc(100% + 6px);left:0;z-index:50;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;padding:12px;min-width:252px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
-          <div class="flex items-center justify-between mb-3">
-            <button onclick="pickerPrevMonth()" id="picker-prev" class="w-6 h-6 flex items-center justify-center rounded transition" style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-            </button>
-            <span id="picker-month-label" class="text-xs font-semibold" style="color:var(--text-1)"></span>
-            <button onclick="pickerNextMonth()" id="picker-next" class="w-6 h-6 flex items-center justify-center rounded transition" style="color:var(--text-3)" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-            </button>
-          </div>
-          <div class="grid grid-cols-7 mb-1">
-            <div class="pk-hdr">Su</div><div class="pk-hdr">Mo</div><div class="pk-hdr">Tu</div>
-            <div class="pk-hdr">We</div><div class="pk-hdr">Th</div><div class="pk-hdr">Fr</div><div class="pk-hdr">Sa</div>
-          </div>
-          <div id="picker-week-rows"></div>
-        </div>
+
+        <div id="week-picker"></div>
       </div>
       <canvas id="main-chart" height="120"></canvas>
     </div>
@@ -129,12 +115,12 @@
           <button id="evt-history" onclick="setEvtPeriod('history')" class="period-btn px-3 py-1 rounded-md text-xs font-medium transition">History</button>
         </div>
       </div>
-      <button onclick="loadEvents()" class="text-xs text-indigo-400 hover:text-indigo-300">Refresh</button>
+      <button onclick="loadEvents()" class="text-xs text-gray-400 hover:text-gray-100">Refresh</button>
     </div>
     <div id="events-list" class="space-y-2 overflow-y-auto" style="max-height:420px"></div>
   </div>
 
-  </div><!-- /main-content -->
+  </div>
 </div>
 {% endblock %}
 
@@ -146,476 +132,7 @@
   .chart-tab { background:transparent; color:var(--text-2); cursor:pointer; }
   .chart-tab.active { background:var(--chrome); color:var(--chrome-text); }
   .chart-tab:not(.active):hover { background:var(--border); color:var(--text-1); }
-  .pk-hdr { text-align:center; font-size:10px; color:var(--text-3); padding:2px 0; }
-  .pk-week-row { display:grid; grid-template-columns:repeat(7,1fr); border-radius:6px; cursor:pointer; margin-bottom:1px; }
-  .pk-week-row:hover:not(.pk-future) { background:rgba(16,185,129,0.12); }
-  .pk-week-row.pk-selected { background:rgba(16,185,129,0.2); outline:1px solid #10b981; }
-  .pk-week-row.pk-future { cursor:default; opacity:0.35; }
-  .pk-cell { text-align:center; font-size:11px; padding:4px 2px; color:var(--text-2); }
-  .pk-cell.pk-overflow { visibility:hidden; }
-  .pk-cell.pk-today { background:#10b981; color:#fff; border-radius:50%; font-weight:600; }
+
 </style>
-<script>
-  let chart           = null;
-  let statsPeriod     = 'week';
-  let evtPeriod       = 'today';
-  let _glChartData    = null;
-  let _chartRepos     = null;
-  let _currentType    = 'commits';
-  let _panelEvents    = [];
-  let _panelTab       = 'activity';
-
-  const _ET_FILTER = {
-    commits:        e => /^commit/i.test(e.event_type),
-    merge_requests: e => /^merge_request/i.test(e.event_type),
-    issues:         e => /^issue/i.test(e.event_type),
-    notes:          e => /^note/i.test(e.event_type),
-    pipelines:      e => /^pipeline/i.test(e.event_type),
-  };
-
-  const _ET_COLOR = {
-    commit:         '#10b981',
-    merge_request:  '#6366f1',
-    issue:          '#f59e0b',
-    note:           '#06b6d4',
-    pipeline:       '#8b5cf6',
-    tag_push:       '#ec4899',
-  };
-  const _ET_ICON = {
-    commit:        '⬡',
-    merge_request: '⇄',
-    issue:         '◎',
-    note:          '💬',
-    pipeline:      '⚙',
-    tag_push:      '🏷',
-  };
-  function _etColor(et) { return _ET_COLOR[et] || '#64748b'; }
-  function _etIcon(et)  { return _ET_ICON[et]  || '·'; }
-
-  async function loadPanelEvents() {
-    if (!_chartStartDate) return;
-    const s = new Date(_chartStartDate + 'T00:00:00');
-    const e = new Date(s); e.setDate(s.getDate() + 7);
-    const endIso = `${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}-${String(e.getDate()).padStart(2,'0')}`;
-    const res = await fetch(`/api/events/recent?source=gitlab&start_date=${_chartStartDate}&end_date=${endIso}&limit=500`, { credentials: 'include' });
-    const data = await res.json();
-    _panelEvents = data.events || [];
-    renderPanelFeed();
-  }
-  const _PKT = new Date(); _PKT.setHours(0,0,0,0);
-  let _pkYear = _PKT.getFullYear(), _pkMonth = _PKT.getMonth();
-
-  function _cwLabel() {
-    const mon = new Date(_PKT);
-    mon.setDate(_PKT.getDate() - (_PKT.getDay() === 0 ? 6 : _PKT.getDay() - 1));
-    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
-    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return { iso: `${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`,
-             label: `${M[mon.getMonth()]} ${mon.getDate()}–${fri.getDate()}` };
-  }
-  let _chartStartDate = _cwLabel().iso;
-
-  function togglePicker() {
-    const pk = document.getElementById('week-picker');
-    if (pk.classList.contains('hidden')) { renderPicker(); pk.classList.remove('hidden'); }
-    else pk.classList.add('hidden');
-  }
-
-  function renderPicker() {
-    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    document.getElementById('picker-month-label').textContent = `${MONTHS[_pkMonth]} ${_pkYear}`;
-    const prevBtn = document.getElementById('picker-prev');
-    const minDate = new Date(_PKT); minDate.setMonth(minDate.getMonth() - 12);
-    const minMk   = minDate.getFullYear() * 12 + minDate.getMonth();
-    const curMk   = _pkYear * 12 + _pkMonth;
-    prevBtn.style.opacity = curMk <= minMk ? '0.3' : '1';
-    prevBtn.style.pointerEvents = curMk <= minMk ? 'none' : '';
-    const nextBtn = document.getElementById('picker-next');
-    const nowMk   = _PKT.getFullYear() * 12 + _PKT.getMonth();
-    nextBtn.style.opacity = curMk >= nowMk ? '0.3' : '1';
-    nextBtn.style.pointerEvents = curMk >= nowMk ? 'none' : '';
-
-    const first = new Date(_pkYear, _pkMonth, 1);
-    const startSun = new Date(first); startSun.setDate(1 - first.getDay());
-    const rows = []; let d = new Date(startSun);
-    for (let w = 0; w < 6; w++) {
-      const cells = []; const weekStart = new Date(d);
-      let hasCurrentMonth = false;
-      for (let i = 0; i < 7; i++) {
-        if (d.getMonth() === _pkMonth) hasCurrentMonth = true;
-        cells.push({ date: new Date(d), overflow: d.getMonth() !== _pkMonth, isToday: d.toDateString() === _PKT.toDateString() });
-        d.setDate(d.getDate() + 1);
-      }
-      if (hasCurrentMonth) rows.push({ weekStart, cells });
-    }
-
-    const selStr = _chartStartDate;
-    const DAY_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const container = document.getElementById('picker-week-rows');
-    container.innerHTML = rows.map(row => {
-      const mon  = row.cells.find(c => c.date.getDay() === 1) || row.cells[0];
-      const fri  = row.cells.find(c => c.date.getDay() === 5) || row.cells[6];
-      const toISO = d => `${d.date.getFullYear()}-${String(d.date.getMonth()+1).padStart(2,'0')}-${String(d.date.getDate()).padStart(2,'0')}`;
-      const startStr = toISO(row.cells[0]);
-      const isFuture = row.weekStart > _PKT;
-      const isSelected = selStr === toISO(mon);
-      const label = `${DAY_ABBR[mon.date.getMonth()]} ${mon.date.getDate()}–${fri.date.getDate()}`;
-      const startIso = toISO(mon);
-      const endDate  = new Date(fri.date);
-      const cells = row.cells.map(c =>
-        `<div class="pk-cell${c.overflow?' pk-overflow':''}${c.isToday?' pk-today':''}">${c.date.getDate()}</div>`
-      ).join('');
-      return `<div class="pk-week-row${isSelected?' pk-selected':''}${isFuture?' pk-future':''}" ${!isFuture?`onclick="selectWeek('${startIso}','${label}')"`:''}>${cells}</div>`;
-    }).join('');
-  }
-
-  function pickerPrevMonth() {
-    if (_pkMonth === 0) { _pkMonth = 11; _pkYear--; } else _pkMonth--;
-    renderPicker();
-  }
-  function pickerNextMonth() {
-    if (_pkMonth === 11) { _pkMonth = 0; _pkYear++; } else _pkMonth++;
-    renderPicker();
-  }
-
-  function selectWeek(startIso, label) {
-    _chartStartDate = startIso;
-    document.getElementById('range-week-label').textContent = label;
-    document.getElementById('chart-sub').textContent = `· ${label}`;
-    document.getElementById('week-picker').classList.add('hidden');
-    document.getElementById('range-default').classList.remove('active');
-    document.getElementById('range-week').classList.add('active');
-    loadPanelEvents();
-    loadStats();
-  }
-
-  function setRangeDefault() {
-    const cw = _cwLabel();
-    _chartStartDate = cw.iso;
-    document.getElementById('range-week-label').textContent = 'Pick Week';
-    document.getElementById('chart-sub').textContent = `· ${cw.label}`;
-    document.getElementById('range-default').classList.add('active');
-    document.getElementById('range-week').classList.remove('active');
-    loadPanelEvents();
-    return loadStats();
-  }
-
-  document.addEventListener('click', e => {
-    const pk = document.getElementById('week-picker');
-    if (!pk || pk.classList.contains('hidden')) return;
-    if (!pk.contains(e.target) && !e.target.closest('#range-week')) pk.classList.add('hidden');
-  });
-
-  const _CT_LABELS = { commits:'Commits', merge_requests:'Merge Requests', issues:'Issues', notes:'Comments', pipelines:'Pipelines' };
-  const _CT_IDS    = { commits:'ct-commits', merge_requests:'ct-mrs', issues:'ct-issues', notes:'ct-notes', pipelines:'ct-pipelines' };
-
-  function setChartType(type) {
-    if (!_glChartData) return;
-    _currentType = type;
-    Object.entries(_CT_IDS).forEach(([t, id]) => {
-      document.getElementById(id)?.classList.toggle('active', t === type);
-    });
-    document.getElementById('chart-title').textContent = _CT_LABELS[type];
-    _renderGlChart(_glChartData.labels, _glChartData.datasets[type] || [], (_chartRepos || {})[type] || {});
-    renderPanelFeed();
-  }
-
-  function _renderGlChart(labels, data, repos) {
-    const cc = chartColors();
-    const ctx = document.getElementById('main-chart').getContext('2d');
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          data,
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16,185,129,0.1)',
-          borderWidth: 2,
-          tension: 0.4,
-          fill: true,
-          pointBackgroundColor: '#10b981',
-          pointRadius: 3,
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: items => items[0].label,
-              label: item => {
-                const lines = [`${_CT_LABELS[_currentType]}: ${item.raw}`];
-                const dayRepos = (repos || {})[item.label] || {};
-                Object.entries(dayRepos).forEach(([ws, cnt]) => lines.push(`  · ${ws}: ${cnt}`));
-                return lines;
-              },
-            },
-          },
-        },
-        scales: {
-          x: { grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10 } } },
-          y: { grid: { color: cc.grid }, ticks: { color: cc.tick, font: { size: 10 } }, beginAtZero: true },
-        },
-      }
-    });
-  }
-
-  window.onWSEvent = function(data) {
-    if (data.source !== 'gitlab') return;
-    loadStats();
-    loadPanelEvents();
-    loadEvents();
-  };
-
-  async function onBaseReady(meData) {
-    const raw = ((meData || {}).email || '').split('@')[0];
-    window._actUserInitials = raw.replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase() || '??';
-    window._actAuthorName   = raw.split(/[._]/)[0] || raw;
-    const urlError = new URLSearchParams(window.location.search).get('error');
-    if (urlError) {
-      const el = document.getElementById('auth-error');
-      el.classList.remove('hidden');
-      document.getElementById('auth-error-detail').textContent = `Error: ${urlError}`;
-      document.getElementById('auth-error-retry').href = meData.connect_urls.gitlab;
-    }
-    if (!meData.integrations.gitlab) {
-      document.getElementById('not-connected').classList.remove('hidden');
-      document.getElementById('connect-btn').href = meData.connect_urls.gitlab;
-    } else {
-      if (meData.integration_errors?.gitlab) {
-        document.getElementById('webhook-error').classList.remove('hidden');
-      }
-      document.getElementById('main-content').classList.remove('hidden');
-      setPeriod('week', false);
-      setEvtPeriod('today', false);
-      await Promise.all([setRangeDefault(), loadEvents(), loadPanelEvents()]);
-    }
-  }
-
-  function setEvtPeriod(p, fetch = true) {
-    evtPeriod = p;
-    document.getElementById('evt-today').classList.toggle('active',   p === 'today');
-    document.getElementById('evt-history').classList.toggle('active', p === 'history');
-    if (fetch) loadEvents();
-  }
-
-  function setPeriod(p, fetch = true) {
-    statsPeriod = p;
-    document.getElementById('period-today').classList.toggle('active', p === 'today');
-    document.getElementById('period-week').classList.toggle('active',  p === 'week');
-    if (fetch) loadStats();
-  }
-
-  async function loadStats() {
-    let url = `/api/gitlab/stats?period=${statsPeriod}`;
-    if (_chartStartDate) url += `&start_date=${_chartStartDate}`;
-    const res = await fetch(url, { credentials: 'include' });
-    const data = await res.json();
-
-    const grid = document.getElementById('metric-cards');
-    grid.innerHTML = (data.metrics || []).map(m => {
-      const changeHtml = m.change !== undefined
-        ? `<p class="text-xs mt-1 ${m.change >= 0 ? 'text-green-400' : 'text-red-400'}">${m.change >= 0 ? '↑' : '↓'} ${Math.abs(m.change)}% vs last week</p>`
-        : '';
-      return `<div class="card kpi-tilt-card" style="overflow:hidden;padding:0">
-        <div style="height:2px;background:linear-gradient(90deg,#10b981,#34d399)"></div>
-        <div class="p-4">
-          <p class="kpi-label mb-2">${m.label}</p>
-          <p class="kpi-number kpi-num-gitlab">${m.value}</p>
-          ${changeHtml}
-        </div>
-      </div>`;
-    }).join('');
-    initKpiTilt();
-
-    _glChartData = data.chart;
-    _chartRepos  = data.chart.repos || null;
-    setChartType('commits');
-
-    document.getElementById('top-label').textContent = data.top_label || 'Top Projects';
-    const topEl = document.getElementById('top-items');
-    if (!data.top_items?.length) {
-      topEl.innerHTML = '<p class="text-gray-500 text-xs">No data yet.</p>';
-    } else {
-      const max = data.top_items[0].count;
-      topEl.innerHTML = data.top_items.map(item => `
-        <div>
-          <div class="flex justify-between text-xs mb-1">
-            <span class="text-gray-300 truncate">${item.name}</span>
-            <span class="text-gray-500 ml-2 shrink-0">${item.count}</span>
-          </div>
-          <div class="h-1 bg-gray-800 rounded-full">
-            <div class="h-1 rounded-full" style="width:${Math.round(item.count/max*100)}%;background:#10b981"></div>
-          </div>
-        </div>`).join('');
-    }
-
-  }
-
-  // ── Right panel ───────────────────────────────────────────────────────────
-  function setPanelTab(tab) {
-    _panelTab = tab;
-    document.getElementById('panel-tab-activity').classList.toggle('active', tab === 'activity');
-    document.getElementById('panel-tab-repos').classList.toggle('active',    tab === 'repos');
-    document.getElementById('panel-feed').classList.toggle('hidden',         tab !== 'activity');
-    document.getElementById('panel-top-repos').classList.toggle('hidden',    tab !== 'repos');
-  }
-
-  function renderPanelFeed() {
-    const el = document.getElementById('panel-feed');
-    if (!el || _panelTab !== 'activity') return;
-    const filter = _ET_FILTER[_currentType] || (() => true);
-    const events = (_panelEvents || []).filter(filter).slice(0, 30);
-    const typeName = _CT_LABELS[_currentType] || 'Activity';
-    if (!events.length) {
-      el.innerHTML = `
-        <p class="text-xs font-semibold mb-2" style="color:var(--text-1)">${typeName}</p>
-        <p class="text-xs py-2" style="color:var(--text-3)">No ${typeName.toLowerCase()} this week.</p>`;
-      return;
-    }
-    el.innerHTML = `
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-xs font-semibold" style="color:var(--text-1)">${typeName}</span>
-        <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);color:var(--text-3)">${events.length}</span>
-      </div>
-      ${events.map(it => {
-        const color = _etColor(it.event_type);
-        const time  = new Date(it.occurred_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
-        const filesHtml = it.files?.length
-          ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)">+${it.files.length-4}</span>`:''}</div>` : '';
-        return `<div class="flex items-start gap-2 py-2" style="border-bottom:1px solid var(--border)">
-          <div class="w-2 h-2 rounded-full mt-1.5 shrink-0" style="background:${color}"></div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5 mb-0.5">
-              <span class="text-xs font-semibold truncate" style="color:var(--text-1)">${it.workspace||'—'}</span>
-              ${it.sha?`<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${it.sha}</code>`:''}
-            </div>
-            <span class="text-xs truncate block mb-0.5" style="color:var(--text-2)">${it.title||'—'}</span>
-            <div class="flex items-center gap-2">${_evtBadge(it.event_type)}</div>
-            ${filesHtml}
-            <span class="text-xs mt-1 block" style="color:var(--text-3)">${time}</span>
-          </div>
-        </div>`;
-      }).join('')}`;
-  }
-  // ── End right panel ───────────────────────────────────────────────────────
-
-  const _GL_COLORS = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#64748b'];
-  function _glRepoColor(s) { let h=0; for(const c of(s||''))h=(h*31+c.charCodeAt(0))&0xffff; return _GL_COLORS[h%_GL_COLORS.length]; }
-  const _GL_BRANCH = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
-  const _GL_CLOCK  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
-  const _glFmt = et => (et||'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-
-  function _glCommitExtra(it) {
-    const shaHtml = it.sha
-      ? `<code style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px;margin-left:4px">${it.sha}</code>`
-      : '';
-    const filesHtml = it.files?.length
-      ? `<div class="flex flex-wrap gap-1 mt-1">${it.files.slice(0,4).map(f=>`<span style="font-size:10px;font-family:monospace;background:var(--surface-2);color:var(--text-3);padding:1px 5px;border-radius:4px">${f.split('/').pop()}</span>`).join('')}${it.files.length>4?`<span style="font-size:10px;color:var(--text-3)"> +${it.files.length-4} more</span>`:''}</div>`
-      : '';
-    return { shaHtml, filesHtml };
-  }
-
-  function _evtBadge(et) {
-    const color = _etColor(et);
-    const icon  = _etIcon(et);
-    return `<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:${color}22;color:${color}">${icon} ${_glFmt(et)}</span>`;
-  }
-
-  function renderConnFeed(events) {
-    const initials = window._actUserInitials || '??';
-    const author   = window._actAuthorName   || 'you';
-    if (evtPeriod === 'history') {
-      return `<div class="commit-feed">${events.map(it => {
-        const color = _etColor(it.event_type);
-        const time  = new Date(it.occurred_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
-        const {shaHtml, filesHtml} = _glCommitExtra(it);
-        return `<div class="commit-item">
-          <div class="commit-avatar" style="background:${color}">${initials}</div>
-          <div class="commit-body">
-            <div class="commit-meta">
-              <span class="commit-author">${author}</span>
-              ${it.workspace?`<span class="commit-repo-pill">${_GL_BRANCH} ${it.workspace}</span>`:''}
-              <span class="commit-time">${_GL_CLOCK} ${time}</span>
-            </div>
-            <div class="commit-title">${it.title||'—'}${shaHtml}</div>
-            <div class="commit-sub">${_evtBadge(it.event_type)}</div>
-            ${filesHtml}
-          </div>
-        </div>`;
-      }).join('')}</div>`;
-    }
-    const groups = {};
-    events.forEach(it => { const k=it.event_type||'other'; (groups[k]=groups[k]||[]).push(it); });
-    return Object.entries(groups).map(([et,evts]) => {
-      const etColor = _etColor(et);
-      return `
-      <div class="mb-3">
-        <div class="flex items-center gap-2 mb-1 pl-2" style="border-left:2px solid ${etColor}">
-          <span class="text-xs font-semibold" style="color:${etColor}">${_etIcon(et)} ${_glFmt(et)}</span>
-          <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--border-strong);color:var(--text-3)">${evts.length}</span>
-        </div>
-        <div class="commit-feed">${evts.map(it => {
-          const time  = new Date(it.occurred_at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
-          const {shaHtml, filesHtml} = _glCommitExtra(it);
-          return `<div class="commit-item">
-            <div class="commit-avatar" style="background:${etColor}">${initials}</div>
-            <div class="commit-body">
-              <div class="commit-meta">
-                <span class="commit-author">${author}</span>
-                ${it.workspace?`<span class="commit-repo-pill">${_GL_BRANCH} ${it.workspace}</span>`:''}
-                <span class="commit-time">${_GL_CLOCK} ${time}</span>
-              </div>
-              <div class="commit-title">${it.title||'—'}${shaHtml}</div>
-              ${filesHtml}
-            </div>
-          </div>`;
-        }).join('')}</div>
-      </div>`;
-    }).join('');
-  }
-
-  async function disconnectGitlab() {
-    if (!confirm('Disconnect GitLab? This will remove your integration and stop tracking activity.')) return;
-    const res = await fetch('/api/disconnect/gitlab', { method: 'POST', credentials: 'include' });
-    if (res.ok) window.location.reload();
-    else alert('Failed to disconnect — check console.');
-  }
-
-  async function reregisterWebhooks() {
-    const btn = document.getElementById('rereg-btn');
-    btn.textContent = 'Syncing…'; btn.disabled = true;
-    try {
-      const res  = await fetch('/api/gitlab/reregister', { credentials: 'include' });
-      const data = await res.json();
-      if (data.registered !== undefined) {
-        btn.textContent = `✓ ${data.registered}/${data.total} registered`;
-      } else {
-        btn.textContent = data.error || 'Failed';
-      }
-    } catch { btn.textContent = 'Error'; }
-    setTimeout(() => { btn.textContent = 'Sync Webhooks'; btn.disabled = false; }, 3000);
-  }
-
-  async function loadEvents() {
-    const res  = await fetch('/api/events/recent?source=gitlab&limit=50', { credentials: 'include' });
-    const data = await res.json();
-    const list = document.getElementById('events-list');
-    let events = data.events || [];
-    if (evtPeriod === 'today') {
-      const today = new Date().toDateString();
-      events = events.filter(e => new Date(e.occurred_at).toDateString() === today);
-    }
-    events.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-    if (!events.length) {
-      list.innerHTML = `<p class="text-gray-500 text-sm">${evtPeriod==='today'?'No GitLab activity today.':'No recent GitLab activity.'}</p>`;
-      return;
-    }
-    document.getElementById('not-connected')?.remove();
-    list.innerHTML = renderConnFeed(events);
-  }
-</script>
+<script src="/static/pages/gitlab.js"></script>
 {% endblock %}

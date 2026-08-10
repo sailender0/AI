@@ -18,40 +18,45 @@ from app.middleware.rate_limit import limiter
 from app.storage.models import Integration, LinkedIdentity
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.normalizer import ingest, normalize
-from app.webhooks.registration import _webhook_base
+from app.webhooks.registration import _webhook_base, save_gitlab_identity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-async def _resolve_profile(namespace: str | None) -> str | None:
-    if not namespace:
+async def _resolve_profile(actor_id: str | None) -> str | None:
+    """Map a webhook's actor (the GitLab user who triggered it) to the profile
+    that owns that identity. Resolving by actor — NOT by project — means a shared
+    project attributes each event to whoever actually did it, and two people
+    connecting the same project no longer collide. Mirrors the github receiver."""
+    if not actor_id:
         return None
     async with AsyncSessionLocal() as db:
         row = (
             await db.execute(
                 select(LinkedIdentity).where(
                     LinkedIdentity.provider == "gitlab",
-                    LinkedIdentity.workspace_label == namespace,
+                    LinkedIdentity.tenant_id == str(actor_id),
                 )
             )
         ).scalar_one_or_none()
     return str(row.profile_id) if row else None
 
 
+def _actor_id(body: dict) -> str | None:
+    aid = body.get("user_id") or (body.get("user") or {}).get("id")
+    return str(aid) if aid else None
+
+
 async def _process(body: dict):
     object_kind = body.get("object_kind", "")
-    namespace = (
-        body.get("project", {}).get("path_with_namespace")
-        or body.get("user_username")
-    )
-    profile_id = await _resolve_profile(namespace)
+    actor_id = _actor_id(body)
+    profile_id = await _resolve_profile(actor_id)
     if not profile_id:
-        logger.warning("GitLab: no profile found for namespace=%r", namespace)
+        logger.warning("GitLab: no profile for actor_id=%r kind=%r", actor_id, object_kind)
         return
 
     if object_kind == "push":
-        # One event per commit
         commits = body.get("commits") or []
         if not commits:
             return
@@ -73,7 +78,8 @@ async def gitlab_webhook(
     background_tasks: BackgroundTasks,
     x_gitlab_token: str = Header(default=""),
 ):
-    if not hmac.compare_digest(x_gitlab_token, settings.GITLAB_WEBHOOK_SECRET):
+    secret = settings.GITLAB_WEBHOOK_SECRET
+    if not secret or not hmac.compare_digest(x_gitlab_token, secret):
         return JSONResponse({"error": "invalid_token"}, status_code=401)
 
     body = await request.json()
@@ -101,7 +107,7 @@ async def disconnect_gitlab(request: Request):
     return JSONResponse({"ok": True})
 
 
-@router.get("/api/gitlab/reregister")
+@router.post("/api/gitlab/reregister")
 async def reregister_gitlab_webhooks(request: Request):
     """Re-register GitLab webhooks, skipping projects that already have our URL."""
     profile_id = await get_profile_from_session(request)
@@ -119,7 +125,9 @@ async def reregister_gitlab_webhooks(request: Request):
         me = await client.get("https://gitlab.com/api/v4/user", headers=headers)
         if me.status_code != 200:
             return JSONResponse({"error": f"GitLab token invalid: {me.status_code}"}, status_code=400)
-        username = me.json().get("username", "")
+        me_data  = me.json()
+        username = me_data.get("username", "")
+        user_id  = str(me_data.get("id", ""))
 
         projects_resp = await client.get(
             "https://gitlab.com/api/v4/projects",
@@ -133,6 +141,8 @@ async def reregister_gitlab_webhooks(request: Request):
     projects = projects_resp.json()
     if not projects:
         return JSONResponse({"error": "No GitLab projects found for this account"}, status_code=400)
+
+    await save_gitlab_identity(profile_id, user_id, username)
 
     hook_payload = {
         "url": target_url,
@@ -151,7 +161,6 @@ async def reregister_gitlab_webhooks(request: Request):
             pid       = project["id"]
             namespace = project.get("path_with_namespace", "")
 
-            # Check if our webhook URL is already registered — avoid duplicates
             existing_hooks = await client.get(
                 f"https://gitlab.com/api/v4/projects/{pid}/hooks",
                 headers=headers,
@@ -176,23 +185,6 @@ async def reregister_gitlab_webhooks(request: Request):
                 results.append({"project": namespace, "status": resp.status_code,
                                 "ok": success, "detail": resp.text if not success else ""})
                 logger.info("GitLab webhook %s for %s: %s", "OK" if success else "FAILED", namespace, resp.status_code)
-
-            async with AsyncSessionLocal() as db:
-                row = (await db.execute(
-                    select(LinkedIdentity).where(
-                        LinkedIdentity.profile_id == profile_id,
-                        LinkedIdentity.provider == "gitlab",
-                        LinkedIdentity.workspace_label == namespace,
-                    )
-                )).scalar_one_or_none()
-                if not row:
-                    db.add(LinkedIdentity(
-                        profile_id=profile_id,
-                        provider="gitlab",
-                        workspace_label=namespace,
-                        tenant_id=username,
-                    ))
-                    await db.commit()
 
     registered = sum(1 for r in results if r["ok"])
     return JSONResponse({"registered": registered, "total": len(results), "projects": results})

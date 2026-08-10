@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Attendance Report — Developer Activity Tracker{% endblock %}
+{% block page_subtitle %}Attendance report{% endblock %}
+
+{% block content %}
+<style>
+  .at-label { font-size:11px; color:var(--text-3); margin-bottom:5px; display:block; }
+  .at-input { background:var(--surface-2); color:var(--text-1); border:1px solid var(--border);
+              border-radius:8px; padding:8px 10px; font-size:13px; outline:none; }
+  .at-input:focus { border-color:var(--border-strong); }
+  .at-seg { display:inline-flex; flex-wrap:wrap; gap:4px; }
+  .at-seg button { font-size:13px; font-weight:600; padding:6px 12px; border-radius:8px; cursor:pointer;
+                   background:var(--surface-2); border:1px solid var(--border); color:var(--text-2); }
+  .at-seg button[aria-pressed="true"] { background:var(--chrome); color:var(--chrome-text); border-color:var(--chrome); }
+  .at-seg-btn { padding:6px 13px; font-size:13px; font-weight:600; cursor:pointer; color:var(--text-2);
+                background:var(--surface-2); border:1px solid var(--border); }
+  .at-seg-btn:first-child { border-radius:8px 0 0 8px; }
+  .at-seg-btn:last-child { border-radius:0 8px 8px 0; }
+  .at-seg-btn + .at-seg-btn { border-left:none; }
+  .at-seg-btn[aria-selected="true"] { background:var(--chrome); color:var(--chrome-text); border-color:var(--chrome); }
+  .at-chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:5px 10px;
+             background:var(--surface-2); border:1px solid var(--border); border-radius:999px; color:var(--text-2); }
+  .at-chip button { border:none; background:none; color:var(--text-3); cursor:pointer; font-size:15px; line-height:1; }
+  .at-chip button:hover { color:var(--text-1); }
+  .at-btn-ghost { font-size:13px; font-weight:600; padding:9px 14px; border-radius:8px; cursor:pointer;
+                  background:var(--surface-2); color:var(--text-1); border:1px solid var(--border); }
+  .at-btn-ghost:disabled { opacity:.5; cursor:default; }
+
+  .at-search { position:relative; min-width:220px; }
+  .at-search input { width:100%; padding-left:28px; }
+  .at-search .mag { position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--text-3); }
+  .at-drop { position:absolute; z-index:30; top:calc(100% + 4px); left:0; right:0; max-height:230px; overflow:auto;
+             background:var(--surface); border:1px solid var(--border-strong); border-radius:9px; padding:5px; display:none; }
+  .at-drop.show { display:block; }
+  .at-opt { padding:6px 9px; border-radius:6px; cursor:pointer; font-size:13px; color:var(--text-1);
+            display:flex; justify-content:space-between; gap:10px; }
+  .at-opt:hover { background:var(--surface-2); }
+  .at-opt .r { color:var(--text-3); font-size:11px; text-transform:capitalize; }
+
+
+  .at-grid-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:10px; }
+  table.at-grid { border-collapse:separate; border-spacing:0; width:100%; }
+  table.at-grid th, table.at-grid td { border-bottom:1px solid var(--border); white-space:nowrap; }
+  .at-grid thead th { position:sticky; top:0; z-index:2; background:var(--surface); font-size:11px; font-weight:700;
+                      color:var(--text-2); padding:9px 7px; text-align:center; }
+  .at-grid thead th .mon { display:block; font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); }
+  .at-usercol { position:sticky; left:0; z-index:1; background:var(--surface); text-align:left !important;
+                padding:8px 12px !important; min-width:210px; box-shadow:1px 0 0 var(--border); }
+  .at-grid thead th.at-usercol { z-index:3; }
+  .at-uname { font-size:13px; font-weight:600; color:var(--text-1); }
+  .at-urole { font-size:10.5px; color:var(--text-3); text-transform:capitalize; }
+  .at-cell { text-align:center; padding:7px 8px; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .at-cell.present { background:rgba(52,184,119,.16); color:var(--positive, #22a06b); }
+  .at-cell.absent  { color:var(--text-3); opacity:.5; font-weight:500; }
+  .at-present { text-align:center; font-weight:800; color:var(--text-1); background:var(--surface-2);
+                position:sticky; right:0; box-shadow:-1px 0 0 var(--border); }
+  .at-kpi { display:inline-flex; align-items:baseline; gap:6px; padding:8px 14px; margin:0 8px 8px 0;
+            background:var(--surface-2); border:1px solid var(--border); border-radius:10px; }
+  .at-kpi b { font-size:19px; color:var(--text-1); }
+  .at-kpi span { font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.04em; }
+</style>
+
+<div class="card" style="padding:20px">
+  <div class="ac-eyebrow" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);font-weight:600">Attendance report</div>
+  <h2 class="mt-1" style="font-size:17px;font-weight:700;color:var(--text-1)">Attendance — activity by person and day</h2>
+  <p class="at-label mt-1" style="margin-bottom:0">A day with <b>3 or more</b> events is <b>P</b> (present), otherwise <b>A</b>. The last column is total days present. Updates live as you change anything.</p>
+
+  <div class="mt-5">
+    <span class="at-label">Period</span>
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="at-seg" id="at-presets">
+        <button data-preset="7"  type="button" aria-pressed="true">Last 7 days</button>
+        <button data-preset="14" type="button">Last 14 days</button>
+        <button data-preset="30" type="button">Last 30 days</button>
+        <button data-preset="thismonth" type="button">This month</button>
+        <button data-preset="custom" type="button">Custom</button>
+      </div>
+      <span class="at-label" id="at-range-label" style="margin:0;font-size:12.5px;color:var(--text-2)"></span>
+    </div>
+    <div id="at-custom" class="mt-3" style="display:none">
+      <div class="flex items-center gap-2">
+        <label class="at-label" for="at-from" style="margin:0">From</label>
+        <input type="date" id="at-from" class="text-xs rounded-lg px-2 py-1.5 font-mono"
+               style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)">
+        <label class="at-label" for="at-to" style="margin:0">To</label>
+        <input type="date" id="at-to" class="text-xs rounded-lg px-2 py-1.5 font-mono"
+               style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)">
+      </div>
+    </div>
+  </div>
+
+  {% if is_elevated %}
+  <div class="mt-5">
+    <span class="at-label">People</span>
+    <div style="display:inline-flex" id="at-people-mode">
+      <button class="at-seg-btn" data-mode="all" aria-selected="true" onclick="atMode('all')">Everyone</button>
+      <button class="at-seg-btn" data-mode="role" onclick="atMode('role')" id="at-modebtn-role">By role</button>
+      <button class="at-seg-btn" data-mode="users" onclick="atMode('users')">Specific people</button>
+    </div>
+
+    <div id="at-panel-all" class="mt-2" style="font-size:12px;color:var(--text-3)"></div>
+
+    <div id="at-panel-role" class="mt-2" style="display:none">
+      <select id="at-role" class="at-input" aria-label="Role" onchange="scheduleUpdate()" style="min-width:200px">
+        <option value="user">All Users</option>
+        <option value="manager">All Managers</option>
+        <option value="admin">All Admins</option>
+      </select>
+    </div>
+
+    <div id="at-panel-users" class="mt-2 flex flex-wrap items-center gap-3" style="display:none">
+      <div class="at-search">
+        <span class="mag">⌕</span>
+        <input id="at-people-search" class="at-input" type="text" aria-label="Search people" placeholder="Search people…" autocomplete="off"
+               oninput="atSearch(this.value)" onfocus="atSearch(this.value)">
+        <div class="at-drop" id="at-people-drop"></div>
+      </div>
+      <div class="flex flex-wrap gap-2" id="at-selected"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="flex items-center gap-3 mt-6">
+    <button id="at-download" class="at-btn-ghost" onclick="atDownload()" disabled>Download CSV</button>
+    <span id="at-status" class="text-sm" style="color:var(--text-3)"></span>
+  </div>
+</div>
+
+<div id="at-result" class="card" style="padding:20px;margin-top:20px;display:none">
+  <div id="at-kpis" class="mb-3"></div>
+  <div class="at-grid-wrap"><table class="at-grid"><thead id="at-head"></thead><tbody id="at-body"></tbody></table></div>
+</div>
+
+<script>const IS_ELEVATED = {{ 'true' if is_elevated else 'false' }};</script>
+<script src="/static/pages/attendance.js"></script>
+{% endblock %}

@@ -7,8 +7,6 @@ get_profile_from_session is patched per-module to simulate auth state.
 """
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +15,6 @@ from app.storage.postgres import get_db
 
 PROFILE_ID = "00000000-0000-0000-0000-000000000001"
 
-
-# ── Test infrastructure ───────────────────────────────────────────────────────
 
 def _mock_db() -> AsyncSession:
     """Minimal AsyncSession mock: execute returns no rows, get returns None."""
@@ -52,8 +48,6 @@ async def _patch(app, path, **kwargs):
         return await c.patch(path, **kwargs)
 
 
-# ── Auth guards ───────────────────────────────────────────────────────────────
-
 async def test_get_me_unauthenticated_returns_authenticated_false():
     from app.routes.profile import router
     app = _mini_app(router)
@@ -74,7 +68,7 @@ async def test_patch_timezone_unauthenticated_returns_401():
 async def test_get_stats_unauthenticated_returns_401():
     from app.routes.activity import router
     app = _mini_app(router)
-    with patch("app.routes.activity.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/stats")
     assert r.status_code == 401
 
@@ -82,7 +76,7 @@ async def test_get_stats_unauthenticated_returns_401():
 async def test_get_week_stats_unauthenticated_returns_401():
     from app.routes.activity import router
     app = _mini_app(router)
-    with patch("app.routes.activity.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/week-stats", params={"start": "2026-06-16", "end": "2026-06-22"})
     assert r.status_code == 401
 
@@ -90,17 +84,15 @@ async def test_get_week_stats_unauthenticated_returns_401():
 async def test_get_events_recent_unauthenticated_returns_401():
     from app.routes.activity import router
     app = _mini_app(router)
-    with patch("app.routes.activity.get_profile_from_session", new=AsyncMock(return_value=None)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=None)):
         r = await _get(app, "/api/events/recent")
     assert r.status_code == 401
 
 
-# ── Input validation ──────────────────────────────────────────────────────────
-
 async def test_patch_timezone_invalid_tz_returns_400():
     from app.routes.profile import router
     app = _mini_app(router)
-    with patch("app.routes.profile.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)):
         r = await _patch(app, "/api/profile/timezone", json={"timezone": "Not/AReal/Timezone"})
     assert r.status_code == 400
     assert "invalid timezone" in r.json()["error"]
@@ -109,7 +101,7 @@ async def test_patch_timezone_invalid_tz_returns_400():
 async def test_get_week_stats_invalid_date_returns_400():
     from app.routes.activity import router
     app = _mini_app(router)
-    with patch("app.routes.activity.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)), \
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)), \
          patch("app.routes.activity.get_profile_tz", new=AsyncMock(return_value="UTC")):
         r = await _get(app, "/api/week-stats", params={"start": "not-a-date", "end": "also-bad"})
     assert r.status_code == 400
@@ -118,13 +110,11 @@ async def test_get_week_stats_invalid_date_returns_400():
 async def test_get_day_data_invalid_date_returns_400():
     from app.routes.activity import router
     app = _mini_app(router)
-    with patch("app.routes.activity.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)), \
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)), \
          patch("app.routes.activity.get_profile_tz", new=AsyncMock(return_value="UTC")):
         r = await _get(app, "/api/day-data", params={"date": "not-a-date"})
     assert r.status_code == 400
 
-
-# ── Response shape ────────────────────────────────────────────────────────────
 
 async def test_get_me_authenticated_returns_correct_shape():
     from app.routes.profile import router
@@ -133,6 +123,8 @@ async def test_get_me_authenticated_returns_correct_shape():
         id = uuid.UUID(PROFILE_ID)
         email = "dev@example.com"
         timezone = "UTC"
+        role = "user"
+        permissions = ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
 
     db = _mock_db()
     db.get = AsyncMock(return_value=_FakeProfile())
@@ -150,6 +142,8 @@ async def test_get_me_authenticated_returns_correct_shape():
     assert body["authenticated"] is True
     assert body["email"] == "dev@example.com"
     assert body["profile_id"] == PROFILE_ID
+    assert body["role"] == "user"
+    assert body["permissions"] == ["email_report", "export_my_day", "export_analytics", "email_ai_answer"]
     assert "integrations" in body
     assert "integration_errors" in body
     assert "connect_urls" in body
@@ -169,7 +163,7 @@ async def test_patch_timezone_valid_returns_ok():
     app.dependency_overrides[get_db] = lambda: db
     app.include_router(router)
 
-    with patch("app.routes.profile.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)):
+    with patch("app.auth.sso.get_profile_from_session", new=AsyncMock(return_value=PROFILE_ID)):
         r = await _patch(app, "/api/profile/timezone", json={"timezone": "Europe/London"})
 
     assert r.status_code == 200

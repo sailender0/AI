@@ -7,8 +7,6 @@ likely sources of silent bugs.
 """
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from app.ai.summarizer import (
     MAX_EVENTS,
     _build_prompt,
@@ -17,8 +15,6 @@ from app.ai.summarizer import (
     _truncate,
 )
 
-
-# ── _period_bounds ────────────────────────────────────────────────────────────
 
 def test_daily_full_day_start_is_midnight():
     start, end = _period_bounds("UTC", "daily", full_day=True)
@@ -37,7 +33,6 @@ def test_daily_full_day_end_is_end_of_day():
 def test_daily_not_full_day_end_is_approx_now():
     start, end = _period_bounds("UTC", "daily", full_day=False)
     now = datetime.now(timezone.utc)
-    # end should be within 5 seconds of now
     assert abs((end - now).total_seconds()) < 5
 
 
@@ -48,7 +43,6 @@ def test_daily_start_is_before_end():
 
 def test_weekly_start_is_monday():
     start, _ = _period_bounds("UTC", "weekly")
-    # weekday() == 0 means Monday
     assert start.weekday() == 0
 
 
@@ -90,15 +84,13 @@ def test_specific_date_window_is_exactly_one_day():
 def test_specific_date_with_offset_timezone_still_covers_one_day():
     """Timezone-offset case: the window should still be exactly 24 hours."""
     from zoneinfo import ZoneInfo
-    tz = ZoneInfo("America/New_York")  # UTC-5 in winter
+    tz = ZoneInfo("America/New_York")
     sd = datetime.strptime("2026-06-23", "%Y-%m-%d").replace(tzinfo=tz)
     period_start = sd.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     period_end = (sd + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
     assert period_end - period_start == timedelta(days=1)
 
-
-# ── _truncate ─────────────────────────────────────────────────────────────────
 
 def _make_event(event_type: str, ts_offset_secs: int = 0) -> dict:
     return {
@@ -140,8 +132,6 @@ def test_truncate_preserves_all_events_when_under_limit():
     events = [_make_event("commit") for _ in range(10)]
     assert len(_truncate(events)) == 10
 
-
-# ── _format_events ────────────────────────────────────────────────────────────
 
 def test_format_events_includes_source_and_event_type():
     events = [{
@@ -190,8 +180,6 @@ def test_format_events_one_line_per_event():
     lines = [l for l in _format_events(events).splitlines() if l.strip()]
     assert len(lines) == 3
 
-
-# ── _build_prompt ─────────────────────────────────────────────────────────────
 
 def test_build_prompt_contains_activity_data_markers():
     prompt = _build_prompt("daily", [], "")

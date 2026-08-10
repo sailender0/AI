@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 
 from app.auth.sso import get_profile_from_session
 from app.config import settings
@@ -31,7 +31,6 @@ async def github_app_callback(
     profile_id = await get_profile_from_session(request)
 
     if not profile_id:
-        # Not logged in — save the installation details and send to login first
         redis = get_redis()
         import secrets
         pending_state = secrets.token_urlsafe(16)
@@ -77,7 +76,43 @@ async def _handle_installation(
         "GitHub App %s for profile %s — installation %s",
         setup_action, profile_id, installation_id,
     )
-    return RedirectResponse(url="/?github=connected")
+    return RedirectResponse(url="/connect/github")
+
+
+async def disconnect_installation(installation_id: str):
+    """Uninstalling the App from GitHub's org settings page only fires the
+    installation/deleted webhook — it never hits /github/app/callback. One
+    installation is shared org-wide, so drop every profile's github link on it
+    and flag their integrations 'disconnected' (NOT 'error' — get_integrations
+    still counts 'error' as connected). This is what makes the UI show the
+    'Install GitHub App' banner again."""
+    if not installation_id:
+        return
+    async with AsyncSessionLocal() as db:
+        profile_ids = (await db.execute(
+            select(LinkedIdentity.profile_id).where(
+                LinkedIdentity.provider == "github",
+                LinkedIdentity.tenant_id == str(installation_id),
+            )
+        )).scalars().all()
+        if not profile_ids:
+            return
+        await db.execute(
+            delete(LinkedIdentity).where(
+                LinkedIdentity.provider == "github",
+                LinkedIdentity.tenant_id == str(installation_id),
+            )
+        )
+        await db.execute(
+            update(Integration)
+            .where(Integration.profile_id.in_(profile_ids), Integration.source == "github")
+            .values(sync_status="disconnected")
+        )
+        await db.commit()
+        logger.info(
+            "GitHub App uninstalled (installation %s) — disconnected %d profile(s)",
+            installation_id, len(profile_ids),
+        )
 
 
 async def _upsert_installation(profile_id: str, installation_id: str):
@@ -103,13 +138,12 @@ async def _upsert_installation(profile_id: str, installation_id: str):
         await db.commit()
 
 
-async def _remove_installation(profile_id: str, installation_id: str):
+async def _remove_installation(profile_id: str, _installation_id: str):
     async with AsyncSessionLocal() as db:
         await db.execute(
             delete(LinkedIdentity).where(
                 LinkedIdentity.profile_id == profile_id,
                 LinkedIdentity.provider == "github",
-                LinkedIdentity.tenant_id == installation_id,
             )
         )
         row = (
@@ -121,5 +155,5 @@ async def _remove_installation(profile_id: str, installation_id: str):
             )
         ).scalar_one_or_none()
         if row:
-            row.sync_status = "error"
+            row.sync_status = "disconnected"
         await db.commit()

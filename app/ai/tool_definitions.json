@@ -1,0 +1,37 @@
+{
+  "proc_map": {
+    "cursor":        "cursor-ai",
+    "windsurf":      "windsurf",
+    "claude":        "claude-code",
+    "copilot":       "github-copilot",
+    "codeium":       "codeium",
+    "tabnine":       "tabnine",
+    "supermaven":    "supermaven",
+    "continue":      "continue-dev",
+    "aider":         "aider",
+    "amazonq":       "amazon-q",
+    "codewhisperer": "amazon-q",
+    "gemini":        "gemini-cli",
+    "ollama":        "ollama",
+    "granola":       "granola",
+    "lovable":       "lovable",
+    "bolt":          "bolt-ai"
+  },
+  "vscode_ext_map": {
+    "github.copilot":                           "github-copilot",
+    "github.copilot-chat":                      "github-copilot",
+    "anysphere.cursor-always-local":            "cursor-ai",
+    "codeium.codeium":                          "codeium",
+    "codeium.windsurf":                         "windsurf",
+    "tabnine.tabnine-vscode":                   "tabnine",
+    "continue.continue":                        "continue-dev",
+    "amazonwebservices.aws-toolkit-vscode":     "amazon-q",
+    "amazonwebservices.amazon-q-vscode":        "amazon-q",
+    "supermaven.supermaven":                    "supermaven",
+    "google.geminicodeassist":                  "gemini-code-assist",
+    "saoudrizwan.claude-dev":                   "cline",
+    "rooveterinaryinc.roo-cline":               "roo-cline",
+    "anthropic.claude":                         "claude-code"
+  },
+  "keywords": ["gpt", "llm", "coder", "codex", "assistant", "autocomplete", "intellicode"]
+}

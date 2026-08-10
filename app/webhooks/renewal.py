@@ -1,9 +1,4 @@
-"""
-Background renewal jobs — run via APScheduler.
-
-FIX (issue #5): Renamed local variable from `integrations` to `rows`
-in check_github_webhook_health to avoid shadowing the module-level import.
-"""
+"""Background renewal jobs — run via APScheduler."""
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -14,8 +9,6 @@ from app.auth.oauth import get_valid_token
 from app.auth.sso import acquire_delegated_token
 from app.config import settings
 from app.storage.models import GitHubIntegration, Integration, JiraIntegration, TeamsIntegration
-# AsyncSessionLocal() is used intentionally here — renewal jobs are APScheduler
-# background tasks, not FastAPI requests, so Depends(get_db) is unavailable.
 from app.storage.postgres import AsyncSessionLocal
 from app.webhooks.registration import auto_register_teams_subscription, auto_register_webhook
 
@@ -43,8 +36,6 @@ async def renew_teams_subscriptions():
             continue
         try:
             new_expiry = (datetime.now(timezone.utc) + timedelta(minutes=55)).isoformat()
-            # First session closes before the HTTP call so no connection is held
-            # during network I/O. A second session handles the write after.
             async with httpx.AsyncClient() as client:
                 resp = await client.patch(
                     f"https://graph.microsoft.com/v1.0/subscriptions/{row.subscription_id}",
@@ -87,17 +78,20 @@ async def renew_jira_webhooks():
         if not token:
             continue
         try:
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             async with httpx.AsyncClient() as client:
-                resp = await client.put(
-                    f"{settings.JIRA_BASE_URL}/rest/api/3/webhook/refresh",
-                    json={"webhookIds": [int(row.jira_webhook_id)]},
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                )
+                res = await client.get(
+                    "https://api.atlassian.com/oauth/token/accessible-resources", headers=headers)
+                cloud_id = res.json()[0]["id"] if res.status_code == 200 and res.json() else None
+                resp = None
+                if cloud_id:
+                    resp = await client.put(
+                        f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/webhook/refresh",
+                        json={"webhookIds": [int(row.jira_webhook_id)]},
+                        headers=headers,
+                    )
 
-            if resp.status_code == 200:
+            if resp is not None and resp.status_code == 200:
                 async with AsyncSessionLocal() as db:
                     r = await db.get(Integration, row.id)
                     if r:
@@ -110,11 +104,7 @@ async def renew_jira_webhooks():
 
 
 async def check_github_webhook_health():
-    """Detect silently disabled GitHub webhooks. Runs every 6 hours.
-
-    FIX (issue #5): local variable renamed to `rows` to avoid shadowing
-    the `integrations` table reference used in queries.
-    """
+    """Detect silently disabled GitHub webhooks. Runs every 6 hours."""
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
